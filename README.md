@@ -89,6 +89,25 @@ src/
 - **Viewmodel pass.** The machete is drawn in its own scene after clearing depth, so it
   never clips into plants.
 
+- **A ground that holds up at your feet.** Each terrain layer (litter, moss, rock, mud) is
+  painted with its own height field. The terrain shader blends layers by height, so moss settles
+  between leaves and pebbles poke out of the mud. It also uses that height as a bump map and
+  switches between two rotated samples along leaf outlines to hide tiling. Leaf drifts, fallen
+  branches, seedlings, stones and dead fronds are instanced only in the chunks next to the player
+  (`World.updateDressing`). Tree roots, logs and stumps shear onto the slope per instance
+  (`addSlopeShear`).
+
+## Screenshots and critics
+
+With the dev server running, `node e2e/shots.mjs <outDir> [filter...]` captures a fixed set of
+views and prints the main scene's draw calls and triangles for each. Spawn, floor close-up,
+riverbank, cliffs, clearing, temple, dusk and hillside are covered.
+`python e2e/sheet.py <outDir> sheet.png` lays them out on one contact sheet. Two review agents
+live in `.claude/agents/`:
+
+- `indie-critic` reviews look, feel and play as a whole.
+- `design-critic` is a stern pass/fail gate for "playable graphics".
+
 ## Extending it
 
 - **New item:** add an entry in `ITEMS` (`items/ItemDB.js`), a builder in

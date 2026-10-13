@@ -17,6 +17,7 @@ const nRiver = createNoise2D(SEED + 6);
 const nDetail = createNoise2D(SEED + 7);
 const nDensity = createNoise2D(SEED + 8);
 const nPatch = createNoise2D(SEED + 9);
+const nBank = createNoise2D(SEED + 10);
 
 // Reused output object to avoid allocations in hot loops.
 const info = { h: 0, river: 1, mountain: 0 };
@@ -29,13 +30,41 @@ export function sampleTerrain(x, z, out = info) {
   h += fbm(nHills, wx * 0.0075, wz * 0.0075, 4) * 5.5;
   const mMask = smoothstep(0.02, 0.55, cont);
   const rg = ridged(nRidge, wx * 0.0042, wz * 0.0042, 4);
-  h += rg * rg * 44 * mMask;
+  // flatten the tops of the ridges so peaks read as massifs, not cones
+  const rr = rg * rg;
+  const ex = rr - 0.3, sm = (ex + Math.sqrt(ex * ex + 0.004)) / 2; // soft max(0, ex)
+  h += (rr - sm * 0.7) * 44 * mMask;
+  // terraces on the mountains: ledges that catch moss and plants between rock risers
+  if (mMask > 0) {
+    const tq = h / 3.2, tf = tq - Math.floor(tq);
+    h = lerp(h, (Math.floor(tq) + smoothstep(0.3, 0.7, tf)) * 3.2, mMask * 0.45);
+    // blocky planes and half-metre steps on the rock faces, so a cliff isn't one smooth plane
+    const cliffy = smoothstep(0.25, 0.6, mMask) * smoothstep(0.1, 0.4, rr);
+    if (cliffy > 0) {
+      const nb2 = nBank(x * 0.09 + 31, z * 0.09 - 17) * 0.5 + 0.5;
+      h += cliffy * (Math.floor(nb2 * 4) / 4 - 0.5) * 1.8;
+    }
+  }
   h += nDetail(x * 0.05, z * 0.05) * 0.45;
   // Rivers: carve along the zero-contour of a low-frequency noise field.
-  const rv = Math.abs(fbm(nRiver, wx * 0.0012, wz * 0.0012, 3));
-  const bank = smoothstep(0.012, 0.075, rv);
-  const bed = -2.6 + rv * 20;
+  // Distance to the channel centre in metres (field value / its gradient), so
+  // every river gets the same gentle profile however fast the noise changes:
+  // banks under ~30° that read as rivers, not canals, and can always be climbed.
+  const E = 1.5, k = 0.0012;
+  const f0 = fbm(nRiver, wx * k, wz * k, 3);
+  const gx = (fbm(nRiver, (wx + E) * k, wz * k, 3) - f0) / E;
+  const gz = (fbm(nRiver, wx * k, (wz + E) * k, 3) - f0) / E;
+  const dist = Math.abs(f0) / Math.max(Math.hypot(gx, gz), 1e-5);
+  // water half-width and bank width wander along the river
+  const nb = nBank(x * 0.006, z * 0.006);
+  // one side a steeper cut bank, the other a gentle bar, swapping as the noise does
+  const w0 = 5 + nb * 2.5, bw = (26 + nb * 8 + Math.max(0, h - 9) * 2) * (1 + Math.sign(f0) * nb * 0.5);
+  const bank = smoothstep(w0, w0 + bw, dist);
+  const bed = -2.6 + dist * 0.28;
   h = lerp(Math.min(bed, h), h, bank);
+  // slumps and hummocks break up the slope
+  const mid = bank * (1 - bank) * 4;
+  h += (nBank(x * 0.11, z * 0.11) * 0.9 + nDetail(x * 0.3, z * 0.3) * 0.25) * mid;
   out.h = h;
   out.river = bank; // 0 in the river channel, 1 well away from it
   out.mountain = mMask * rg;

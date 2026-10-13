@@ -10,9 +10,9 @@ const col = (hex) => new THREE.Color(hex);
 const P = {
   dayZenith: col('#3c78c8'), dayHorizon: col('#b9d3d6'), dayFog: col('#9db4a4'),
   setZenith: col('#2b3c6e'), setHorizon: col('#f39a5c'), setFog: col('#b48a6a'),
-  nightZenith: col('#08142e'), nightHorizon: col('#1c2c48'), nightFog: col('#16243a'),
+  nightZenith: col('#0e1e40'), nightHorizon: col('#1c2c48'), nightFog: col('#16243a'),
   sunDay: col('#fff0d4'), sunSet: col('#ff9248'), moon: col('#9fb8f0'),
-  hemiSkyDay: col('#cfe3ff'), hemiSkyNight: col('#4a64a0'), hemiGround: col('#3a4a22'),
+  hemiSkyDay: col('#cfe3ff'), hemiSkyNight: col('#4f669a'), hemiGround: col('#3a4a22'),
 };
 
 const vert = /* glsl */`
@@ -74,7 +74,7 @@ export class Sky {
   constructor(scene, renderer) {
     this.scene = scene;
     this.renderer = renderer;
-    this.time = 0.3; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+    this._time = 0.3; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
     this.dayLength = 20 * 60; // seconds per full day
     this.timeScale = 1;
 
@@ -106,7 +106,10 @@ export class Sky {
     this.envScene.add(envDome);
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
-    this.envTimer = 0;
+    // the environment map is re-baked as sky time moves (not on a wall clock), so
+    // fast-forwarding never leaves the scene lit by a stale sky and then snaps
+    this.envTime = NaN;
+    this.envCooldown = 0;
 
     this.sun = new THREE.DirectionalLight(0xffffff, 3);
     this.sun.castShadow = true;
@@ -117,7 +120,7 @@ export class Sky {
     sh.camera.near = 1;
     sh.camera.far = 320;
     sh.bias = -0.0004;
-    sh.normalBias = 0.05;
+    sh.normalBias = 0.08;
     scene.add(this.sun, this.sun.target);
 
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x334422, 0.6);
@@ -135,8 +138,18 @@ export class Sky {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }
 
+  get time() {
+    return this._time;
+  }
+
+  // Jumping the clock (debug, ?t=, save games) re-bakes on the next update.
+  set time(t) {
+    this._time = ((t % 1) + 1) % 1;
+    this.envTime = NaN;
+  }
+
   update(dt, focus, forceEnv = false, cover = 0) {
-    this.time = (this.time + (dt * this.timeScale) / this.dayLength) % 1;
+    this._time = (this._time + (dt * this.timeScale) / this.dayLength) % 1;
     const a = (this.time - 0.25) * TAU;
     const sunDir = this.sunDir.set(Math.cos(a), Math.sin(a), 0.38).normalize();
     const elev = sunDir.y;
@@ -164,7 +177,7 @@ export class Sky {
     const L = moonUp ? sunDir.clone().negate() : sunDir;
     if (moonUp) {
       this.sun.color.copy(P.moon);
-      this.sun.intensity = 1.3 * smoothstep(0.0, 0.25, -elev);
+      this.sun.intensity = 0.8 * smoothstep(0.0, 0.25, -elev);
     } else {
       this.sun.color.copy(u.uSunColor.value);
       this.sun.intensity = 3.4 * smoothstep(-0.02, 0.2, elev);
@@ -177,15 +190,20 @@ export class Sky {
     this.sun.target.updateMatrixWorld();
 
     this.hemi.color.copy(P.hemiSkyNight).lerp(P.hemiSkyDay, day);
-    this.hemi.groundColor.copy(P.hemiGround).multiplyScalar(0.3 + 0.7 * day);
-    this.hemi.intensity = (0.5 + 0.3 * day) * (1 - cover * 0.35);
-    this.scene.environmentIntensity = (0.55 + 0.3 * day) * (1 - cover * 0.45);
+    // Night keeps a cool moonlit fill so shadows hold detail instead of crushing to black.
+    this.hemi.groundColor.copy(P.hemiGround).multiplyScalar(0.9 + 0.1 * day);
+    // canopy only dims the daylight fill; at night ambient is all there is
+    this.hemi.intensity = (3.2 - 2.4 * day) * (1 - cover * 0.35 * day);
+    this.scene.environmentIntensity = (1.3 - 0.45 * day) * (1 - cover * 0.45 * day);
 
     this.dome.position.copy(focus);
 
-    this.envTimer -= dt;
-    if (forceEnv || this.envTimer <= 0) {
-      this.envTimer = 2.5;
+    // re-bake every ~3.6 game minutes of sky change, at most every 0.06 s of real time
+    this.envCooldown -= dt;
+    const moved = Math.abs(this._time - this.envTime);
+    if (forceEnv || Number.isNaN(this.envTime) || (Math.min(moved, 1 - moved) > 0.0025 && this.envCooldown <= 0)) {
+      this.envTime = this._time;
+      this.envCooldown = 0.06;
       const rt = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 100);
       if (this.envRT) this.envRT.dispose();
       this.envRT = rt;

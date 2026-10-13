@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as T from '../../art/textures.js';
-import { addMoss } from '../../art/shaders.js';
-import { worldBox } from '../flora/geom.js';
+import { addMoss, addNightFill } from '../../art/shaders.js';
+import { worldBox, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
 import { terrainHeight, terrainNormal, CHUNK_SIZE } from '../WorldGen.js';
 import { getItemModel } from '../../items/ItemModels.js';
@@ -89,9 +89,11 @@ function kit(flora) {
   const moss = flora.textures.moss;
   const stoneTex = T.stoneBlockTexture(61);
   const stone = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.92 });
-  addMoss(stone, moss, { amount: 0.4, scale: 0.25 });
+  addMoss(stone, moss, { amount: 0.6, scale: 0.25 });
+  addNightFill(stone, 0.45);
   const rubble = new THREE.MeshStandardMaterial({ map: flora.textures.rock, roughness: 0.9 });
   addMoss(rubble, moss, { amount: 0.55 });
+  addNightFill(rubble, 0.5);
   const rust = new THREE.MeshStandardMaterial({ map: T.rustTexture(71), roughness: 0.8, metalness: 0.35 });
   const aircraftTex = T.aircraftTexture(73);
   aircraftTex.repeat.set(2, 3);
@@ -274,12 +276,50 @@ function buildTemple(b) {
     const pos = [[along, half], [along, -half], [half, along], [-half, along]][side];
     if (side === 0 && Math.abs(along) < 3.5) continue;
     const nrm = [[0, 1], [0, -1], [1, 0], [-1, 0]][side];
+    const tan = [nrm[1], -nrm[0]];
+    // a hanging vine: sags away from the wall, wanders sideways, thins toward the tip
     const pts = [];
-    for (let s = 0; s <= 4; s++) {
-      const t = s / 4;
-      pts.push(new THREE.Vector3(pos[0] + nrm[0] * (0.08 + Math.sin(t * 3) * 0.1), top + 0.2 - len * t, pos[1] + nrm[1] * (0.08 + Math.sin(t * 3) * 0.1)));
+    const sway = range(r, -0.8, 0.8), ph = r() * TAU;
+    for (let s = 0; s <= 6; s++) {
+      const t = s / 6;
+      const off = 0.06 + Math.sin(t * Math.PI) * 0.25;
+      const lat = sway * t + Math.sin(t * 5 + ph) * 0.15;
+      pts.push(new THREE.Vector3(pos[0] + nrm[0] * off + tan[0] * lat, top + 0.2 - len * t, pos[1] + nrm[1] * off + tan[1] * lat));
     }
-    b.bin(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 6, range(r, 0.05, 0.12), 4), k.vine);
+    const rad = range(r, 0.03, 0.07);
+    b.bin(taperedTube(pts, (t) => rad * (1 - 0.6 * t), 14, 5, 1, 1), k.vine);
+  }
+  // strangler roots: draped over every tread and riser below where they start,
+  // then splitting into several roots that spread across the ground
+  for (let q = 0; q < 3; q++) {
+    const side = irange(r, 1, 3);
+    const nrm = [[0, 1], [0, -1], [1, 0], [-1, 0]][side];
+    const tan = [nrm[1], -nrm[0]];
+    const along = range(r, -9, 9), i0 = irange(r, 1, 2);
+    const drift = range(r, -0.25, 0.25);
+    let lat = 0;
+    const at = (d, y) => new THREE.Vector3(nrm[0] * d + tan[0] * (along + lat), y, nrm[1] * d + tan[1] * (along + lat));
+    const pts = [];
+    for (let j = i0; j >= 0; j--) {
+      const half = base - j * 2, top = (j + 1) * tierH;
+      pts.push(at(half - 0.9, top + 0.14));          // lying along the tread
+      pts.push(at(half + 0.47, top + 0.06));         // over the lip of the cap stone
+      lat += drift;
+      pts.push(at(half + 0.47, top - tierH * 0.55)); // hugging the riser
+    }
+    pts.push(at(base + 0.9, 0.12));
+    const rad = range(r, 0.22, 0.32);
+    b.bin(taperedTube(pts, (t) => rad * (1 - 0.35 * t), pts.length * 6, 10, 2, 8), k.bark);
+    // feeder roots fanning out over the ground
+    const foot = pts[pts.length - 1];
+    const nb = irange(r, 2, 3);
+    for (let m = 0; m < nb; m++) {
+      const fan = (m - (nb - 1) / 2) * 1.2 + range(r, -0.3, 0.3);
+      const dx = nrm[0] + tan[0] * fan, dz = nrm[1] + tan[1] * fan;
+      const L = range(r, 2.5, 4.5), dl = Math.hypot(dx, dz);
+      const P = (t, y) => new THREE.Vector3(foot.x + (dx / dl) * L * t, y, foot.z + (dz / dl) * L * t);
+      b.bin(taperedTube([foot.clone(), P(0.35, 0.05), P(0.7, -0.02), P(1, -0.2)], (t) => rad * 0.65 * (1 - 0.8 * t), 10, 8, 1, 2), k.bark);
+    }
   }
 }
 
@@ -439,7 +479,7 @@ function buildCamp(b) {
   }
   for (let i = 0; i < 3; i++) b.bin(new THREE.CylinderGeometry(0.06, 0.07, 0.8, 6), k.charred, [1.5, 0.12, 0], [Math.PI / 2, (i / 3) * Math.PI, 0.15]);
   b.add(new THREE.SphereGeometry(0.22, 8, 4), k.ember, [1.5, 0.0, 0], [0, 0, 0], { shadow: false }).scale.set(1, 0.35, 1);
-  b.flame([1.5, 0.35, 0], 0.9);
+  b.flame([1.5, 0.35, 0], 0.9).userData.fire = true; // World lends it the campfire light
   // log seat
   b.bin(new THREE.CylinderGeometry(0.22, 0.24, 1.8, 10), k.bark, [1.6, 0.2, 1.6], [0, 0, Math.PI / 2]);
   b.circleCol(1.6, 1.6, 0.4, 0.45);

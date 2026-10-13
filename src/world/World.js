@@ -11,16 +11,53 @@ import { poiSpec, poisAround, buildPOI } from './poi/POI.js';
 import { makeTerrainMaterial } from '../art/shaders.js';
 
 const TAU = Math.PI * 2;
-const SEG = 32;
+const SEG = 48;
 export const VIEW_RADIUS = 2;
 export const STEP_HEIGHT = 0.55;
 
+// Small floor props that only the nearby chunks carry.
+const DRESSING = new Set(['seedling', 'pebbles', 'leafPile', 'branch', 'deadFrond']);
+
+// Soft contact shade each prop leaves on the ground: [radius, strength].
+const SHADE = {
+  bush: [1.4, 0.45], fern: [1.1, 0.35], banana: [1.2, 0.35], taro: [1.1, 0.4], smallTree: [1.6, 0.35],
+  palm: [1.0, 0.3], rock: [1.5, 0.5], stump: [1.0, 0.4], log: [1.8, 0.25],
+};
+
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+
+// A geometry that shares a library geometry's buffers (uploaded once) but can
+// carry its own per-instance attributes.
+function withSlope(src) {
+  const g = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
+  if (src.index) g.setIndex(src.index);
+  for (const gr of src.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  if (!src.boundingSphere) src.computeBoundingSphere();
+  g.boundingSphere = src.boundingSphere.clone();
+  g.boundingBox = src.boundingBox;
+  return g;
+}
+
+// Plant geometries are shared library assets; only free per-chunk data
+// (terrain, POI meshes, and each instanced mesh's own slope buffer).
+function disposeGroup(group) {
+  group.traverse((o) => {
+    if (o.isInstancedMesh) {
+      const g = o.geometry;
+      for (const name of Object.keys(g.attributes)) if (name !== 'aSlope') g.deleteAttribute(name);
+      g.setIndex(null);
+      g.dispose();
+      o.dispose();
+    } else if (o.isMesh && !o.userData.shared) o.geometry.dispose();
+  });
+}
 
 export class World {
   constructor(scene, flora) {
@@ -36,6 +73,12 @@ export class World {
     this.cx = NaN;
     this.cz = NaN;
     this.time = 0;
+    // One warm light that moves to the nearest campfire. It always exists, so
+    // a camp streaming in never changes the light count and recompiles shaders.
+    this.fireLight = new THREE.PointLight(0xff8a40, 0, 9, 2);
+    scene.add(this.fireLight);
+    this.px = 0;
+    this.pz = 0;
   }
 
   static key(cx, cz) {
@@ -46,6 +89,8 @@ export class World {
 
   update(px, pz, dt, force = false) {
     this.time += dt;
+    this.px = px;
+    this.pz = pz;
     const cx = Math.floor(px / CS), cz = Math.floor(pz / CS);
     if (cx !== this.cx || cz !== this.cz) {
       this.cx = cx;
@@ -68,8 +113,12 @@ export class World {
     }
     if (force) {
       while (this.queue.length) this.build(...this.queue.shift());
+      for (const ch of this.chunks.values()) this.updateDressing(ch);
     } else if (this.queue.length) {
       this.build(...this.queue.shift());
+    } else {
+      // one dressing change per frame, so streaming stays smooth
+      for (const ch of this.chunks.values()) if (this.updateDressing(ch)) break;
     }
     this.animate(dt);
   }
@@ -80,14 +129,24 @@ export class World {
 
   animate() {
     const t = this.time;
+    let fire = null, fd = 60 * 60;
     for (const ch of this.chunks.values()) {
       for (const a of ch.animated) {
         if (a.kind === 'flame') {
           const f = 0.85 + Math.sin(t * 13 + a.phase) * 0.08 + Math.sin(t * 23.7 + a.phase * 2) * 0.07;
           a.obj.scale.setScalar(a.base * f);
+          if (a.obj.userData.fire) {
+            a.obj.getWorldPosition(_p);
+            const d = (_p.x - this.px) ** 2 + (_p.z - this.pz) ** 2;
+            if (d < fd) { fd = d; fire = { x: _p.x, y: _p.y, z: _p.z, f }; }
+          }
         }
       }
     }
+    if (fire) {
+      this.fireLight.position.set(fire.x, fire.y + 0.3, fire.z);
+      this.fireLight.intensity = 6 * fire.f;
+    } else this.fireLight.intensity = 0;
   }
 
   // ------------------------------------------------------------- planning
@@ -131,8 +190,14 @@ export class World {
     const t = {};
     const blocked = (x, z, pad) => pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
     const nearBig = (x, z, d) => big.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < d * d);
-    const place = (type, x, y, z, s, v) =>
-      items.push({ type, v: v ?? Math.floor(rand() * T[type].variants.length), x, y, z, ry: rand() * TAU, s });
+    const place = (type, x, y, z, s, v, tilt = false) => {
+      const it = { type, v: v ?? Math.floor(rand() * T[type].variants.length), x, y, z, ry: rand() * TAU, s };
+      if (tilt) {
+        const n = terrainNormal(x, z);
+        it.nx = n.x; it.ny = n.y; it.nz = n.z;
+      }
+      items.push(it);
+    };
     const scatter = (type, attempts, fn) => {
       for (let i = 0; i < attempts; i++) {
         const x = x0 + rand() * CS, z = z0 + rand() * CS;
@@ -148,6 +213,13 @@ export class World {
       if (roll > 0.1 + wet * 0.6 || blocked(x, z, 2) || nearBig(x, z, 5)) return;
       if (terrainNormal(x, z).y < 0.85) return;
       place('palm', x, t.h - 0.1, z, range(rand, 0.85, 1.2));
+      // dead fronds lie around the foot of most palms
+      const nd = Math.floor(rand() * 3);
+      for (let k = 0; k < nd; k++) {
+        const a = rand() * TAU, d = 1.2 + rand() * 1.8;
+        const fx = x + Math.cos(a) * d, fz = z + Math.sin(a) * d;
+        place('deadFrond', fx, terrainHeight(fx, fz), fz, 0.8 + rand() * 0.3, undefined, true);
+      }
     });
     scatter('smallTree', 70, (x, z, t, roll) => {
       if (t.h < 0.6) return;
@@ -174,13 +246,33 @@ export class World {
     scatter('banana', 40, (x, z, t, roll) => {
       const wet = 1 - smoothstep(1.0, 6, t.h);
       if (t.h < 0.25 || roll > 0.08 + wet * 0.5 + jungleDensity(x, z) * 0.12 || blocked(x, z, 1)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
       place('banana', x, t.h - 0.1, z, range(rand, 0.85, 1.3));
     });
     scatter('rock', 26, (x, z, t, roll) => {
       const slope = 1 - terrainNormal(x, z).y;
       if (t.h < -2.2 || roll > 0.07 + slope * 2.5 + t.mountain * 0.5 || blocked(x, z, 1)) return;
       const s = range(rand, 0.5, 2.1);
-      place('rock', x, t.h - 0.08 * s, z, s);
+      // bed rocks into the slope: tilt to the ground and sink the downhill side's gap
+      place('rock', x, t.h - (0.05 + slope * 0.25) * s, z, s, undefined, true);
+    });
+    // big boulders on cliffs and terrace risers
+    scatter('rock', 90, (x, z, t, roll) => {
+      const slope = 1 - terrainNormal(x, z).y;
+      if (slope < 0.35 || slope > 0.55 || t.h < 1 || roll > 0.8 || blocked(x, z, 2)) return;
+      const s = range(rand, 1.5, 3);
+      let y = Infinity;
+      for (let k = 0; k < 6; k++) {
+        const a = (k * TAU) / 6;
+        y = Math.min(y, terrainHeight(x + Math.cos(a) * 0.8 * s, z + Math.sin(a) * 0.8 * s));
+      }
+      place('rock', x, y - 0.15 * s, z, s, undefined, true);
+    });
+    // ferns and bushes clinging to ledges on steep ground
+    scatter('fern', 60, (x, z, t, roll) => {
+      const slope = 1 - terrainNormal(x, z).y;
+      if (slope < 0.35 || t.h < 1 || groundPatch(x, z) < 0.3 - roll * 0.3 || blocked(x, z, 1)) return;
+      place(roll < 0.6 ? 'fern' : 'bush', x, t.h - 0.15, z, range(rand, 0.7, 1.2));
     });
     scatter('log', 4, (x, z, t, roll) => {
       if (t.h < 0.8 || roll > 0.35 || blocked(x, z, 4) || nearBig(x, z, 5)) return;
@@ -189,14 +281,83 @@ export class World {
     });
     scatter('grass', 650, (x, z, t, roll) => {
       if (t.h < -0.35) return;
+      // second pass along the water's edge: reeds twice as thick
+      if (t.h < 1.1 && rand() < 0.5) {
+        const ox = x + (rand() - 0.5) * 3, oz = z + (rand() - 0.5) * 3, oh = terrainHeight(ox, oz);
+        if (oh > -0.35 && oh < 1.1) place('grass', ox, oh - 0.05, oz, range(rand, 0.7, 1.3), 1);
+      }
       const reed = t.h < 1.1;
       if (!reed && roll > 0.3 + (1 - jungleDensity(x, z)) * 0.6) return;
-      if (blocked(x, z, -2)) return;
+      if (blocked(x, z, -2) || terrainNormal(x, z).y < 0.75) return;
       place('grass', x, t.h - 0.05, z, range(rand, 0.7, 1.3), reed ? 1 : 0);
+    });
+    // the jungle closing in on old stone: plants hugging temple and ruin footprints
+    for (const p of pois) {
+      if (p.type !== 'temple' && p.type !== 'ruins') continue;
+      if (Math.floor(p.x / CS) !== cx || Math.floor(p.z / CS) !== cz) continue;
+      const c = Math.cos(p.rot), s = Math.sin(p.rot);
+      const n = p.type === 'temple' ? 180 : 50;
+      for (let i = 0; i < n; i++) {
+        let lx, lz;
+        if (p.type === 'temple') {
+          // along the base of the bottom tier (half-size 13), outside it
+          const edge = Math.floor(rand() * 4), u = (rand() * 2 - 1) * 14, out = 13.4 + Math.pow(rand(), 1.5) * 3.5;
+          [lx, lz] = [[u, out], [u, -out], [out, u], [-out, u]][edge];
+          if (edge === 0 && Math.abs(lx) < 3.5) continue; // keep the stairway clear
+        } else {
+          const a = rand() * TAU, d = 1.5 + rand() * 8.5;
+          lx = Math.cos(a) * d; lz = Math.sin(a) * d;
+        }
+        const x = p.x + lx * c + lz * s, z = p.z - lx * s + lz * c;
+        const h = terrainHeight(x, z);
+        if (h < 0.3) continue;
+        const roll = rand();
+        if (roll < 0.3) place('fern', x, h - 0.05, z, range(rand, 0.9, 1.5));
+        else if (roll < 0.45) place('taro', x, h - 0.05, z, range(rand, 0.8, 1.2));
+        else if (roll < 0.6) place('bush', x, h - 0.1, z, range(rand, 0.6, 1.1));
+        else if (roll < 0.8) place('seedling', x, h - 0.03, z, range(rand, 0.9, 1.4));
+        else place('leafPile', x, h - 0.02, z, range(rand, 0.8, 1.3), undefined, true);
+      }
+    }
+
+    // forest floor dressing: leaf drifts, fallen limbs, seedlings, stones
+    scatter('leafPile', 120, (x, z, t, roll) => {
+      if (t.h < 1.0 || roll > 0.3 + jungleDensity(x, z) * 0.55 || blocked(x, z, 0)) return;
+      if (terrainNormal(x, z).y < 0.85) return;
+      place('leafPile', x, t.h - 0.02, z, range(rand, 0.8, 1.3), undefined, true);
+    });
+    scatter('branch', 50, (x, z, t, roll) => {
+      if (t.h < 0.6 || roll > 0.25 + jungleDensity(x, z) * 0.5 || blocked(x, z, 0.5)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
+      place('branch', x, t.h - 0.03, z, range(rand, 0.8, 1.3), undefined, true);
+    });
+    scatter('seedling', 340, (x, z, t, roll) => {
+      if (t.h < 0.5 || roll > 0.2 + jungleDensity(x, z) * 0.6 || blocked(x, z, 0)) return;
+      if (terrainNormal(x, z).y < 0.75) return;
+      place('seedling', x, t.h - 0.03, z, range(rand, 0.8, 1.4));
+    });
+    scatter('taro', 50, (x, z, t, roll) => {
+      const wet = 1 - smoothstep(1.0, 8, t.h);
+      if (t.h < 0.3 || roll > 0.06 + wet * 0.35 + jungleDensity(x, z) * 0.12 || blocked(x, z, 1)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
+      place('taro', x, t.h - 0.05, z, range(rand, 0.8, 1.35));
+    });
+    scatter('pebbles', 60, (x, z, t, roll) => {
+      const slope = 1 - terrainNormal(x, z).y;
+      const bank = t.h < 1.6 ? 0.55 : 0;
+      if (t.h < -1.8 || slope > 0.15 || blocked(x, z, 0.5)) return;
+      if (roll > (0.04 + bank + t.mountain * 0.2) * (1 - smoothstep(0.05, 0.15, slope))) return;
+      place('pebbles', x, t.h - 0.02, z, range(rand, 0.7, 1.1), undefined, true);
+    });
+    scatter('stump', 3, (x, z, t, roll) => {
+      if (t.h < 0.8 || roll > 0.45 || blocked(x, z, 2) || nearBig(x, z, 4)) return;
+      if (terrainNormal(x, z).y < 0.9) return;
+      place('stump', x, t.h - 0.05, z, range(rand, 0.85, 1.2));
     });
     scatter('flower', 45, (x, z, t, roll) => {
       const d = jungleDensity(x, z);
       if (t.h < 0.5 || roll > 0.22 + d * 0.2 || blocked(x, z, 0)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
       place('flower', x, t.h - 0.03, z, range(rand, 0.8, 1.3), d > 0.75 && rand() < 0.5 ? 2 : Math.floor(rand() * 2));
     });
 
@@ -217,43 +378,7 @@ export class World {
 
     group.add(this.buildTerrain(cx, cz));
 
-    // Instanced plants, one InstancedMesh per species variant.
-    const bins = new Map();
-    plan.items.forEach((it, idx) => {
-      if (this.cut.has(`${k}:${idx}`)) return;
-      const bk = `${it.type}:${it.v}`;
-      if (!bins.has(bk)) bins.set(bk, []);
-      bins.get(bk).push(idx);
-    });
-    for (const [bk, list] of bins) {
-      const [type, v] = bk.split(':');
-      const def = this.flora.types[type];
-      const variant = def.variants[+v];
-      const mesh = new THREE.InstancedMesh(variant.geometry, def.material, list.length);
-      mesh.castShadow = def.shadow;
-      mesh.receiveShadow = true;
-      list.forEach((idx, i) => {
-        const it = plan.items[idx];
-        _q.setFromAxisAngle(_up, it.ry);
-        _m.compose(_p.set(it.x, it.y, it.z), _q, _s.setScalar(it.s));
-        mesh.setMatrixAt(i, _m);
-        const c = Math.cos(it.ry), s = Math.sin(it.ry);
-        for (const col of variant.colliders) {
-          chunk.colliders.push({
-            type: 'circle',
-            x: it.x + (col.x * c + col.z * s) * it.s,
-            z: it.z + (-col.x * s + col.z * c) * it.s,
-            r: col.r * it.s,
-            top: col.top !== undefined ? it.y + col.top * it.s : Infinity,
-          });
-        }
-        if (def.cut) {
-          chunk.cuttables.push({ key: `${k}:${idx}`, mesh, instance: i, x: it.x, y: it.y, z: it.z, r: def.cut.r * it.s, type, def, alive: true });
-        }
-      });
-      mesh.computeBoundingSphere();
-      group.add(mesh);
-    }
+    this.instance(chunk, plan, group, (type) => !DRESSING.has(type));
 
     const spec = poiSpec(cx, cz);
     if (spec) {
@@ -273,6 +398,75 @@ export class World {
     this.chunks.set(k, chunk);
   }
 
+  // Small floor props live only in the chunks next to the player (the outer
+  // ring is deep in fog). Returns true if it built or dropped anything.
+  updateDressing(ch) {
+    const near = Math.max(Math.abs(ch.cx - this.cx), Math.abs(ch.cz - this.cz)) < VIEW_RADIUS;
+    if (near && !ch.dressing) {
+      ch.dressing = new THREE.Group();
+      this.instance(ch, this.plan(ch.cx, ch.cz), ch.dressing, (type) => DRESSING.has(type), true);
+      ch.group.add(ch.dressing);
+      return true;
+    }
+    if (!near && ch.dressing) {
+      ch.group.remove(ch.dressing);
+      disposeGroup(ch.dressing);
+      ch.dressing = null;
+      ch.cuttables = ch.cuttables.filter((c) => !c.dress);
+      return true;
+    }
+    return false;
+  }
+
+  // Instanced plants, one InstancedMesh per species variant.
+  instance(chunk, plan, group, want, dress = false) {
+    const k = chunk.key;
+    const bins = new Map();
+    plan.items.forEach((it, idx) => {
+      if (this.cut.has(`${k}:${idx}`) || !want(it.type)) return;
+      const bk = `${it.type}:${it.v}`;
+      if (!bins.has(bk)) bins.set(bk, []);
+      bins.get(bk).push(idx);
+    });
+    for (const [bk, list] of bins) {
+      const [type, v] = bk.split(':');
+      const def = this.flora.types[type];
+      const variant = def.variants[+v];
+      const mesh = new THREE.InstancedMesh(withSlope(variant.geometry), def.material, list.length);
+      const slope = new Float32Array(list.length * 2);
+      mesh.castShadow = def.shadow;
+      mesh.receiveShadow = true;
+      list.forEach((idx, i) => {
+        const it = plan.items[idx];
+        _q.setFromAxisAngle(_up, it.ry);
+        if (it.nx !== undefined) _q.premultiply(_q2.setFromUnitVectors(_up, _p.set(it.nx, it.ny, it.nz)));
+        _m.compose(_p.set(it.x, it.y, it.z), _q, _s.setScalar(it.s));
+        mesh.setMatrixAt(i, _m);
+        if (it.nx === undefined) {
+          const n = terrainNormal(it.x, it.z);
+          slope[i * 2] = -n.x / n.y;
+          slope[i * 2 + 1] = -n.z / n.y;
+        }
+        const c = Math.cos(it.ry), s = Math.sin(it.ry);
+        for (const col of variant.colliders) {
+          chunk.colliders.push({
+            type: 'circle',
+            x: it.x + (col.x * c + col.z * s) * it.s,
+            z: it.z + (-col.x * s + col.z * c) * it.s,
+            r: col.r * it.s,
+            top: col.top !== undefined ? it.y + col.top * it.s : Infinity,
+          });
+        }
+        if (def.cut) {
+          chunk.cuttables.push({ key: `${k}:${idx}`, mesh, instance: i, x: it.x, y: it.y, z: it.z, r: def.cut.r * it.s, type, def, alive: true, dress });
+        }
+      });
+      mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(slope, 2));
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    }
+  }
+
   buildTerrain(cx, cz) {
     const N = SEG + 1, W = N + 2, step = CS / SEG;
     const x0 = cx * CS, z0 = cz * CS;
@@ -289,6 +483,22 @@ export class World {
     // canopy shade from big trees in this and neighbouring chunks
     const bigs = [];
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) bigs.push(...this.bigTrees(cx + dx, cz + dz));
+    // contact shade under plants and rocks, from this and neighbouring plans
+    // (so vertices on a chunk edge agree), binned into 4 m cells
+    const shade = new Map();
+    const cell = (x, z) => `${Math.floor(x / 4)},${Math.floor(z / 4)}`;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (const it of this.plan(cx + dx, cz + dz).items) {
+          const sd = SHADE[it.type];
+          if (!sd) continue;
+          if (it.x < x0 - 4 || it.x > x0 + CS + 4 || it.z < z0 - 4 || it.z > z0 + CS + 4) continue;
+          const k = cell(it.x, it.z);
+          if (!shade.has(k)) shade.set(k, []);
+          shade.get(k).push({ x: it.x, z: it.z, r: sd[0] * it.s, a: sd[1] });
+        }
+      }
+    }
 
     const pos = new Float32Array(N * N * 3), nrm = new Float32Array(N * N * 3);
     const col = new Float32Array(N * N * 3), spl = new Float32Array(N * N * 4);
@@ -303,20 +513,43 @@ export class World {
         n.set(H[gi - 1] - H[gi + 1], 2 * step, H[gi - W] - H[gi + W]).normalize();
         nrm[v * 3] = n.x; nrm[v * 3 + 1] = n.y; nrm[v * 3 + 2] = n.z;
 
-        const slope = 1 - n.y;
-        const patch = groundPatch(wx, wz);
-        const rock = clamp(smoothstep(0.2, 0.45, slope) + MT[gi] * 0.7 * smoothstep(0.08, 0.25, slope) + smoothstep(20, 34, h) * 0.6, 0, 1);
-        const mud = clamp((1 - smoothstep(0.3, 1.5, h)) + (1 - RV[gi]) * 0.5, 0, 1) * (1 - rock * 0.7);
-        const moss = clamp(smoothstep(-0.15, 0.45, patch) * (1 - rock) * (1 - mud) + smoothstep(0.08, 0.2, slope) * 0.3 * (1 - rock), 0, 1);
-        const litter = clamp(0.55 - moss * 0.3, 0.1, 1) * (1 - rock) * (1 - mud * 0.8);
-        spl[v * 4] = litter; spl[v * 4 + 1] = moss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = mud;
-
         let ao = 1;
         for (const b of bigs) {
           const dd = (b.x - wx) ** 2 + (b.z - wz) ** 2;
           const R = 8.5 * b.s;
           if (dd < R * R) ao = Math.min(ao, 0.5 + 0.5 * smoothstep(0, 1, Math.sqrt(dd) / R));
         }
+        const canopy = 1 - ao; // 0 in the open, 0.5 at a giant's foot
+        let contact = 1;
+        const gx = Math.floor(wx / 4), gz = Math.floor(wz / 4);
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oz = -1; oz <= 1; oz++) {
+            const list = shade.get(`${gx + ox},${gz + oz}`);
+            if (!list) continue;
+            for (const c of list) {
+              const dd = (c.x - wx) ** 2 + (c.z - wz) ** 2;
+              if (dd < c.r * c.r) contact *= 1 - c.a * (1 - smoothstep(0, 1, Math.sqrt(dd) / c.r));
+            }
+          }
+        }
+        ao *= Math.max(0.45, contact);
+
+        const slope = 1 - n.y;
+        const patch = groundPatch(wx, wz);
+        const dens = jungleDensity(wx, wz);
+        // river banks are earth and mud, not bare rock; rock is for mountains and true cliffs
+        const inland = smoothstep(0.5, 0.95, RV[gi]);
+        const rock = clamp(smoothstep(0.2, 0.45, slope) * (0.15 + 0.85 * inland) + MT[gi] * 0.7 * smoothstep(0.08, 0.25, slope) + smoothstep(20, 34, h) * 0.6, 0, 1);
+        // mud only near the waterline; the bank above is earth, litter and damp moss
+        const mn = groundPatch(wx * 2.7, wz * 2.7);
+        const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h)), 0, 1) * (1 - rock * 0.7);
+        // moss: in patches, in clearings and on damp shaded slopes; litter piles up under trees
+        const moss = clamp(
+          smoothstep(0.05, 0.55, patch) * 0.65 + (1 - dens) * 0.3 + smoothstep(0.08, 0.2, slope) * 0.25 + (1 - RV[gi]) * 0.5 - canopy * 0.8,
+          0, 1) * (1 - rock) * (1 - mud);
+        const litter = clamp(0.5 + dens * 0.25 + canopy * 1.2 - moss * 0.5, 0.05, 1) * (1 - rock) * (1 - mud * 0.8);
+        spl[v * 4] = litter; spl[v * 4 + 1] = moss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = mud;
+
         const tint = 0.92 + patch * 0.08;
         col[v * 3] = ao * tint * 0.98;
         col[v * 3 + 1] = ao * tint;
@@ -351,11 +584,7 @@ export class World {
     const ch = this.chunks.get(k);
     if (!ch) return;
     this.scene.remove(ch.group);
-    // Plant geometries are shared library assets; only free per-chunk data.
-    ch.group.traverse((o) => {
-      if (o.isInstancedMesh) o.dispose();
-      else if (o.isMesh && !o.userData.shared) o.geometry.dispose();
-    });
+    disposeGroup(ch.group);
     this.chunks.delete(k);
   }
 

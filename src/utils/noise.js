@@ -54,11 +54,14 @@ export function fbm(noise, x, y, octaves = 4, lacunarity = 2.0, gain = 0.5) {
   return sum / norm;
 }
 
-// Ridged multifractal in [0, 1] — sharp crests, good for mountain spines.
+// Ridged multifractal in [0, 1] — crests for mountain spines. The fold uses
+// a soft |n| that rounds more on the fine octaves, so small ridges become
+// rounded hummocks instead of pyramids.
 export function ridged(noise, x, y, octaves = 4, lacunarity = 2.0, gain = 0.5) {
   let amp = 1, freq = 1, sum = 0, norm = 0, weight = 1;
   for (let o = 0; o < octaves; o++) {
-    let n = 1 - Math.abs(noise(x * freq, y * freq));
+    const v = noise(x * freq, y * freq);
+    let n = 1 - Math.sqrt(v * v + 0.03 + o * 0.02);
     n *= n;
     n *= weight;
     weight = Math.min(1, Math.max(0, n * 1.6));

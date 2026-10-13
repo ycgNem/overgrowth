@@ -342,7 +342,6 @@ export class Game {
     }
     this.cover = damp(this.cover, cover, 1.5, dt);
     this.sky.update(dt, pos, false, this.cover);
-    this.renderer.toneMappingExposure = 1.0 + this.sky.state.night * 0.8;
 
     for (const g of this.pickups.update(dt, t, pos)) this.collect(g.id);
     this.particles.update(dt, this.camera);
