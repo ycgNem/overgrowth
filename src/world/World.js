@@ -9,6 +9,9 @@ import { chunkRng, range } from '../utils/rng.js';
 import { smoothstep, clamp } from '../utils/math.js';
 import { poiSpec, poisAround, buildPOI } from './poi/POI.js';
 import { makeTerrainMaterial } from '../art/shaders.js';
+import { mergeToGeometry, bakedMaterial } from '../art/merge.js';
+import { getItemModel } from '../items/ItemModels.js';
+import { ITEMS } from '../items/ItemDB.js';
 
 const TAU = Math.PI * 2;
 const SEG = 48;
@@ -31,6 +34,23 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+
+// Forage: loose materials lying on the forest floor, picked up with E. They come back
+// every dawn. Geometry is the item model, merged into one instanced draw per item.
+const FORAGE = ['stick', 'stone', 'flint', 'mushroom', 'glowcap', 'clay', 'feather', 'bone'];
+const forageGeo = new Map();
+let forageMat = null;
+function forageGeometry(id) {
+  if (!forageGeo.has(id)) {
+    const holder = new THREE.Group();
+    holder.add(getItemModel(id));
+    const { geometry } = mergeToGeometry(holder);
+    geometry.computeBoundingBox();
+    geometry.translate(0, -geometry.boundingBox.min.y - 0.01, 0);
+    forageGeo.set(id, geometry);
+  }
+  return forageGeo.get(id);
+}
 
 // A geometry that shares a library geometry's buffers (uploaded once) but can
 // carry its own per-instance attributes.
@@ -79,6 +99,37 @@ export class World {
     scene.add(this.fireLight);
     this.px = 0;
     this.pz = 0;
+    // Areas kept free of vegetation (the base), and things placed by the player that
+    // live outside the chunk system (buildings, the Heartwood).
+    this.clearings = [];
+    this.extra = { colliders: [], interactables: [], cuttables: [] };
+    this.foraged = new Set();
+  }
+
+  // Plans are cached, so clearings must be registered before the first update.
+  addClearing(x, z, r) {
+    this.clearings.push({ x, z, r });
+    this.plans.clear();
+    this.bigPlans.clear();
+  }
+
+  cleared(x, z, pad = 0) {
+    return this.clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + pad) ** 2);
+  }
+
+  // A new day: forage grows back and cut plants regrow in chunks you haven't kept loaded.
+  regrow() {
+    this.foraged.clear();
+    this.cut.clear();
+    for (const ch of this.chunks.values()) {
+      if (ch.dressing) {
+        ch.group.remove(ch.dressing);
+        disposeGroup(ch.dressing);
+        ch.dressing = null;
+        ch.cuttables = ch.cuttables.filter((c) => !c.dress);
+        ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
+      }
+    }
   }
 
   static key(cx, cz) {
@@ -169,6 +220,7 @@ export class World {
       if (r1 > jungleDensity(x, z) * 0.85) continue;
       if (t.mountain > 0.45 && r2 < 0.6) continue;
       if (pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + 4) ** 2)) continue;
+      if (this.cleared(x, z, 6)) continue;
       if (out.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < 100)) continue;
       if (terrainNormal(x, z).y < 0.82) continue;
       out.push({ x, z, y: t.h - 0.25, s: 0.8 + r3 * 0.45, v: Math.floor(r4 * 3), ry: rand() * TAU });
@@ -188,7 +240,7 @@ export class World {
     const big = this.bigTrees(cx, cz);
     for (const b of big) items.push({ type: 'bigTree', v: b.v, x: b.x, y: b.y, z: b.z, ry: b.ry, s: b.s });
     const t = {};
-    const blocked = (x, z, pad) => pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
+    const blocked = (x, z, pad) => this.cleared(x, z, pad) || pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
     const nearBig = (x, z, d) => big.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < d * d);
     const place = (type, x, y, z, s, v, tilt = false) => {
       const it = { type, v: v ?? Math.floor(rand() * T[type].variants.length), x, y, z, ry: rand() * TAU, s };
@@ -361,7 +413,26 @@ export class World {
       place('flower', x, t.h - 0.03, z, range(rand, 0.8, 1.3), d > 0.75 && rand() < 0.5 ? 2 : Math.floor(rand() * 2));
     });
 
-    const plan = { items };
+    // forage: loose materials on the floor
+    const forage = [];
+    const addForage = (id, x, z) => {
+      if (blocked(x, z, 0.5)) return;
+      const n = terrainNormal(x, z);
+      if (n.y < 0.8) return;
+      forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.25, 1.6), nx: n.x, ny: n.y, nz: n.z });
+    };
+    scatter('forage', 26, (x, z, t, roll) => {
+      if (t.h < 0.2) return;
+      const d = jungleDensity(x, z);
+      const r2 = rand();
+      if (t.h < 1.3 && t.h > 0.2 && r2 < 0.35) addForage('clay', x, z);
+      else if (roll < 0.35 + d * 0.2) addForage('stick', x, z);
+      else if (roll < 0.55 + t.mountain * 0.3) addForage(r2 < 0.75 ? 'stone' : 'flint', x, z);
+      else if (roll < 0.72 && d > 0.45) addForage(d > 0.8 && r2 < 0.12 ? 'glowcap' : 'mushroom', x, z);
+      else if (roll < 0.8) addForage(r2 < 0.6 ? 'feather' : 'bone', x, z);
+    });
+
+    const plan = { items, forage };
     this.plans.set(k, plan);
     return plan;
   }
@@ -404,7 +475,9 @@ export class World {
     const near = Math.max(Math.abs(ch.cx - this.cx), Math.abs(ch.cz - this.cz)) < VIEW_RADIUS;
     if (near && !ch.dressing) {
       ch.dressing = new THREE.Group();
-      this.instance(ch, this.plan(ch.cx, ch.cz), ch.dressing, (type) => DRESSING.has(type), true);
+      const plan = this.plan(ch.cx, ch.cz);
+      this.instance(ch, plan, ch.dressing, (type) => DRESSING.has(type), true);
+      this.instanceForage(ch, plan, ch.dressing);
       ch.group.add(ch.dressing);
       return true;
     }
@@ -413,9 +486,71 @@ export class World {
       disposeGroup(ch.dressing);
       ch.dressing = null;
       ch.cuttables = ch.cuttables.filter((c) => !c.dress);
+      ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
       return true;
     }
     return false;
+  }
+
+  instanceForage(chunk, plan, group) {
+    if (!forageMat) forageMat = bakedMaterial({ side: THREE.DoubleSide });
+    const bins = new Map();
+    plan.forage.forEach((f, i) => {
+      const key = `${chunk.key}:f${i}`;
+      if (this.foraged.has(key)) return;
+      if (!bins.has(f.id)) bins.set(f.id, []);
+      bins.get(f.id).push([f, key]);
+    });
+    for (const [id, list] of bins) {
+      const mesh = new THREE.InstancedMesh(forageGeometry(id), forageMat, list.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      list.forEach(([f, key], i) => {
+        _q.setFromAxisAngle(_up, f.ry).premultiply(_q2.setFromUnitVectors(_up, _p.set(f.nx, f.ny, f.nz)));
+        _m.compose(_p.set(f.x, f.y, f.z), _q, _s.setScalar(f.s));
+        mesh.setMatrixAt(i, _m);
+        chunk.interactables.push({
+          kind: 'forage', id, key, mesh, instance: i, x: f.x, y: f.y + 0.2, z: f.z, r: 0.5,
+          label: `Pick up ${ITEMS[id].name}`, chunk,
+        });
+      });
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    }
+  }
+
+  // Every solid obstacle (trunks, rocks, logs) planned in the chunks overlapping a box,
+  // whether or not those chunks are loaded. Used for enemy path-finding around the base.
+  staticCircles(x0, z0, x1, z1) {
+    const out = [];
+    const T = this.flora.types;
+    for (let cx = Math.floor(x0 / CS); cx <= Math.floor(x1 / CS); cx++) {
+      for (let cz = Math.floor(z0 / CS); cz <= Math.floor(z1 / CS); cz++) {
+        const k = World.key(cx, cz);
+        this.plan(cx, cz).items.forEach((it, idx) => {
+          const variant = T[it.type]?.variants[it.v];
+          if (!variant || !variant.colliders.length || this.cut.has(`${k}:${idx}`)) return;
+          const c = Math.cos(it.ry), sn = Math.sin(it.ry);
+          for (const col of variant.colliders) {
+            out.push({
+              x: it.x + (col.x * c + col.z * sn) * it.s,
+              z: it.z + (-col.x * sn + col.z * c) * it.s,
+              r: col.r * it.s,
+            });
+          }
+        });
+        const spec = poiSpec(cx, cz);
+        if (spec) out.push({ x: spec.x, z: spec.z, r: spec.radius * 0.7 });
+      }
+    }
+    return out;
+  }
+
+  takeForage(it) {
+    it.done = true;
+    this.foraged.add(it.key);
+    it.mesh.setMatrixAt(it.instance, ZERO);
+    it.mesh.instanceMatrix.needsUpdate = true;
   }
 
   // Instanced plants, one InstancedMesh per species variant.
@@ -450,7 +585,7 @@ export class World {
         const c = Math.cos(it.ry), s = Math.sin(it.ry);
         for (const col of variant.colliders) {
           chunk.colliders.push({
-            type: 'circle',
+            type: 'circle', kind: type,
             x: it.x + (col.x * c + col.z * s) * it.s,
             z: it.z + (-col.x * s + col.z * c) * it.s,
             r: col.r * it.s,
@@ -458,7 +593,7 @@ export class World {
           });
         }
         if (def.cut) {
-          chunk.cuttables.push({ key: `${k}:${idx}`, mesh, instance: i, x: it.x, y: it.y, z: it.z, r: def.cut.r * it.s, type, def, alive: true, dress });
+          chunk.cuttables.push({ key: `${k}:${idx}`, mesh, instance: i, x: it.x, y: it.y, z: it.z, r: def.cut.r * it.s, type, v: +v, def, alive: true, dress });
         }
       });
       mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(slope, 2));
@@ -591,6 +726,8 @@ export class World {
   // -------------------------------------------------------------- queries
 
   *near(x, z, field) {
+    const ex = this.extra[field];
+    if (ex) for (const e of ex) if (Math.abs(e.x - x) < 40 && Math.abs(e.z - z) < 40) yield e;
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {

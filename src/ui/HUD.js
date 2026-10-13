@@ -1,11 +1,15 @@
-// DOM heads-up display: compass, minimap, prompts, toasts, inventory.
-import { ITEMS, ITEM_IDS, RARITY } from '../items/ItemDB.js';
+// DOM heads-up display: compass, minimap, prompts, toasts, vitals, hotbar, the
+// day/night banner, and the satchel (inventory + crafting).
+import { ITEMS, RARITY, KIND } from '../items/ItemDB.js';
+import { RECIPES } from '../items/Recipes.js';
+import { HOTBAR } from '../items/Inventory.js';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
 
 const $ = (s) => document.querySelector(s);
 const DEG = Math.PI / 180;
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export class HUD {
   constructor(inventory) {
@@ -14,10 +18,16 @@ export class HUD {
     this.el = {
       hud: $('#hud'), strip: $('#compass-strip'), compass: $('#compass'), map: $('#minimap'),
       clock: $('#clock'), prompt: $('#prompt'), promptLabel: $('#prompt .label'), promptFill: $('#prompt .fill'),
-      cross: $('#crosshair'), toasts: $('#toasts'), count: $('#stat-count'), value: $('#stat-value'),
-      stamina: $('#stamina'), staminaBar: $('#stamina div'), discover: $('#discover'), fps: $('#fps'),
-      inv: $('#inventory'), grid: $('#inv-grid'), detail: $('#inv-detail'), total: $('#inv-total'),
-      coll: $('#inv-collection'), underwater: $('#underwater'), hint: $('#hint'),
+      promptKey: $('#prompt .key'),
+      cross: $('#crosshair'), toasts: $('#toasts'),
+      stamina: $('#stamina'), staminaBar: $('#stamina div'), health: $('#health'), healthBar: $('#health div'), healthText: $('#health span'),
+      discover: $('#discover'), fps: $('#fps'),
+      inv: $('#inventory'), grid: $('#inv-grid'), belt: $('#inv-belt'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
+      slots: $('#inv-slots'), relics: $('#inv-relics'),
+      underwater: $('#underwater'), hint: $('#hint'), hotbar: $('#hotbar'), held: $('#held'),
+      phase: $('#phase'), phaseTitle: $('#phase .title'), phaseSub: $('#phase .sub'), heartBar: $('#heart-bar div'), heartText: $('#heart-bar span'),
+      banner: $('#banner'), buildHint: $('#build-hint'), hurt: $('#hurt'), dead: $('#dead'), deadT: $('#dead span'),
+      over: $('#gameover'), overStats: $('#gameover .stats'),
     };
     this.mapCtx = this.el.map.getContext('2d');
     this.mapBase = document.createElement('canvas');
@@ -27,12 +37,21 @@ export class HUD {
     this.buildCompass();
     this.poiEls = new Map();
     this.discovered = new Set();
+    this.markers = []; // { key, x, z, icon, label, cls }
     this.fpsAcc = { t: 0, n: 0 };
-    setTimeout(() => this.el.hint.classList.add('hidden'), 30000);
+    this.hurtT = 0;
+    this.carry = null; // slot index picked up in the satchel
+    this.onCraft = null;
+    this.onUse = null;
+    this.onDrop = null;
+    this.buildHotbar();
+    this.buildSatchel();
+    setTimeout(() => this.el.hint.classList.add('hidden'), 45000);
   }
 
   setIcons(icons) {
     this.icons = icons;
+    this.renderHotbar();
   }
 
   show(on) {
@@ -74,35 +93,37 @@ export class HUD {
     };
     for (const m of this.marks) place(m.e, m.a);
 
-    // Points of interest within ~600m, including undiscovered temples.
     const cx = Math.floor(player.x / CHUNK_SIZE), cz = Math.floor(player.z / CHUNK_SIZE);
     const ck = `${cx},${cz}`;
     if (this.poiListKey !== ck) {
-      // Scan outward gradually: specs are cached once computed.
       this.poiListKey = ck;
       this.poiList = poisAround(cx, cz, 9);
     }
     const seen = new Set();
-    for (const s of this.poiList) {
-      const dx = s.x - player.x, dz = s.z - player.z;
+    const show = (key, x, z, icon, label, cls = '') => {
+      const dx = x - player.x, dz = z - player.z;
       const dist = Math.hypot(dx, dz);
-      const isTemple = s.type === 'temple';
-      if (!isTemple && dist > 220) continue;
-      if (dist < 6) continue;
-      seen.add(s.key);
-      let e = this.poiEls.get(s.key);
+      if (dist < 6) return;
+      seen.add(key);
+      let e = this.poiEls.get(key);
       if (!e) {
         e = document.createElement('div');
-        e.className = 'poi';
         this.el.strip.appendChild(e);
-        this.poiEls.set(s.key, e);
+        this.poiEls.set(key, e);
       }
-      const known = this.discovered.has(s.key);
-      const label = known || isTemple ? POI_INFO[s.type].label : '?';
-      e.innerHTML = `${POI_INFO[s.type].icon}<small>${label} ${Math.round(dist)}m</small>`;
-      e.classList.toggle('done', done.has(s.key));
+      e.className = `poi ${cls}`;
+      e.innerHTML = `${icon}<small>${label} ${Math.round(dist)}m</small>`;
       const d = place(e, Math.atan2(dx, -dz));
       e.classList.toggle('side', Math.abs(d) > 0.3);
+      return e;
+    };
+    for (const m of this.markers) show(m.key, m.x, m.z, m.icon, m.label, m.cls);
+    for (const s of this.poiList) {
+      const isTemple = s.type === 'temple';
+      if (!isTemple && Math.hypot(s.x - player.x, s.z - player.z) > 220) continue;
+      const known = this.discovered.has(s.key);
+      const e = show(s.key, s.x, s.z, POI_INFO[s.type].icon, known || isTemple ? POI_INFO[s.type].label : '?');
+      e?.classList.toggle('done', done.has(s.key));
     }
     for (const [k, e] of this.poiEls) {
       if (!seen.has(k)) {
@@ -161,7 +182,7 @@ export class HUD {
     }
   }
 
-  updateMinimap(player, heading, force) {
+  updateMinimap(player, heading, force, extra = {}) {
     const R = this.mapRange;
     const snap = 24;
     const sx = Math.round(player.x / snap) * snap, sz = Math.round(player.z / snap) * snap;
@@ -176,19 +197,59 @@ export class HUD {
     const k = S / R;
     c.imageSmoothingEnabled = true;
     c.drawImage(this.mapBase, (this.mapCenter.x - player.x) * k, (this.mapCenter.z - player.z) * k, S, S);
-    // POIs
+    const toMap = (x, z) => [S / 2 + (x - player.x) * k, S / 2 + (z - player.z) * k];
+    const inside = (px, pz, pad = 12) => (px - S / 2) ** 2 + (pz - S / 2) ** 2 <= (S / 2 - pad) ** 2;
+    // build radius ring
+    if (extra.base) {
+      const [bx, bz] = toMap(extra.base.x, extra.base.z);
+      c.strokeStyle = 'rgba(140,255,180,0.35)';
+      c.lineWidth = 3;
+      c.setLineDash([10, 8]);
+      c.beginPath();
+      c.arc(bx, bz, extra.buildRadius * k, 0, Math.PI * 2);
+      c.stroke();
+      c.setLineDash([]);
+    }
+    // buildings and enemies
+    for (const b of extra.buildings || []) {
+      const [px, pz] = toMap(b.x, b.z);
+      if (!inside(px, pz, 4)) continue;
+      c.fillStyle = b.def.kind === 'wall' ? '#c8a060' : '#f0d070';
+      c.fillRect(px - 5, pz - 5, 10, 10);
+    }
+    for (const e of extra.enemies || []) {
+      if (e.dying) continue;
+      const [px, pz] = toMap(e.pos.x, e.pos.z);
+      if (!inside(px, pz, 4)) continue;
+      c.fillStyle = '#d070ff';
+      c.beginPath();
+      c.arc(px, pz, e.type === 'rotboar' ? 8 : 5, 0, Math.PI * 2);
+      c.fill();
+    }
+    // POIs and markers
     const cx = Math.floor(player.x / CHUNK_SIZE), cz = Math.floor(player.z / CHUNK_SIZE);
     c.font = 'bold 26px sans-serif';
     c.textAlign = 'center';
     c.textBaseline = 'middle';
+    c.shadowColor = 'rgba(0,0,0,0.9)';
+    c.shadowBlur = 6;
     for (const s of poisAround(cx, cz, 3)) {
-      const px = S / 2 + (s.x - player.x) * k, pz = S / 2 + (s.z - player.z) * k;
-      if ((px - S / 2) ** 2 + (pz - S / 2) ** 2 > (S / 2 - 12) ** 2) continue;
+      const [px, pz] = toMap(s.x, s.z);
+      if (!inside(px, pz)) continue;
       const known = this.discovered.has(s.key);
       c.fillStyle = known ? '#f3d27a' : 'rgba(243,234,210,0.75)';
-      c.shadowColor = 'rgba(0,0,0,0.9)';
-      c.shadowBlur = 6;
       c.fillText(known ? POI_INFO[s.type].icon : '?', px, pz);
+    }
+    for (const m of this.markers) {
+      let [px, pz] = toMap(m.x, m.z);
+      if (!inside(px, pz)) {
+        // pin to the rim so the Heartwood is always findable
+        const a = Math.atan2(pz - S / 2, px - S / 2);
+        px = S / 2 + Math.cos(a) * (S / 2 - 16);
+        pz = S / 2 + Math.sin(a) * (S / 2 - 16);
+      }
+      c.fillStyle = m.cls === 'rift' ? '#d070ff' : '#8affb0';
+      c.fillText(m.icon, px, pz);
     }
     // player arrow
     c.translate(S / 2, S / 2);
@@ -207,7 +268,7 @@ export class HUD {
 
   // ------------------------------------------------------------- feedback
 
-  prompt(label, progress = 0) {
+  prompt(label, progress = 0, key = 'E') {
     const p = this.el.prompt;
     if (!label) {
       p.classList.remove('show');
@@ -217,16 +278,28 @@ export class HUD {
     p.classList.add('show');
     this.el.cross.classList.add('hot');
     if (this.el.promptLabel.textContent !== label) this.el.promptLabel.textContent = label;
+    if (this.el.promptKey.textContent !== key) this.el.promptKey.textContent = key;
     this.el.promptFill.style.strokeDashoffset = String(100.5 * (1 - progress));
   }
 
-  toast(id) {
+  toast(id, n = 1, note) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
     const t = document.createElement('div');
     t.className = 'toast';
     t.style.setProperty('--rc', r.color);
-    t.innerHTML = `<img src="${this.icons[id] || ''}"><div><div class="n">${def.name}</div><div class="r">${r.name} · ${def.value} value</div></div>`;
+    const sub = note || `${r.name} · ${KIND[def.kind].name}`;
+    t.innerHTML = `<img src="${this.icons[id] || ''}"><div><div class="n">${def.name}${n > 1 ? ` ×${n}` : ''}</div><div class="r">${sub}</div></div>`;
+    this.el.toasts.appendChild(t);
+    while (this.el.toasts.children.length > 6) this.el.toasts.firstChild.remove();
+    setTimeout(() => t.remove(), 4100);
+  }
+
+  message(text, color = '#f3ead2') {
+    const t = document.createElement('div');
+    t.className = 'toast msg';
+    t.style.setProperty('--rc', color);
+    t.innerHTML = `<div><div class="n">${text}</div></div>`;
     this.el.toasts.appendChild(t);
     while (this.el.toasts.children.length > 6) this.el.toasts.firstChild.remove();
     setTimeout(() => t.remove(), 4100);
@@ -240,19 +313,81 @@ export class HUD {
     d.classList.add('show');
   }
 
-  stats() {
-    this.el.count.textContent = this.inv.total;
-    this.el.value.textContent = this.inv.value;
+  banner(title, sub) {
+    const b = this.el.banner;
+    b.querySelector('b').textContent = title;
+    b.querySelector('span').textContent = sub;
+    b.classList.remove('show');
+    void b.offsetWidth;
+    b.classList.add('show');
   }
 
-  frame(dt, { player, heading, stamina, clock, underwater, done }) {
-    this.updateCompass(heading, player, done);
-    this.updateMinimap(player, heading);
-    this.el.clock.textContent = clock;
-    this.el.staminaBar.style.width = `${stamina * 100}%`;
-    this.el.stamina.classList.toggle('low', stamina < 0.25);
-    this.el.stamina.style.opacity = stamina > 0.99 ? '0.35' : '1';
-    this.el.underwater.style.opacity = underwater ? '1' : '0';
+  hurt(amount) {
+    this.hurtT = Math.min(1, this.hurtT + amount);
+  }
+
+  buildHint(text, ok) {
+    const e = this.el.buildHint;
+    if (!text) {
+      e.classList.remove('show');
+      return;
+    }
+    e.classList.add('show');
+    e.classList.toggle('bad', !ok);
+    if (e.innerHTML !== text) e.innerHTML = text;
+  }
+
+  setDead(seconds) {
+    this.el.dead.classList.toggle('show', seconds > 0);
+    if (seconds > 0) this.el.deadT.textContent = Math.ceil(seconds);
+  }
+
+  gameOver({ nights, kills }) {
+    this.el.overStats.innerHTML = `You held the Heartwood for <b>${nights}</b> night${nights === 1 ? '' : 's'} and felled <b>${kills}</b> Blight.`;
+    this.el.over.classList.remove('hidden');
+  }
+
+  stats() {
+    this.renderHotbar();
+    if (this.inventoryOpen) this.renderInventory();
+  }
+
+  frame(dt, s) {
+    this.updateCompass(s.heading, s.player, s.done);
+    this.updateMinimap(s.player, s.heading, false, s);
+    this.el.clock.textContent = s.clock;
+    this.el.staminaBar.style.width = `${s.stamina * 100}%`;
+    this.el.stamina.classList.toggle('low', s.stamina < 0.25);
+    this.el.healthBar.style.width = `${(s.hp / s.maxHp) * 100}%`;
+    this.el.health.classList.toggle('low', s.hp / s.maxHp < 0.3);
+    this.el.healthText.textContent = Math.ceil(s.hp);
+    this.el.underwater.style.opacity = s.underwater ? '1' : '0';
+    this.hurtT = Math.max(0, this.hurtT - dt * 1.6);
+    this.el.hurt.style.opacity = String(Math.max(this.hurtT, s.hp / s.maxHp < 0.3 ? 0.35 + Math.sin(performance.now() / 300) * 0.1 : 0));
+
+    // day / night strip
+    const w = s.waves;
+    let title, sub;
+    if (w.phase === 'day') {
+      title = `Day ${w.night}`;
+      sub = w.skipping ? 'Night is falling…' : `Gather & build · dusk in ${fmtTime(w.dayLeft)}`;
+    } else if (w.phase === 'night') {
+      title = `Night ${w.night}`;
+      sub = `${w.remaining} Blight left`;
+    } else if (w.phase === 'dawn') {
+      title = 'Dawn';
+      sub = 'The Blight retreats';
+    } else {
+      title = 'The Heartwood has fallen';
+      sub = '';
+    }
+    this.el.phase.classList.toggle('night', w.phase === 'night');
+    if (this.el.phaseTitle.textContent !== title) this.el.phaseTitle.textContent = title;
+    if (this.el.phaseSub.textContent !== sub) this.el.phaseSub.textContent = sub;
+    this.el.heartBar.style.width = `${(s.base.hp / s.base.maxHp) * 100}%`;
+    this.el.heartText.textContent = `${Math.ceil(s.base.hp)} / ${s.base.maxHp}`;
+    this.el.phase.classList.toggle('hurt', s.base.flash > 0.2);
+
     this.fpsAcc.t += dt;
     this.fpsAcc.n++;
     if (this.fpsAcc.t > 0.5) {
@@ -261,7 +396,42 @@ export class HUD {
     }
   }
 
-  // ------------------------------------------------------------ inventory
+  // ---------------------------------------------------------------- hotbar
+
+  buildHotbar() {
+    this.hotEls = [];
+    for (let i = 0; i < HOTBAR; i++) {
+      const s = document.createElement('div');
+      s.className = 'hslot';
+      s.innerHTML = `<i>${i + 1}</i><img alt=""><span class="count"></span>`;
+      this.el.hotbar.appendChild(s);
+      this.hotEls.push(s);
+    }
+  }
+
+  renderHotbar() {
+    for (let i = 0; i < HOTBAR; i++) {
+      const s = this.inv.slots[i];
+      const el = this.hotEls[i];
+      el.classList.toggle('sel', i === this.inv.selected);
+      el.classList.toggle('empty', !s);
+      const img = el.querySelector('img');
+      const src = s ? this.icons[s.id] || '' : '';
+      if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+      el.querySelector('.count').textContent = s && s.n > 1 ? s.n : '';
+      el.style.setProperty('--rc', s ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
+    }
+    const h = this.inv.held;
+    const label = h ? ITEMS[h.id].name + (ITEMS[h.id].kind === 'build' ? ' · LMB to place' : ITEMS[h.id].kind === 'use' ? ' · RMB to use' : '') : 'Machete';
+    if (this.el.held.textContent !== label) {
+      this.el.held.textContent = label;
+      this.el.held.classList.remove('flash');
+      void this.el.held.offsetWidth;
+      this.el.held.classList.add('flash');
+    }
+  }
+
+  // ------------------------------------------------------------- satchel
 
   get inventoryOpen() {
     return !this.el.inv.classList.contains('hidden');
@@ -269,42 +439,94 @@ export class HUD {
 
   toggleInventory(on = !this.inventoryOpen) {
     this.el.inv.classList.toggle('hidden', !on);
+    this.carry = null;
     if (on) this.renderInventory();
   }
 
-  renderInventory() {
-    const g = this.el.grid;
-    g.innerHTML = '';
-    const ids = [...ITEM_IDS].sort((a, b) => {
-      const ka = this.inv.counts.has(a) ? 0 : 1, kb = this.inv.counts.has(b) ? 0 : 1;
-      return ka - kb || RARITY[ITEMS[b].rarity].order - RARITY[ITEMS[a].rarity].order;
-    });
-    for (const id of ids) {
-      const def = ITEMS[id];
-      const have = this.inv.counts.get(id) || 0;
+  buildSatchel() {
+    this.slotEls = [];
+    const make = (i, parent) => {
       const s = document.createElement('div');
-      s.className = `slot${have ? '' : ' unknown'}`;
-      s.style.setProperty('--rc', RARITY[def.rarity].color);
-      s.innerHTML = `<img src="${this.icons[id] || ''}">${have ? `<span class="count">${have}</span>` : ''}`;
-      s.addEventListener('mouseenter', () => this.detail(id, have));
-      g.appendChild(s);
-    }
-    this.el.total.textContent = this.inv.value;
-    this.el.coll.textContent = `${this.inv.discovered}/${ITEM_IDS.length}`;
+      s.className = 'slot';
+      s.innerHTML = '<img alt=""><span class="count"></span>';
+      s.addEventListener('mouseenter', () => {
+        const it = this.inv.slots[i];
+        if (it) this.detail(it.id);
+      });
+      s.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        if (ev.button === 2) {
+          // right-click: use a consumable / drop one of anything else
+          const it = this.inv.slots[i];
+          if (it && ITEMS[it.id].kind === 'use') this.onUse?.(i);
+          else if (it) this.onDrop?.(i);
+          return;
+        }
+        if (this.carry === null) {
+          if (this.inv.slots[i]) this.carry = i;
+        } else {
+          this.inv.move(this.carry, i);
+          this.carry = null;
+        }
+        this.renderInventory();
+      });
+      s.addEventListener('contextmenu', (ev) => ev.preventDefault());
+      parent.appendChild(s);
+      this.slotEls[i] = s;
+    };
+    for (let i = 0; i < HOTBAR; i++) make(i, this.el.belt);
+    for (let i = HOTBAR; i < this.inv.slots.length; i++) make(i, this.el.grid);
+    // recipes
+    this.recipeEls = RECIPES.map((r) => {
+      const card = document.createElement('div');
+      card.className = 'recipe';
+      card.innerHTML = `<img class="out" alt=""><div class="body"><div class="name"></div><div class="needs"></div></div><button>Craft</button>`;
+      card.querySelector('button').addEventListener('click', () => this.onCraft?.(r));
+      card.addEventListener('mouseenter', () => this.detail(r.out));
+      this.el.recipes.appendChild(card);
+      return { r, card };
+    });
   }
 
-  detail(id, have) {
+  renderInventory() {
+    this.inv.slots.forEach((s, i) => {
+      const el = this.slotEls[i];
+      el.classList.toggle('empty', !s);
+      el.classList.toggle('carry', this.carry === i);
+      el.classList.toggle('sel', i === this.inv.selected);
+      const img = el.querySelector('img');
+      const src = s ? this.icons[s.id] || '' : '';
+      if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+      el.querySelector('.count').textContent = s && s.n > 1 ? s.n : '';
+      el.style.setProperty('--rc', s ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
+    });
+    for (const { r, card } of this.recipeEls) {
+      const def = ITEMS[r.out];
+      const ok = this.inv.canAfford(r.needs);
+      card.classList.toggle('ok', ok);
+      card.style.setProperty('--rc', RARITY[def.rarity].color);
+      const img = card.querySelector('img.out');
+      if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
+      card.querySelector('.name').textContent = def.name;
+      card.querySelector('.needs').innerHTML = Object.entries(r.needs).map(([id, n]) => {
+        const have = this.inv.count(id);
+        return `<span class="${have >= n ? 'have' : 'miss'}" title="${ITEMS[id].name}"><img src="${this.icons[id] || ''}">${Math.min(have, n)}/${n}</span>`;
+      }).join('');
+      card.querySelector('button').disabled = !ok;
+    }
+    this.el.slots.textContent = `${this.inv.used}/${this.inv.slots.length}`;
+    this.el.relics.textContent = this.inv.relicValue;
+  }
+
+  detail(id) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
-    if (!have) {
-      this.el.detail.innerHTML = `<div class="detail-empty">Undiscovered ${r.name.toLowerCase()} item.<br>Keep exploring…</div>`;
-      return;
-    }
+    const have = this.inv.count(id);
     this.el.detail.innerHTML = `
-      <img src="${this.icons[id]}">
-      <h3>${def.name}</h3>
-      <div class="rar" style="color:${r.color}">${r.name}</div>
+      <img src="${this.icons[id] || ''}">
+      <div><h3>${def.name}</h3>
+      <div class="rar" style="color:${r.color}">${r.name} ${KIND[def.kind].name}${def.kind === 'relic' ? ` · offering ${def.value}` : ''}</div>
       <p>${def.desc}</p>
-      <div class="val">Value <b>${def.value}</b> · Owned <b>${have}</b> · Total <b>${def.value * have}</b></div>`;
+      <div class="val">Carrying <b>${have}</b></div></div>`;
   }
 }

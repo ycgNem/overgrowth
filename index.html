@@ -14,11 +14,17 @@
     <canvas id="game"></canvas>
     <div id="underwater"></div>
     <div id="vignette"></div>
+    <div id="hurt"></div>
 
     <div id="hud" class="hidden">
       <div id="compass">
         <div id="compass-strip"></div>
         <div id="compass-tick"></div>
+      </div>
+      <div id="phase">
+        <div class="title">Day 1</div>
+        <div class="sub"></div>
+        <div id="heart-bar" title="Heartwood"><div></div><span></span></div>
       </div>
       <div id="map-wrap">
         <canvas id="minimap" width="360" height="360"></canvas>
@@ -31,13 +37,20 @@
         <div class="key">E</div>
         <span class="label"></span>
       </div>
+      <div id="build-hint"></div>
       <div id="toasts"></div>
       <div id="bottom-left">
-        <div id="stats"><span id="stat-count">0</span> finds <i>·</i> <span id="stat-value">0</span> <small>value</small></div>
+        <div id="health"><div></div><span>100</span></div>
         <div id="stamina"><div></div></div>
       </div>
-      <div id="hint">LMB swing · E search · Tab satchel</div>
+      <div id="bottom-center">
+        <div id="held">Machete</div>
+        <div id="hotbar"></div>
+      </div>
+      <div id="hint">LMB swing · E gather · Tab satchel · 1–8 belt</div>
       <div id="discover"><small>Discovered</small><span></span></div>
+      <div id="banner"><b></b><span></span></div>
+      <div id="dead"><b>You fell</b><small>The Heartwood calls you back in <span>5</span></small></div>
       <div id="fps"></div>
     </div>
 
@@ -45,34 +58,51 @@
       <div class="inv-panel">
         <header>
           <h2>Satchel</h2>
-          <div class="inv-summary"><span id="inv-total">0</span> value · <span id="inv-collection">0/0</span> discovered</div>
+          <div class="inv-summary"><span id="inv-slots">0/32</span> slots · relics worth <span id="inv-relics">0</span></div>
         </header>
         <div class="inv-body">
-          <div id="inv-grid"></div>
-          <aside id="inv-detail">
-            <div class="detail-empty">Hover an item to inspect it.</div>
-          </aside>
+          <section class="inv-left">
+            <h4>Belt <small>1–8</small></h4>
+            <div id="inv-belt"></div>
+            <h4>Pack</h4>
+            <div id="inv-grid"></div>
+            <aside id="inv-detail"><div class="detail-empty">Hover an item to inspect it.</div></aside>
+          </section>
+          <section class="inv-right">
+            <h4>Craft</h4>
+            <div id="inv-recipes"></div>
+          </section>
         </div>
-        <footer>Tab / I to close</footer>
+        <footer>Click a stack to pick it up, click another slot to put it down · Right-click: use / drop · Tab to close</footer>
+      </div>
+    </div>
+
+    <div id="gameover" class="hidden">
+      <div class="menu-inner">
+        <div class="eyebrow">The Blight takes the clearing</div>
+        <h1>Overgrown</h1>
+        <p class="stats"></p>
+        <button id="again">Try again</button>
       </div>
     </div>
 
     <div id="menu">
       <div class="menu-inner">
-        <div class="eyebrow">A jungle scavenging demo</div>
+        <div class="eyebrow">Gather · Craft · Defend</div>
         <h1>Overgrowth</h1>
-        <p class="tag">Hack through the undergrowth. Dig through what the jungle swallowed.</p>
+        <p class="tag">Strip the jungle by day. Hold the Heartwood by night.</p>
         <div id="loading"><div id="loading-bar"></div><span id="loading-text">Growing the jungle…</span></div>
         <button id="play" disabled>Enter the jungle</button>
+        <label id="sens">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.05" value="1" /><output>1.00</output></label>
         <div class="controls">
-          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</div>
-          <div><kbd>Shift</kbd> sprint</div>
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> sprint</div>
           <div><kbd>Space</kbd> jump</div>
-          <div><kbd>LMB</kbd> swing machete</div>
-          <div><kbd>E</kbd> hold to search</div>
-          <div><kbd>Tab</kbd> satchel</div>
-          <div><kbd>T</kbd> fast-forward time</div>
-          <div><kbd>M</kbd> mute</div>
+          <div><kbd>LMB</kbd> swing machete / place</div>
+          <div><kbd>E</kbd> gather · search · offer</div>
+          <div><kbd>1</kbd>–<kbd>8</kbd> / wheel belt slot</div>
+          <div><kbd>R</kbd> rotate build · <kbd>RMB</kbd> use</div>
+          <div><kbd>Tab</kbd> satchel &amp; crafting</div>
+          <div><kbd>T</kbd> hold to skip daylight</div>
         </div>
       </div>
     </div>

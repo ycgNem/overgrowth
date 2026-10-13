@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { rustTexture } from '../art/textures.js';
+import { ITEMS } from './ItemDB.js';
+import { cloneModel, hasModel } from '../assets/Models.js';
 
 const TAU = Math.PI * 2;
 
@@ -32,6 +34,26 @@ function mats() {
     filament: std({ color: 0xff8a2a, emissive: 0xff6a10, emissiveIntensity: 2 }),
     turquoise: std({ color: 0x30d0c0, roughness: 0.3, emissive: 0x0a3030 }),
     orchid: std({ color: 0xf6f2ff, roughness: 0.4, emissive: 0x201a30 }),
+    bark: std({ color: 0x5e4330, roughness: 0.95 }),
+    wood: std({ color: 0xc49a68, roughness: 0.85 }),
+    woodInner: std({ color: 0xc49a68, roughness: 0.85, side: THREE.BackSide }),
+    woodDark: std({ color: 0x8a6644, roughness: 0.85 }),
+    stone: std({ color: 0x8e8a7e, roughness: 0.9, flatShading: true }),
+    flint: std({ color: 0x3e3f48, roughness: 0.25, metalness: 0.1, flatShading: true }),
+    flintEdge: std({ color: 0x8a8578, roughness: 0.6, flatShading: true }),
+    leaf: std({ color: 0x4b8a31, roughness: 0.7, side: THREE.DoubleSide }),
+    vine: std({ color: 0x4a6d25, roughness: 0.8 }),
+    resin: std({ color: 0xd88a1a, roughness: 0.15, emissive: 0x3a1a00 }),
+    capRed: std({ color: 0xc0402a, roughness: 0.5 }),
+    stem: std({ color: 0xe6dcc0, roughness: 0.7 }),
+    glowcap: std({ color: 0x6ab8ff, roughness: 0.4, emissive: 0x2a7aff, emissiveIntensity: 1.6 }),
+    berry: std({ color: 0x8a1a3a, roughness: 0.3 }),
+    clay: std({ color: 0x8a8278, roughness: 0.75 }),
+    feather: std({ color: 0xe8e2d2, roughness: 0.8, side: THREE.DoubleSide }),
+    featherTip: std({ color: 0x3a3f4a, roughness: 0.8, side: THREE.DoubleSide }),
+    bone: std({ color: 0xe4dcc4, roughness: 0.7 }),
+    moss: std({ color: 0x55802d, roughness: 1, flatShading: true }),
+    thorn: std({ color: 0x9a7a46, roughness: 0.6 }),
   };
   return M;
 }
@@ -222,11 +244,182 @@ const builders = {
   },
 };
 
+// a leaf blade shape (flat, pointed both ends) for vines, berries, poultices
+function leafGeo(len = 0.16, w = 0.07) {
+  const s = new THREE.Shape();
+  s.moveTo(0, 0);
+  s.quadraticCurveTo(w, len * 0.45, 0, len);
+  s.quadraticCurveTo(-w, len * 0.45, 0, 0);
+  return new THREE.ShapeGeometry(s, 6);
+}
+
+function lumpy(geo, amt, seed = 1) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const n = Math.sin(x * 31 + seed) * Math.cos(y * 27 + seed * 2) * Math.sin(z * 23 + seed * 3);
+    const k = 1 + n * amt;
+    p.setXYZ(i, x * k, y * k, z * k);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const forestBuilders = {
+  stick(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.018, 0.026, 0.5, 6), m.bark, { r: [0, 0, Math.PI / 2 - 0.1] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.14, 5), m.bark, { p: [0.06, 0.04, 0], r: [0, 0, -0.6] }));
+    g.add(mesh(new THREE.CircleGeometry(0.024, 6), m.wood, { p: [0.25, 0.025, 0], r: [0, Math.PI / 2, 0] }));
+    return g;
+  },
+  log(m) {
+    const g = new THREE.Group();
+    g.add(mesh(lumpy(new THREE.CylinderGeometry(0.11, 0.12, 0.42, 10, 3), 0.04), m.bark, { r: [0, 0, Math.PI / 2] }));
+    for (const s of [-1, 1]) {
+      g.add(mesh(new THREE.CircleGeometry(0.1, 10), m.wood, { p: [s * 0.212, 0, 0], r: [0, s * Math.PI / 2, 0] }));
+      g.add(mesh(new THREE.RingGeometry(0.045, 0.055, 10), m.woodDark, { p: [s * 0.214, 0, 0], r: [0, s * Math.PI / 2, 0] }));
+    }
+    return g;
+  },
+  stone(m) {
+    return mesh(lumpy(new THREE.DodecahedronGeometry(0.13, 1), 0.12, 3), m.stone, { s: [1.2, 0.8, 1] });
+  },
+  flint(m) {
+    const g = new THREE.Group();
+    g.add(mesh(lumpy(new THREE.OctahedronGeometry(0.13, 0), 0.15, 5), m.flint, { s: [1.3, 0.55, 0.9] }));
+    g.add(mesh(lumpy(new THREE.OctahedronGeometry(0.06, 0), 0.2, 7), m.flintEdge, { p: [0.08, 0.02, 0.03], s: [1, 0.5, 1] }));
+    return g;
+  },
+  vine(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.TorusGeometry(0.11, 0.014, 6, 30, Math.PI * 3.4), m.vine, { r: [Math.PI / 2, 0, 0] }));
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU;
+      g.add(mesh(leafGeo(), m.leaf, { p: [Math.cos(a) * 0.11, 0.01, Math.sin(a) * 0.11], r: [-1.1, a, 0.3] }));
+    }
+    return g;
+  },
+  bark(m) {
+    const g = new THREE.Group();
+    g.add(mesh(lumpy(new THREE.CylinderGeometry(0.12, 0.12, 0.3, 10, 2, true, 0, Math.PI * 0.9), 0.05), m.bark, { r: [0.2, 0, 0.3] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.112, 0.112, 0.29, 10, 1, true, 0, Math.PI * 0.9), m.woodInner, { r: [0.2, 0, 0.3] }));
+    return g;
+  },
+  resin(m) {
+    const g = new THREE.Group();
+    g.add(mesh(lumpy(new THREE.SphereGeometry(0.1, 12, 10), 0.18, 2), m.resin, { s: [1.2, 0.8, 1] }));
+    g.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), m.resin, { p: [0.09, -0.03, 0.04] }));
+    return g;
+  },
+  thorns(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.4, 5), m.vine, { r: [0, 0, Math.PI / 2 + 0.2] }));
+    for (let i = 0; i < 9; i++) {
+      const x = -0.17 + i * 0.042;
+      const a = i * 2.4;
+      g.add(mesh(new THREE.ConeGeometry(0.012, 0.07, 4), m.thorn, { p: [x, x * 0.2 + Math.cos(a) * 0.02, Math.sin(a) * 0.02], r: [a, 0, Math.cos(a) * 1.2] }));
+    }
+    return g;
+  },
+  mushroom(m) {
+    const g = new THREE.Group();
+    const cap = new THREE.SphereGeometry(0.11, 14, 8, 0, TAU, 0, Math.PI / 2);
+    g.add(mesh(new THREE.CylinderGeometry(0.028, 0.038, 0.16, 8), m.stem, { p: [0, -0.04, 0] }));
+    g.add(mesh(cap, m.capRed, { p: [0, 0.03, 0], s: [1, 0.65, 1] }));
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.3, e = 0.4 + (i % 3) * 0.3;
+      g.add(mesh(new THREE.SphereGeometry(0.014, 6, 4), m.stem, { p: [Math.cos(a) * Math.cos(e) * 0.11, 0.03 + Math.sin(e) * 0.07, Math.sin(a) * Math.cos(e) * 0.11], s: [1, 0.5, 1] }));
+    }
+    return g;
+  },
+  glowcap(m) {
+    const g = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const s = 1 - i * 0.25, a = i * 2.1;
+      const o = [Math.cos(a) * 0.06 * i, 0, Math.sin(a) * 0.06 * i];
+      g.add(mesh(new THREE.CylinderGeometry(0.012 * s, 0.016 * s, 0.16 * s, 6), m.stem, { p: [o[0], -0.04 * s, o[2]] }));
+      g.add(mesh(new THREE.ConeGeometry(0.06 * s, 0.07 * s, 10), m.glowcap, { p: [o[0], 0.06 * s, o[2]] }));
+    }
+    return g;
+  },
+  berries(m) {
+    const g = new THREE.Group();
+    for (let i = 0; i < 9; i++) {
+      const a = i * 2.4, r = 0.03 + (i % 3) * 0.025;
+      g.add(mesh(new THREE.SphereGeometry(0.032, 10, 8), m.berry, { p: [Math.cos(a) * r, (i % 2) * 0.03, Math.sin(a) * r] }));
+    }
+    g.add(mesh(leafGeo(0.18, 0.08), m.leaf, { p: [0.02, 0.04, 0], r: [-1.2, 0.4, 0] }));
+    g.add(mesh(leafGeo(0.15, 0.07), m.leaf, { p: [-0.02, 0.04, 0], r: [-1.3, 2.6, 0] }));
+    return g;
+  },
+  clay(m) {
+    return mesh(lumpy(new THREE.SphereGeometry(0.13, 14, 10), 0.08, 9), m.clay, { s: [1.3, 0.6, 1] });
+  },
+  feather(m) {
+    const g = new THREE.Group();
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.quadraticCurveTo(0.05, 0.15, 0.012, 0.36);
+    s.lineTo(-0.01, 0.36);
+    s.quadraticCurveTo(-0.04, 0.12, 0, 0);
+    g.add(mesh(new THREE.ShapeGeometry(s, 8), m.feather, { r: [0, 0, -0.5] }));
+    g.add(mesh(new THREE.PlaneGeometry(0.05, 0.06), m.featherTip, { p: [0.165, 0.29, 0.001], r: [0, 0, -0.5] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.004, 0.006, 0.42, 4), m.bone, { p: [0.09, 0.15, 0.002], r: [0, 0, -0.5] }));
+    return g;
+  },
+  bone(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.34, 8), m.bone, { r: [0, 0, Math.PI / 2] }));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.035, 8, 6), m.bone, { p: [sx * 0.17, 0, sz * 0.025] }));
+    return g;
+  },
+  moss(m) {
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.3;
+      g.add(mesh(lumpy(new THREE.IcosahedronGeometry(0.08, 1), 0.2, i), m.moss, { p: [Math.cos(a) * 0.07, 0, Math.sin(a) * 0.07], s: [1.2, 0.45, 1.2] }));
+    }
+    return g;
+  },
+  poultice(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.SphereGeometry(0.11, 12, 10), m.leaf, { s: [1, 0.75, 1] }));
+    for (let i = 0; i < 4; i++) g.add(mesh(leafGeo(0.22, 0.12), m.leaf, { p: [0, -0.05, 0], r: [-0.4, (i / 4) * TAU, 0] }));
+    g.add(mesh(new THREE.TorusGeometry(0.1, 0.012, 6, 16), m.rope, { r: [Math.PI / 2, 0, 0] }));
+    g.add(mesh(new THREE.SphereGeometry(0.03, 8, 6), m.berry, { p: [0, 0.08, 0] }));
+    return g;
+  },
+  spike_trap(m) {
+    return spikeTrapModel(m);
+  },
+};
+
+// Spike trap: also placed in the world, so it's exported.
+export function spikeTrapModel(m = mats()) {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 1.2), m.woodDark, { p: [0, 0.03, 0] }));
+  for (let i = 0; i < 4; i++) g.add(mesh(new THREE.BoxGeometry(1.24, 0.07, 0.08), m.bark, { p: [0, 0.05, -0.45 + i * 0.3] }));
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+      const x = -0.44 + i * 0.22 + (j % 2) * 0.05, z = -0.44 + j * 0.22;
+      g.add(mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.22, 5), m.bark, { p: [x, 0.15, z], r: [(i - 2) * 0.06, 0, (j - 2) * 0.06] }));
+      g.add(mesh(new THREE.ConeGeometry(0.022, 0.09, 4), m.flint, { p: [x + (j - 2) * 0.006, 0.3, z - (i - 2) * 0.006], r: [(i - 2) * 0.06, 0, (j - 2) * 0.06] }));
+    }
+  }
+  for (let i = 0; i < 6; i++) g.add(mesh(leafGeo(0.3, 0.14), m.leaf, { p: [-0.5 + i * 0.2, 0.08, (i % 2) * 0.5 - 0.25], r: [-1.45, i * 1.7, 0] }));
+  return g;
+}
+
 const cache = new Map();
 
 export function getItemModel(id) {
   if (!cache.has(id)) {
-    const g = builders[id] ? builders[id](mats()) : new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mats().steel);
+    const def = ITEMS[id];
+    const g = def?.model && hasModel(def.model) ? cloneModel(def.model)
+      : builders[id] ? builders[id](mats())
+        : forestBuilders[id] ? forestBuilders[id](mats())
+          : new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mats().steel);
     const root = new THREE.Group();
     root.add(g);
     // normalise to ~0.38m so every pickup reads well on the ground

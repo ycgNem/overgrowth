@@ -224,6 +224,75 @@ export class AudioSys {
     this.tone({ type: 'triangle', f0: 520, f1: 600, dec: 0.08, vol: 0.08 });
   }
 
+  // ------------------------------------------------------------- defence
+
+  craft() {
+    this.wood();
+    [1, 1.26, 1.5].forEach((m, i) => this.tone({ type: 'triangle', f0: 440 * m, dec: 0.18, vol: 0.08, delay: 0.08 + i * 0.05 }));
+  }
+
+  place() {
+    this.tone({ type: 'triangle', f0: 140, f1: 70, dec: 0.25, vol: 0.45 });
+    this.noiseShot({ type: 'lowpass', f0: 600, f1: 150, dec: 0.3, vol: 0.35 });
+  }
+
+  bowShot() {
+    this.tone({ type: 'triangle', f0: 220, f1: 110, a: 0.002, dec: 0.12, vol: 0.18 });
+    this.noiseShot({ f0: 2400, f1: 900, q: 2, a: 0.002, dec: 0.14, vol: 0.14 });
+  }
+
+  mortar() {
+    this.tone({ type: 'sine', f0: 120, f1: 50, a: 0.005, dec: 0.3, vol: 0.4 });
+    this.noiseShot({ type: 'lowpass', f0: 900, f1: 200, a: 0.01, dec: 0.35, vol: 0.25 });
+  }
+
+  sporePop() {
+    this.noiseShot({ type: 'lowpass', f0: 1400, f1: 200, a: 0.004, dec: 0.4, vol: 0.32 });
+    this.tone({ type: 'sine', f0: 300, f1: 90, dec: 0.25, vol: 0.18 });
+  }
+
+  zap() {
+    for (let i = 0; i < 5; i++) this.noiseShot({ type: 'highpass', f0: 4000 + Math.random() * 3000, a: 0.001, dec: 0.04, vol: 0.18, delay: i * 0.025 });
+    this.tone({ type: 'sawtooth', f0: 900, f1: 120, a: 0.002, dec: 0.18, vol: 0.06 });
+  }
+
+  stab() {
+    this.noiseShot({ f0: 1800, f1: 600, q: 3, a: 0.002, dec: 0.08, vol: 0.25 });
+  }
+
+  enemyHit() {
+    this.noiseShot({ f0: 700, f1: 300, q: 2, a: 0.002, dec: 0.1, vol: 0.3 });
+    this.tone({ type: 'sawtooth', f0: 260 + Math.random() * 80, f1: 180, dec: 0.08, vol: 0.05 });
+  }
+
+  enemyDie(big = false) {
+    const f = big ? 140 : 320;
+    this.tone({ type: 'sawtooth', f0: f * 1.4, f1: f * 0.4, a: 0.01, dec: big ? 0.6 : 0.35, vol: 0.09 });
+    this.noiseShot({ type: 'lowpass', f0: 1200, f1: 200, a: 0.01, dec: big ? 0.6 : 0.35, vol: 0.3 });
+  }
+
+  bite() {
+    this.noiseShot({ f0: 1200, f1: 500, q: 1.5, a: 0.003, dec: 0.07, vol: 0.2 });
+  }
+
+  hurt() {
+    this.tone({ type: 'square', f0: 180, f1: 90, a: 0.004, dec: 0.18, vol: 0.12 });
+    this.noiseShot({ type: 'lowpass', f0: 800, f1: 200, dec: 0.2, vol: 0.25 });
+  }
+
+  heartHurt() {
+    this.tone({ type: 'sine', f0: 330, f1: 160, a: 0.01, dec: 0.5, vol: 0.12 });
+    this.tone({ type: 'sine', f0: 495, f1: 240, a: 0.01, dec: 0.5, vol: 0.06 });
+  }
+
+  // the dusk horn: a long, low, slightly sour call
+  horn() {
+    if (!this.ctx) return;
+    for (const [f, v] of [[98, 0.16], [147, 0.08], [196, 0.05], [104, 0.06]]) {
+      this.tone({ type: 'sawtooth', f0: f, f1: f * 0.97, a: 0.5, dec: 2.6, vol: v });
+    }
+  }
+
   bird(pan) {
     const kind = Math.floor(Math.random() * 4);
     const v = 0.05 + Math.random() * 0.05;

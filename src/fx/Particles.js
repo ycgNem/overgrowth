@@ -124,6 +124,17 @@ export class Particles {
     }
   }
 
+  // a soft cloud of glowing spores (mortar hits, Blight deaths)
+  sporeBurst(pos, color, count = 30) {
+    for (let i = 0; i < count; i++) {
+      const p = this.base(pos, { spread: 0.8, speed: 5, up: 3, life: 1.4, size: 0.45, gravity: -0.6, drag: 3, color });
+      p.billboard = true;
+      p.additive = true;
+      p.shrink = true;
+      this.glow.spawn(p);
+    }
+  }
+
   update(dt, camera) {
     this.leaves.update(dt, camera);
     this.chips.update(dt, camera);

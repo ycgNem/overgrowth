@@ -6,6 +6,18 @@ import { clamp, damp } from '../utils/math.js';
 const EYE = 1.62;
 const RADIUS = 0.35;
 const SWIM_DEPTH = 1.25;
+const LOOK = 0.0018; // radians per mouse count at sensitivity 1
+const COYOTE = 0.12; // s after walking off a ledge that a jump still works
+const JUMP_BUFFER = 0.15; // s a jump press is remembered before landing
+
+export function loadSensitivity() {
+  try {
+    const v = parseFloat(localStorage.getItem('og.sensitivity'));
+    return Number.isFinite(v) ? v : 1;
+  } catch {
+    return 1;
+  }
+}
 
 export class Player {
   constructor(camera, world) {
@@ -26,8 +38,14 @@ export class Player {
     this.bobAmt = 0;
     this.landDip = 0;
     this.stepDist = 0;
-    this.sensitivity = 1;
+    this.sensitivity = loadSensitivity();
+    this.invertY = false;
     this.shake = 0;
+    this.airTime = 0;
+    this.jumpBuffer = 0;
+    this.hp = 100;
+    this.maxHp = 100;
+    this.hurtT = 0;
     camera.rotation.order = 'YXZ';
   }
 
@@ -41,8 +59,9 @@ export class Player {
   }
 
   look(dx, dy) {
-    this.yaw -= dx * 0.0022 * this.sensitivity;
-    this.pitch = clamp(this.pitch - dy * 0.0022 * this.sensitivity, -1.45, 1.45);
+    const k = LOOK * this.sensitivity;
+    this.yaw -= dx * k;
+    this.pitch = clamp(this.pitch - dy * k * (this.invertY ? -1 : 1), -1.45, 1.45);
   }
 
   update(dt, input, audio) {
@@ -88,9 +107,16 @@ export class Player {
     this.vel.x = damp(this.vel.x, wish.x * speed, accel, dt);
     this.vel.z = damp(this.vel.z, wish.z * speed, accel, dt);
 
-    if (input.hit('Space') && this.onGround && !this.swimming) {
+    // Jump: remember a press briefly (so one just before landing still counts) and
+    // allow it a moment after stepping off an edge.
+    if (dt > 0 && input.hit('Space')) this.jumpBuffer = JUMP_BUFFER;
+    else this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+    this.airTime = this.onGround ? 0 : this.airTime + dt;
+    if (this.jumpBuffer > 0 && this.airTime < COYOTE && this.vel.y <= 0.01 && !this.swimming) {
       this.vel.y = 5.8;
       this.onGround = false;
+      this.airTime = COYOTE;
+      this.jumpBuffer = 0;
       audio?.jump();
     }
 
@@ -148,9 +174,11 @@ export class Player {
     this.landDip = damp(this.landDip, 0, 6, dt);
     this.shake = damp(this.shake, 0, 10, dt);
 
-    // Smooth eye height so step-ups don't snap.
+    // Smooth eye height so step-ups don't snap. In the air the body already moves
+    // smoothly, so the eye follows it exactly (smoothing there made jumps rubbery).
     const eyeTarget = this.pos.y + EYE - this.landDip;
-    this.eyeY = Math.abs(eyeTarget - this.eyeY) > 2 ? eyeTarget : damp(this.eyeY, eyeTarget, 18, dt);
+    if (!this.onGround && !this.swimming) this.eyeY = eyeTarget;
+    else this.eyeY = Math.abs(eyeTarget - this.eyeY) > 2 ? eyeTarget : damp(this.eyeY, eyeTarget, 18, dt);
 
     const bobY = Math.abs(Math.sin(this.bob * Math.PI)) * 0.06 * this.bobAmt;
     const bobX = Math.sin(this.bob * Math.PI) * 0.035 * this.bobAmt;

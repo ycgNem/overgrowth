@@ -27,6 +27,7 @@ export class Pickups {
     this.world = world;
     this.items = [];
     this.glowTex = glowTexture();
+    this.canTake = () => true; // items stay put while the satchel is full
   }
 
   // auto: fly to the player even from a distance (loot from searches).
@@ -51,11 +52,13 @@ export class Pickups {
     this.scene.add(root);
     const a = Math.random() * Math.PI * 2;
     const sp = (1.2 + Math.random() * 1.8) * impulse;
-    this.items.push({
+    const item = {
       id, root, model, glow, rarity,
       vel: new THREE.Vector3(Math.cos(a) * sp, 4 + Math.random() * 2.5, Math.sin(a) * sp),
       age: 0, settled: false, ground: 0, phase: Math.random() * 10, magnet: false, auto,
-    });
+    };
+    this.items.push(item);
+    return item;
   }
 
   // Returns ids collected this frame.
@@ -67,7 +70,7 @@ export class Pickups {
       const pos = p.root.position;
       const dx = playerPos.x - pos.x, dy = playerPos.y + 0.9 - pos.y, dz = playerPos.z - pos.z;
       const d = Math.hypot(dx, dy, dz);
-      if (!p.magnet && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) p.magnet = true;
+      if (!p.magnet && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15)) && this.canTake(p.id)) p.magnet = true;
       if (p.magnet) {
         const speed = 4 + p.age * 3;
         pos.x += (dx / d) * speed * dt * Math.min(1, d * 2);
