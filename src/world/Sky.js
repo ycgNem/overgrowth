@@ -1,18 +1,18 @@
 // Sky dome, sun/moon, day-night cycle, fog and image-based lighting.
 import * as THREE from 'three';
 import { smoothstep, clamp } from '../utils/math.js';
-import { globalUniforms } from '../art/shaders.js';
+import { globalUniforms, fogSun } from '../art/shaders.js';
 
 const TAU = Math.PI * 2;
 const col = (hex) => new THREE.Color(hex);
 
 // Palette keyed by sun state; colours are authored in sRGB.
 const P = {
-  dayZenith: col('#3c78c8'), dayHorizon: col('#b9d3d6'), dayFog: col('#9db4a4'),
+  dayZenith: col('#3c78c8'), dayHorizon: col('#b4cdd3'), dayFog: col('#8ea69c'),
   setZenith: col('#2b3c6e'), setHorizon: col('#f39a5c'), setFog: col('#b48a6a'),
-  nightZenith: col('#0e1e40'), nightHorizon: col('#1c2c48'), nightFog: col('#16243a'),
+  nightZenith: col('#0e1e40'), nightHorizon: col('#1c2c48'), nightFog: col('#25344c'),
   sunDay: col('#fff0d4'), sunSet: col('#ff9248'), moon: col('#9fb8f0'),
-  hemiSkyDay: col('#cfe3ff'), hemiSkyNight: col('#4f669a'), hemiGround: col('#3a4a22'),
+  hemiSkyDay: col('#d9dccb'), hemiSkyNight: col('#4f669a'), hemiGround: col('#5a4f36'),
 };
 
 const vert = /* glsl */`
@@ -34,6 +34,15 @@ float noise(vec2 p) {
   return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
 }
 float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.03 + 17.1; a *= 0.5; } return s; }
+// cumulus coverage at a point of the cloud layer: warped fbm, puffy (billowed) detail
+float cloudAt(vec2 uv, float cover) {
+  vec2 w = vec2(fbm(uv * 0.6 + 3.1), fbm(uv * 0.6 - 7.7)) - 0.5;
+  vec2 q = uv + w * 0.9;
+  float base = fbm(q * 0.9);
+  float puff = 1.0 - abs(noise(q * 5.0) * 2.0 - 1.0);
+  float c = base + (puff - 0.5) * 0.12;
+  return smoothstep(0.52 - cover * 0.14, 0.78, c);
+}
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
@@ -45,14 +54,23 @@ void main() {
   col += uSunColor * smoothstep(0.99935, 0.9997, sd) * 18.0 * above;
   if (h > 0.0) {
     vec2 uv = d.xz / (h + 0.12) * 0.85 + vec2(uTime * 0.004, uTime * 0.0016);
-    float c = fbm(uv * 1.5);
-    c = smoothstep(0.5 - uCloud * 0.12, 0.86, c);
-    float fade = smoothstep(0.0, 0.22, h);
-    float shade = fbm(uv * 1.5 + vec2(0.06, 0.04) * 3.0);
-    vec3 lit = mix(uHorizon, vec3(1.0), 0.55) * (0.25 + 0.75 * (1.0 - uNight)) + uSunColor * pow(sd, 3.0) * 0.8 * above;
-    vec3 dark = mix(uZenith, uFog, 0.6) * 0.75;
-    vec3 cc = mix(lit, dark, smoothstep(0.42, 0.85, shade));
-    col = mix(col, cc, c * fade * 0.92);
+    float fade = smoothstep(0.0, 0.2, h);
+    // high cirrus: faint streaks stretched along the wind
+    vec2 cu = uv * vec2(0.6, 2.4) * 1.3 + vec2(uTime * 0.002, 0.0);
+    float ci = smoothstep(0.55, 0.9, fbm(cu)) * 0.35 * fade;
+    vec3 ciCol = mix(uHorizon, vec3(1.0), 0.5) * (0.2 + 0.8 * (1.0 - uNight)) + uSunColor * pow(sd, 6.0) * 0.5 * above;
+    col = mix(col, ciCol, ci);
+    // cumulus: density here, and toward the sun (light that had to get through)
+    float c = cloudAt(uv * 1.5, uCloud);
+    vec2 toSun = normalize(uSunDir.xz + vec2(1e-4)) * 0.05;
+    float occ = cloudAt(uv * 1.5 + toSun, uCloud) * 0.55 + cloudAt(uv * 1.5 + toSun * 2.5, uCloud) * 0.45;
+    float light = exp(-occ * 2.2);
+    // silver lining: thin edges facing the sun glow, thick bellies go grey-blue
+    float edge = (1.0 - smoothstep(0.0, 0.6, c)) * pow(sd, 4.0) * above;
+    vec3 sunlit = mix(uHorizon, vec3(1.0), 0.6) * (0.25 + 0.75 * (1.0 - uNight)) + uSunColor * (0.35 + 0.9 * pow(sd, 3.0)) * above;
+    vec3 belly = mix(uZenith, uFog, 0.65) * 0.62;
+    vec3 cc = mix(belly, sunlit, light) + uSunColor * edge * 1.4;
+    col = mix(col, cc, c * fade * 0.94);
     if (uNight > 0.01) {
       vec3 sp = d * 260.0;
       vec3 cell = floor(sp);
@@ -120,7 +138,10 @@ export class Sky {
     sh.camera.near = 1;
     sh.camera.far = 320;
     sh.bias = -0.0004;
-    sh.normalBias = 0.08;
+    sh.normalBias = 0.12;
+    // soft shadows that widen with distance from the caster (installSoftShadows): 2.5x the
+    // sun's own blur, for the light the canopy scatters
+    sh.radius = 2.5;
     scene.add(this.sun, this.sun.target);
 
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x334422, 0.6);
@@ -128,6 +149,9 @@ export class Sky {
 
     scene.fog = new THREE.FogExp2(0x9db4a4, 0.011);
     this.state = { day: 1, night: 0, twilight: 0, elev: 1 };
+    // scratch vectors for the light-space shadow snap
+    this._c = new THREE.Vector3(); this._t = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
+    this._lx = new THREE.Vector3(); this._ly = new THREE.Vector3(); this._lz = new THREE.Vector3();
     this.sunDir = new THREE.Vector3();
     this.update(0, new THREE.Vector3(), true);
   }
@@ -148,7 +172,7 @@ export class Sky {
     this.envTime = NaN;
   }
 
-  update(dt, focus, forceEnv = false, cover = 0) {
+  update(dt, focus, forceEnv = false, cover = 0, ahead = null) {
     this._time = (this._time + (dt * this.timeScale) / this.dayLength) % 1;
     const a = (this.time - 0.25) * TAU;
     const sunDir = this.sunDir.set(Math.cos(a), Math.sin(a), 0.38).normalize();
@@ -168,33 +192,54 @@ export class Sky {
     u.uSunColor.value.copy(P.sunDay).lerp(P.sunSet, clamp(twilight * 1.2, 0, 1));
     globalUniforms.uDay.value = day;
 
-    // Fog: thicker at dawn/dusk and at night, a touch denser under canopy.
-    this.scene.fog.color.copy(u.uFog.value);
-    this.scene.fog.density = 0.0105 + twilight * 0.004 + night * 0.006 + cover * 0.003;
+    // Fog: thicker at dawn/dusk and at night, a touch denser under canopy. Under the crowns the
+    // air is in their shade: a deep green haze with less of the sun's glow in it, not a milky veil
+    this.scene.fog.color.copy(u.uFog.value).multiplyScalar(1 - 0.4 * cover);
+    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002;
 
     // Sun by day, moon by night (same light, swapped direction).
     const moonUp = elev < -0.02;
     const L = moonUp ? sunDir.clone().negate() : sunDir;
     if (moonUp) {
       this.sun.color.copy(P.moon);
-      this.sun.intensity = 0.8 * smoothstep(0.0, 0.25, -elev);
+      this.sun.intensity = 1.4 * smoothstep(0.0, 0.25, -elev);
     } else {
       this.sun.color.copy(u.uSunColor.value);
       this.sun.intensity = 3.4 * smoothstep(-0.02, 0.2, elev);
     }
-    // Keep the shadow camera centred on the player, snapped to texels.
-    const texel = 96 / 2048;
-    const tx = Math.round(focus.x / texel) * texel, tz = Math.round(focus.z / texel) * texel;
-    this.sun.target.position.set(tx, focus.y, tz);
-    this.sun.position.set(tx + L.x * 150, focus.y + L.y * 150, tz + L.z * 150);
+    // the haze glows toward the sun (or, faintly, the moon)
+    const glow = (moonUp ? 0.1 * night : 0.6 * smoothstep(-0.04, 0.12, elev)) * (1 - 0.6 * cover);
+    fogSun.dir[0] = L.x; fogSun.dir[1] = L.y; fogSun.dir[2] = L.z;
+    fogSun.color[0] = this.sun.color.r * glow;
+    fogSun.color[1] = this.sun.color.g * glow;
+    fogSun.color[2] = this.sun.color.b * glow;
+    // valley mist: pools in the lows at dawn, burns off by midday, gathers again at dusk and night
+    const morning = Math.exp(-(((this.time - 0.27) / 0.06) ** 2));
+    fogSun.params[0] = 0.12 + 0.45 * Math.max(morning, twilight * 0.7) + 0.25 * night;
+    // Keep the shadow camera centred on the player (pushed ahead along the view, where the
+    // shadows are actually seen), snapped to whole texels *in the light's own view plane* so
+    // the shadow map's grid stays put in the world as the player moves (no crawling edges).
+    // The basis matches three's lookAt for the shadow camera (up = +y).
+    const texel = 96 / this.sun.shadow.mapSize.x;
+    const C = this._c.set(focus.x + (ahead ? ahead.x * 18 : 0), focus.y, focus.z + (ahead ? ahead.z * 18 : 0));
+    const lz = this._lz.copy(L).normalize();
+    const lx = this._lx.crossVectors(this._up, lz);
+    if (lx.lengthSq() < 1e-6) lx.set(1, 0, 0);
+    lx.normalize();
+    const ly = this._ly.crossVectors(lz, lx);
+    const su = Math.round(C.dot(lx) / texel) * texel, sv = Math.round(C.dot(ly) / texel) * texel, sw = C.dot(lz);
+    const T = this._t.copy(lx).multiplyScalar(su).addScaledVector(ly, sv).addScaledVector(lz, sw);
+    this.sun.target.position.copy(T);
+    this.sun.position.copy(T).addScaledVector(lz, 150);
     this.sun.target.updateMatrixWorld();
 
     this.hemi.color.copy(P.hemiSkyNight).lerp(P.hemiSkyDay, day);
     // Night keeps a cool moonlit fill so shadows hold detail instead of crushing to black.
     this.hemi.groundColor.copy(P.hemiGround).multiplyScalar(0.9 + 0.1 * day);
     // canopy only dims the daylight fill; at night ambient is all there is
-    this.hemi.intensity = (3.2 - 2.4 * day) * (1 - cover * 0.35 * day);
-    this.scene.environmentIntensity = (1.3 - 0.45 * day) * (1 - cover * 0.45 * day);
+    // the canopy map (render/Canopy.js) dims ambient per pixel under the crowns
+    this.hemi.intensity = 3.2 - 2.4 * day;
+    this.scene.environmentIntensity = 1.3 - 0.45 * day;
 
     this.dome.position.copy(focus);
 

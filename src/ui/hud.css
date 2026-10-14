@@ -29,7 +29,7 @@ html, body {
 
 #vignette {
   position: fixed; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(5,10,3,0.55) 100%);
+  /* the vignette is part of the post grade (PostFX); this layer stays for overlays */
 }
 
 #underwater {
@@ -388,6 +388,12 @@ html, body {
 #settings { display: flex; justify-content: center; align-items: center; gap: 26px; margin-top: 16px; }
 #bloom-opt { font-size: 16px; color: var(--ink-dim); display: flex; gap: 6px; align-items: center; cursor: pointer; }
 #bloom-opt input { accent-color: var(--brass); }
+#quality-opt { font-size: 16px; color: var(--ink-dim); display: flex; gap: 8px; align-items: center; letter-spacing: 0.04em; }
+#quality-opt select {
+  font: inherit; color: var(--ink); background: rgba(255,255,255,0.06); border: 1px solid rgba(243,234,210,0.3);
+  border-radius: 4px; padding: 2px 6px; cursor: pointer;
+}
+#quality-opt option { color: #1a1a14; }
 #sens { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; color: var(--ink-dim); letter-spacing: 0.04em; }
 #sens input { width: 200px; accent-color: var(--brass); }
 #sens output { width: 36px; color: var(--ink); font-weight: 600; text-align: left; }

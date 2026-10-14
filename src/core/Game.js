@@ -6,17 +6,19 @@
 // slingshot hold them off until dawn. Relics offered at the Heartwood earn boons; every fifth
 // night the Thornback comes; hold ten nights and the Heartwood blooms.
 import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { PostFX } from '../render/PostFX.js';
+import { TextureLib } from '../art/TextureLib.js';
+import { setDetailTextures } from '../art/merge.js';
+import { CanopyMap, installCanopy, canopyBox } from '../render/Canopy.js';
 import { globalUniforms } from '../art/shaders.js';
 import { Flora } from '../world/flora/Flora.js';
 import { World } from '../world/World.js';
+import { Litter } from '../world/Litter.js';
+import { Cover } from '../world/Cover.js';
 import { Sky } from '../world/Sky.js';
 import { Water } from '../world/Water.js';
 import { findSpawn, terrainHeight, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
-import { POI_INFO, poisAround } from '../world/poi/POI.js';
+import { POI_INFO, poisAround, buildPOI } from '../world/poi/POI.js';
 import { Player } from '../player/Player.js';
 import { Machete } from '../player/Machete.js';
 import { Input } from './Input.js';
@@ -58,10 +60,14 @@ const ease = (t) => 1 - (1 - t) ** 3;
 export class Game {
   constructor(canvas, { debug = false, time = null } = {}) {
     this.debug = debug;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // no canvas MSAA: the scene is drawn into multisampled targets by PostFX
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // the sun crawls and the shadow box is snapped to texels: every other frame is plenty
+    this.renderer.shadowMap.autoUpdate = false;
+    this.frameNo = 0;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.autoClear = false;
@@ -69,6 +75,9 @@ export class Game {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 1000);
     this.input = new Input(canvas);
+    // per-pixel sky occlusion under the tree crowns (must hook the shaders before any compile)
+    this.canopy = new CanopyMap();
+    installCanopy(this.canopy.texture);
     this.audio = new AudioSys();
     this.inventory = new Inventory();
     this.hud = new HUD(this.inventory);
@@ -78,6 +87,7 @@ export class Game {
     this.modal = null; // 'perks' | 'victory' | 'over' while an overlay owns the mouse
     this.startTime = time;
     this.cover = 0;
+    this._ahead = new THREE.Vector3();
     this.search = null;
     this.searchT = 0;
     this.searchKey = null;
@@ -109,14 +119,36 @@ export class Game {
     addEventListener('resize', () => this.resize());
   }
 
+  // High / Medium / Low: the costly parts a slower machine can do without
+  setQuality(q) {
+    this.quality = q;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * (q === 'low' ? 0.75 : 1));
+    this.resize();
+    this.post.enabled.ao = q !== 'low';
+    this.post.enabled.vol = q === 'high';
+    globalUniforms.uPom.value = q === 'low' ? 0 : 1;
+    // billboard light shafts only where the ray-marched ones are off
+    this.ambient.shaftScale = q === 'high' ? 0 : 1;
+    for (const m of [...this.litter.meshes, ...this.groundCover.meshes]) m.visible = q !== 'low';
+    const sh = this.sky.sun.shadow, size = q === 'low' ? 1024 : 2048;
+    // soft contact-hardening shadows above Low (see installSoftShadows); Low keeps plain PCF
+    sh.radius = q === 'low' ? 1 : 2.5;
+    if (sh.mapSize.x !== size) {
+      sh.mapSize.set(size, size);
+      sh.map?.dispose();
+      sh.map = null;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
   resize() {
     const w = innerWidth, h = innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    if (this.composer) {
-      this.composer.setSize(w, h);
-      this.bloomPass.resolution.set(w / 2, h / 2);
+    if (this.post) {
+      const s = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+      this.post.setSize(s.x, s.y);
     }
   }
 
@@ -124,9 +156,12 @@ export class Game {
     progress(0.03, 'Carving the Heartwood…');
     let loaded = 0;
     await loadModels(() => progress(0.03 + (++loaded / MODEL_NAMES.length) * 0.12, 'Carving the Heartwood…'));
-    progress(0.15, 'Painting leaves…');
+    progress(0.15, 'Gathering leaves…');
+    const lib = await new TextureLib(this.renderer).load((p) => progress(0.15 + p * 0.15, 'Gathering leaves…'));
+    setDetailTextures(lib);
+    progress(0.3, 'Growing the plants…');
     await nextFrame();
-    this.flora = new Flora();
+    this.flora = new Flora(lib);
     progress(0.35, 'Raising the terrain…');
     await nextFrame();
     this.sky = new Sky(this.scene, this.renderer);
@@ -143,12 +178,16 @@ export class Game {
     progress(0.5, 'Growing the jungle…');
     await nextFrame();
     this.world.update(this.player.pos.x, this.player.pos.z, 0, true);
+    this.litter = new Litter(this.scene, this.world, lib);
+    this.litter.update(this.player.pos.x, this.player.pos.z);
+    this.groundCover = new Cover(this.scene, this.world);
+    this.groundCover.update(this.player.pos.x, this.player.pos.z);
 
     progress(0.62, 'Mapping the Blight’s paths…');
     await nextFrame();
     this.field = new FlowField(this.world, this.base.x, this.base.z, GOAL_RADIUS);
     this.field.rebuild([]);
-    this.rifts = pickRifts(this.field, this.base.x, this.base.z, 3, Math.round(sp.x + sp.z)).map((r) => new Rift(this.scene, r.x, r.z));
+    this.rifts = pickRifts(this.field, this.base.x, this.base.z, 5, Math.round(sp.x + sp.z)).map((r) => new Rift(this.scene, r.x, r.z, r.night));
     this.enemies = new Enemies(this.scene);
     this.buildings = new Buildings(this.scene, this.world);
     this.ghost = new BuildGhost(this.scene);
@@ -157,17 +196,23 @@ export class Game {
     this.projectiles = new Projectiles(this.scene);
     this.hud.markers = [
       { key: 'heartwood', x: this.base.x, z: this.base.z, icon: '❦', label: 'Heartwood', cls: 'base' },
-      ...this.rifts.map((r, i) => ({ key: `rift${i}`, x: r.x, z: r.z, icon: '✶', label: 'Rift', cls: 'rift' })),
     ];
+    this.showRifts(1);
     this.heartMarker = this.hud.markers[0];
     this.waves = new Waves({ sky: this.sky, enemies: this.enemies, rifts: this.rifts, hud: this.hud, audio: this.audio, world: this.world, base: this.base });
     this.waves.onDay = () => {
       this.weather.target = 0;
       this.autosave();
     };
-    this.waves.onNight = () => this.journal.event('night');
+    this.waves.onNight = (n) => {
+      this.showRifts(n);
+      this.journal.event('night');
+      this.bloomUsed = false;
+      this.rootT = 6;
+    };
     this.waves.onDawn = (_held, won) => {
       this.weather.target = 0;
+      if (this.mods.harvest) this.harvestDawn();
       if (won) this.onVictory();
     };
     this.waves.onOver = () => this.onDefeat();
@@ -177,7 +222,7 @@ export class Game {
     this.machete = new Machete(this.camera.fov);
     this.machete.onHit = (combo) => this.onSwingHit(combo);
     this.machete.onUse = () => this.finishUse();
-    this.particles = new Particles(this.scene, this.flora.textures.leaf);
+    this.particles = new Particles(this.scene, this.flora.lib);
     this.ambient = new Ambient(this.scene, this.world, this.sky);
     this.pickups = new Pickups(this.scene, this.world);
     this.pickups.canTake = (id) => this.inventory.fits(id, 1);
@@ -196,14 +241,9 @@ export class Game {
     this.player.update(0.016, this.input, null);
     this.sky.update(0, this.player.pos, true);
 
-    // bloom: emissive things (the Heart, rifts, fire, lightning) glow without clipping to white
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
-    this.composer = new EffectComposer(this.renderer, rt);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.45, 1.15);
-    this.composer.addPass(this.bloomPass);
-    this.composer.addPass(new OutputPass());
+    // HDR pipeline: AO, sun shafts, bloom (emissives glow without clipping), then the grade
+    this.post = new PostFX(this.renderer, this.scene, this.camera, this.sky);
+    this.post.water = this.water;
     this.resize();
 
     progress(0.9, 'Warming up shaders…');
@@ -216,11 +256,31 @@ export class Game {
     this.particles.ring(new THREE.Vector3(this.base.x, this.base.y, this.base.z), 1);
     this.buildings.arc(new THREE.Vector3(this.base.x, this.base.y + 3, this.base.z), new THREE.Vector3(this.base.x + 2, this.base.y + 2, this.base.z));
     this.projectiles.stone(new THREE.Vector3(this.base.x, this.base.y + 40, this.base.z), new THREE.Vector3(), 0);
+    // every point-of-interest kit and every plant, buried under the player where the shadow
+    // camera still sees them: their programs (and shadow-depth variants) compile now, not the
+    // first time a temple or wreck streams in
+    const warmGroups = [];
+    const gy = terrainHeight(this.player.pos.x, this.player.pos.z) - 25;
+    for (const type of Object.keys(POI_INFO)) {
+      const res = buildPOI({ type, key: `warm:${type}`, x: this.player.pos.x, z: this.player.pos.z, y: gy, rot: 0, seed: 7, radius: POI_INFO[type].radius }, this.flora);
+      this.scene.add(res.group);
+      warmGroups.push(res.group);
+    }
+    warmGroups.push(this.world.warmFlora(this.player.pos.x, gy, this.player.pos.z));
+    // compile for the target play renders into: PostFX's linear half-float scene buffer. Bound
+    // to the canvas (sRGB, tone mapped) every program came out a different variant and was
+    // compiled again mid-game, a 0.5-1.5 s freeze the first time each kit streamed in
+    this.renderer.setRenderTarget(this.post.sceneRT);
     try {
       await this.renderer.compileAsync(this.scene, this.camera);
     } catch {
       this.renderer.compile(this.scene, this.camera);
     }
+    this.renderer.shadowMap.needsUpdate = true;
+    this.renderer.setRenderTarget(this.post.sceneRT);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    for (const g of warmGroups) this.scene.remove(g);
     for (const e of warm) this.scene.remove(e.obj);
     this.enemies.list = [];
     this.buildings.remove(wb);
@@ -246,12 +306,22 @@ export class Game {
   // Put the player beside the Heartwood, facing it.
   respawn() {
     const a = 2.2;
-    const x = this.base.x + Math.sin(a) * 10, z = this.base.z + Math.cos(a) * 10;
+    const x = this.base.x + Math.sin(a) * 16, z = this.base.z + Math.cos(a) * 16;
     this.player.spawn(x, z);
     this.player.vel.set(0, 0, 0);
     this.player.yaw = Math.atan2(-(this.base.x - x), -(this.base.z - z));
     this.player.pitch = 0.05;
     this.player.hp = this.player.maxHp;
+  }
+
+  // map markers for every rift that has opened by night n (the late ones appear when they tear)
+  showRifts(n) {
+    this.rifts.forEach((r, i) => {
+      const key = `rift${i}`;
+      if (r.night <= n && !this.hud.markers.some((m) => m.key === key)) {
+        this.hud.markers.push({ key, x: r.x, z: r.z, icon: '✶', label: 'Rift', cls: 'rift' });
+      }
+    });
   }
 
   // Debug helper: game.teleport('temple') jumps next to the nearest POI.
@@ -312,7 +382,9 @@ export class Game {
     this.player.maxHp = d.player?.maxHp || 100;
     this.player.hp = this.player.maxHp;
     this.waves.setNight(d.night);
+    this.showRifts(d.night);
     this.waves.won = !!d.won;
+    if (this.waves.won) this.base.bloom(this.flora, true);
     this.sky.time = DAWN + 0.004;
     this.perks = d.perks || [];
     const dummy = { base: { maxHp: 0, hp: 0 }, player: { maxHp: 0, hp: 0 } };
@@ -399,8 +471,10 @@ export class Game {
       hits.push([d, c]);
     }
     hits.sort((a, b) => a[0] - b[0]);
+    let heavy = false;
     for (const [, c] of hits.slice(0, 7)) {
-      this.world.cutPlant(c);
+      this.world.cutPlant(c, { x: c.x - p.x, z: c.z - p.z });
+      if (c.r >= 1) heavy = true;
       cut++;
       this.journal.event('cut');
       const center = new THREE.Vector3(c.x, c.y + 0.5 * Math.min(1.5, c.r), c.z);
@@ -410,6 +484,12 @@ export class Game {
       if (c.type === 'flower' && c.v === 2) table = 'mushrooms';
       else if (c.type === 'seedling') table = 'seedling';
       this.loot(table, center.clone().add(new THREE.Vector3(0, 0.3, 0)), 1);
+    }
+
+    // a thick stem bites back a little
+    if (heavy) {
+      this.machete.bite(0.5);
+      this.hitStop = Math.max(this.hitStop, 0.03);
     }
 
     // Smash one breakable (crates, urns, chests).
@@ -518,6 +598,8 @@ export class Game {
       if (facing < (it.kind === 'forage' ? 0.7 : d > it.r + 1.4 ? 0.8 : 0.45)) continue;
       // small things on the floor need you to actually look down at them
       if (it.kind === 'forage' && d > 1.2 && this.player.pitch > -0.25) continue;
+      // at night the Heartwood only asks for attention when you carry something to offer
+      if (it.kind === 'base' && this.waves.phase === 'night' && !this.inventory.relicValue) continue;
       const score = facing * 2 - d - (it.kind === 'base' || it.kind === 'building' ? 1.5 : 0);
       if (score > bs) { bs = score; best = it; }
     }
@@ -920,6 +1002,12 @@ export class Game {
     this.audio.enemyDie(e.type !== 'blightling' && e.type !== 'wisp');
     this.loot(e.def.loot, at, 0.8);
     if (this.mods.killHeal && this.playerAlive) this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.mods.killHeal);
+    // Rotting Bloom: a slowed Blight bursts into spores that slow its neighbours
+    if (this.mods.sporeBurst && e.slowT > 0 && e.slow < 1) {
+      for (const o of this.enemies.inRadius(e.pos.x, e.pos.z, 4, { ground: true })) this.enemies.slowDown(o, 0.5, 3);
+      this.particles.sporeBurst(at, 0xa0e040, 30, 1.2);
+      this.particles.ring(e.pos.clone(), 4, 0x9ae040, 0.5);
+    }
     if (opts.source === 'sling') this.hud.hitmarker(true, opts.crit);
     if (e.def.boss) {
       this.stats.bosses++;
@@ -947,8 +1035,55 @@ export class Game {
     }
   }
 
+  // Harvest Dawn: each tower brings in two building materials
+  harvestDawn() {
+    const POOL = ['stick', 'stick', 'stone', 'fiber', 'vine', 'bark', 'resin', 'thorns', 'flint'];
+    let n = 0;
+    for (const b of this.buildings.list) {
+      if (['wall', 'trap', 'snare'].includes(b.def.kind)) continue;
+      for (let k = 0; k < 2; k++) this.collect(POOL[Math.floor(this.rand() * POOL.length)], 1, true);
+      this.particles.sparkle(new THREE.Vector3(b.x, b.y + 2, b.z), 0xffe08a, 6);
+      n++;
+    }
+    if (n) this.hud.message(`Harvest Dawn: your ${n} tower${n > 1 ? 's' : ''} brought in supplies`, '#ffe08a');
+  }
+
+  // Grasping Roots: at night the Heartwood seizes the Blight closest to it
+  rootPulse(dt) {
+    if (!this.mods.rootPulse || this.waves.phase !== 'night') return;
+    this.rootT = (this.rootT ?? 6) - dt;
+    if (this.rootT > 0) return;
+    this.rootT = 12;
+    const b = this.base;
+    const near = this.enemies.inRadius(b.x, b.z, 18, { ground: true })
+      .sort((p, q) => Math.hypot(p.pos.x - b.x, p.pos.z - b.z) - Math.hypot(q.pos.x - b.x, q.pos.z - b.z))
+      .slice(0, 4);
+    for (const e of near) {
+      this.enemies.root(e, 2.5);
+      this.enemies.damage(e, 10, this.combatCtx, null, { source: 'tower', stagger: 0.3 });
+      this.particles.chipBurst(e.pos.clone().setY(e.pos.y + 0.3), 0x5a4026, 18, e.pos.y);
+      this.particles.ring(e.pos.clone(), 1.4, 0x9ad060, 0.5);
+    }
+    if (near.length) this.audio.snare?.();
+  }
+
   hitBase(dmg, e) {
     this.base.damage(dmg);
+    // Last Bloom: once a night the failing Heartwood bursts and throws the Blight back
+    if (this.mods.lastBloom && !this.bloomUsed && this.base.hp > 0 && this.base.hp < this.base.maxHp * 0.3) {
+      this.bloomUsed = true;
+      const b = this.base;
+      b.heal(b.maxHp * 0.25);
+      for (const o of this.enemies.inRadius(b.x, b.z, 12)) {
+        const knock = new THREE.Vector3(o.pos.x - b.x, 0, o.pos.z - b.z).normalize().multiplyScalar(9);
+        this.enemies.damage(o, 60, this.combatCtx, knock, { source: 'tower', stagger: 0.8 });
+      }
+      this.particles.ring(new THREE.Vector3(b.x, b.y + 0.5, b.z), 12, 0x9affc0, 1.0);
+      this.particles.sporeBurst(b.heartPos, 0xc8ffd8, 80, 2.2);
+      this.lights.flash(b.heartPos, 0xa0ffc8, 160, 0.7, 40);
+      this.player.shake = Math.max(this.player.shake, 0.6);
+      this.hud.message('Last Bloom: the Heartwood bursts!', '#9affc0');
+    }
     this.audio.heartHurt();
     if (this.mods.heartThorns && e) this.enemies.damage(e, this.mods.heartThorns, this.combatCtx, null, { source: 'tower' });
     if (Math.random() < 0.35) this.particles.sparkle(this.base.heartPos, 0xff9070, 4);
@@ -1055,6 +1190,9 @@ export class Game {
   }
 
   onVictory() {
+    this.base.bloom(this.flora);
+    this.lights.flash(this.base.heartPos, 0xffe8a0, 200, 1.2, 50);
+    this.particles.sporeBurst(this.base.heartPos, 0xfff0c8, 120, 3);
     this.audio.victory();
     this.hud.banner('The Heartwood blooms', 'Ten nights held.', 'win');
     this.particles.sparkle(this.base.heartPos, 0xb8ffcf, 60);
@@ -1194,7 +1332,10 @@ export class Game {
 
     const pos = this.player.pos;
     this.world.update(pos.x, pos.z, dt);
-    this.water.update(pos);
+    this.litter.update(pos.x, pos.z);
+    this.groundCover.update(pos.x, pos.z);
+    this.canopy.update(this.world, this.flora, pos.x, pos.z, this.renderer);
+    this.water.update(pos, this.world);
 
     // ---- defence
     if (this.buildings.changed) {
@@ -1229,6 +1370,7 @@ export class Game {
         onWindup: (e, kind) => this.onWindup(e, kind),
       });
       if (this.playerAlive) this.shovePlayer();
+      this.rootPulse(dt);
       this.buildings.update(dt, t, ctx);
       this.projectiles.update(dt, {
         ...ctx,
@@ -1247,7 +1389,7 @@ export class Game {
     this.alertT -= realDt;
     this.alertHold -= realDt;
     if (this.alertHold <= 0) this.heartMarker.alert = false;
-    this.base.update(dt, t, this.sky.state.night);
+    this.base.update(dt, t, this.sky.state.night, this.particles);
     for (const r of this.rifts) r.update(dt, t, this.particles, this.lights);
 
     // canopy cover dims ambient light under big trees
@@ -1260,7 +1402,10 @@ export class Game {
       }
     }
     this.cover = damp(this.cover, cover, 1.5, dt);
-    this.sky.update(dt, pos, false, this.cover);
+    // and the crowns overhead in general darken the haze (deep green under the forest, bright in gaps)
+    this.haze = damp(this.haze ?? 0, this.canopy.coverAround(pos.x, pos.z, 10), 0.8, dt);
+    this.camera.getWorldDirection(this._ahead).setY(0).normalize();
+    this.sky.update(dt, pos, false, Math.max(this.cover, this.haze), this._ahead);
     this.weather.update(realDt, t, this.camera, this.sky, this.audio, this.sky.state.night);
     this.hud.lightning(this.weather.uniforms.uFlash.value);
     this.lights.update(realDt, pos);
@@ -1309,9 +1454,9 @@ export class Game {
     this.machete.root.visible = this.playerAlive && !over && !this.paused;
     this.machete.update(realDt, this.camera, this.player, {
       dir: sun.position.clone().sub(sun.target.position).normalize(),
-      color: sun.color, intensity: sun.intensity * (1 - this.cover * 0.65),
-      hemiSky: this.sky.hemi.color, hemiGround: this.sky.hemi.groundColor, hemiIntensity: this.sky.hemi.intensity,
-      env: this.scene.environment, envIntensity: this.scene.environmentIntensity,
+      color: sun.color, intensity: sun.intensity * (1 - this.cover * 0.65) * (1 - 0.85 * (this.shade ?? 0)),
+      hemiSky: this.sky.hemi.color, hemiGround: this.sky.hemi.groundColor, hemiIntensity: this.sky.hemi.intensity * (1 - 0.72 * (this.shade ?? 0)),
+      env: this.scene.environment, envIntensity: this.scene.environmentIntensity * (1 - 0.72 * (this.shade ?? 0)),
     }, { draw: this.draw, aim: this.aimK, loaded: this.inventory.count('stone') + this.inventory.count('scrap_shot') > 0 });
 
     this.hud.frame(realDt, {
@@ -1322,16 +1467,16 @@ export class Game {
       camera: this.camera, boss: this.enemies.boss, journal: this.journal.lines(this.waves.phase),
     });
 
-    const r = this.renderer;
-    if (this.bloom && this.composer) {
-      this.composer.render(realDt);
-    } else {
-      r.setRenderTarget(null);
-      r.clear();
-      r.render(this.scene, this.camera);
-    }
-    r.clearDepth();
-    r.render(this.machete.scene, this.machete.camera);
+    this.post.enabled.bloom = this.bloom;
+    // eye adaptation: under the canopy the eye opens up, so sunlit gaps blaze
+    this.shade = damp(this.shade ?? 0, this.canopy.coverAt(pos.x, pos.z), 1.2, realDt);
+    // at night the eye opens up too, and the crowns hide less of a sky that's dark anyway
+    // (opening up a full stop in shade bleached the sunlit leaves beyond it white)
+    this.post.exposure = Math.pow(2, this.shade * 0.6 * this.sky.state.day + 0.6 * this.sky.state.night);
+    if (canopyBox[3] > 0) canopyBox[3] = 0.35 + 0.2 * this.sky.state.day;
+    this.frameNo++;
+    this.renderer.shadowMap.needsUpdate = this.frameNo % 2 === 0 || this.sky.timeScale > 2;
+    this.post.render(realDt, this.machete);
     input.endFrame();
   }
 }

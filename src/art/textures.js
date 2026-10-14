@@ -487,15 +487,6 @@ export function broadLeafTexture(seed, { hue = 100, sat = 50, light = 30, heart 
   return alphaTexture(c);
 }
 
-// Single leaf for particles.
-export function singleLeafTexture() {
-  const S = 64;
-  const c = makeCanvas(S);
-  const ctx = c.getContext('2d');
-  drawLeaf(ctx, 4, S / 2, 0, S - 8, 14, 100, 50, 38);
-  return alphaTexture(c);
-}
-
 // --------------------------------------------------------- tiled surfaces
 
 export function barkTexture(seed, { hue = 26, sat = 20, light = 30 } = {}) {

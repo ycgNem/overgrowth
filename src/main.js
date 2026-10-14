@@ -1,10 +1,12 @@
 // Entry point: install shader overrides, boot the game, wire up the menu.
-import { installFog } from './art/shaders.js';
+import { installFog, installSoftShadows } from './art/shaders.js';
 import { Game } from './core/Game.js';
 import { loadSensitivity } from './player/Player.js';
 import { loadSave, clearSave, loadBest } from './core/Save.js';
 
 installFog();
+// the sun's shadow camera (Sky.js): 96 m across, 1-320 m deep
+installSoftShadows({ width: 96, depth: 319 });
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -18,6 +20,8 @@ const bar = $('#loading-bar');
 const text = $('#loading-text');
 
 const game = new Game($('#game'), { debug, time });
+// the frame counter is a developer tool
+if (!debug) $('#fps')?.classList.add('hidden');
 window.game = game; // handy for poking at things from the console
 
 const save = debug ? null : loadSave();
@@ -99,6 +103,23 @@ bloom.addEventListener('change', () => {
   }
 });
 
+// render quality, remembered between visits (applied once the renderer is built)
+const quality = $('#quality-opt select');
+try {
+  quality.value = localStorage.getItem('og.quality') || 'high';
+} catch {
+  // default high
+}
+quality.addEventListener('change', () => {
+  game.setQuality(quality.value);
+  quality.blur();
+  try {
+    localStorage.setItem('og.quality', quality.value);
+  } catch {
+    // storage blocked
+  }
+});
+
 const best = loadBest();
 if (best.nights > 0) $('#best').innerHTML = `Best run: <b>${best.nights}</b> night${best.nights === 1 ? '' : 's'} held`;
 
@@ -106,6 +127,7 @@ game.init((p, msg) => {
   bar.style.width = `${Math.round(p * 100)}%`;
   text.textContent = msg;
 }).then(() => {
+  game.setQuality(quality.value);
   play.disabled = false;
   $('#loading').style.opacity = '0.5';
   if (save) {

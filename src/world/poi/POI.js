@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as T from '../../art/textures.js';
-import { addMoss, addNightFill } from '../../art/shaders.js';
-import { worldBox, taperedTube } from '../flora/geom.js';
+import { addMoss, addNightFill, addPackedNormal } from '../../art/shaders.js';
+import { worldBox, BlockBatch, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
 import { terrainHeight, terrainNormal, CHUNK_SIZE } from '../WorldGen.js';
 import { getItemModel } from '../../items/ItemModels.js';
@@ -86,28 +86,36 @@ export function poisAround(cx, cz, r = 1) {
 let KIT = null;
 function kit(flora) {
   if (KIT) return KIT;
-  const moss = flora.textures.moss;
-  const stoneTex = T.stoneBlockTexture(61);
-  const stone = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.92 });
-  addMoss(stone, moss, { amount: 0.6, scale: 0.25 });
+  const moss = flora.textures.moss, flat = flora.textures.mossFlat;
+  // generated surfaces (TextureLib): albedo + packed normal maps
+  const lib = flora.lib.surface;
+  const stone = new THREE.MeshStandardMaterial({ map: lib.stone.map, normalMap: lib.stone.nmap, roughness: 0.9, envMapIntensity: 0.5 });
+  addPackedNormal(stone);
+  addMoss(stone, moss, { amount: 0.6, scale: 0.25, flat });
   addNightFill(stone, 0.45);
-  const rubble = new THREE.MeshStandardMaterial({ map: flora.textures.rock, roughness: 0.9 });
-  addMoss(rubble, moss, { amount: 0.55 });
+  const rubble = new THREE.MeshStandardMaterial({ map: lib.rock.map, normalMap: lib.rock.nmap, roughness: 0.88, envMapIntensity: 0.5 });
+  addPackedNormal(rubble);
+  addMoss(rubble, moss, { amount: 0.55, flat });
   addNightFill(rubble, 0.5);
+  // dressed limestone for the temple: every block carries its own tint in vertex colours
+  const block = new THREE.MeshStandardMaterial({ map: lib.block.map, normalMap: lib.block.nmap, vertexColors: true, roughness: 0.9, envMapIntensity: 0.5 });
+  addPackedNormal(block);
+  addMoss(block, moss, { amount: 0.2, scale: 0.9, low: 0.8, flat });
+  addNightFill(block, 0.45);
   const rust = new THREE.MeshStandardMaterial({ map: T.rustTexture(71), roughness: 0.8, metalness: 0.35 });
   const aircraftTex = T.aircraftTexture(73);
   aircraftTex.repeat.set(2, 3);
   const aircraft = new THREE.MeshStandardMaterial({ map: aircraftTex, roughness: 0.65, metalness: 0.4, side: THREE.DoubleSide });
   addMoss(aircraft, moss, { amount: 0.02, scale: 0.4 });
   KIT = {
-    stone, rubble, rust, aircraft,
+    stone, rubble, block, rust, aircraft,
     plank: new THREE.MeshStandardMaterial({ map: T.plankTexture(81), roughness: 0.9 }),
     plankStencil: new THREE.MeshStandardMaterial({ map: T.plankTexture(83, { stencil: true }), roughness: 0.9 }),
     cloth: new THREE.MeshStandardMaterial({ map: T.clothTexture(85), roughness: 1, side: THREE.DoubleSide }),
     clothGreen: new THREE.MeshStandardMaterial({ map: T.clothTexture(87, 85), roughness: 1 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.95 }),
     charred: new THREE.MeshStandardMaterial({ color: 0x1a120c, roughness: 1 }),
-    bark: new THREE.MeshStandardMaterial({ map: flora.textures.bark, roughness: 0.95, color: 0xb8a890 }),
+    bark: addPackedNormal(new THREE.MeshStandardMaterial({ map: lib.bark.map, normalMap: lib.bark.nmap, roughness: 0.95, color: 0xd8ccb8 })),
     ember: new THREE.MeshStandardMaterial({ color: 0x3a1000, emissive: 0xff5a10, emissiveIntensity: 1.5 }),
     lanternGlow: new THREE.MeshStandardMaterial({ color: 0xffd080, emissive: 0xffb040, emissiveIntensity: 2.2 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x0a1418, roughness: 0.1, metalness: 0.6 }),
@@ -119,6 +127,9 @@ function kit(flora) {
 }
 
 // ------------------------------------------------------------- helpers
+
+// opaque kit parts cast with their own depth material, not three's shared one (see World.js)
+const KIT_DEPTH = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 
 class Builder {
   constructor(spec, flora) {
@@ -145,6 +156,7 @@ class Builder {
     m.rotation.set(...r);
     m.castShadow = shadow;
     m.receiveShadow = true;
+    if (!mat.alphaTest && !mat.alphaToCoverage) m.customDepthMaterial = KIT_DEPTH;
     parent.add(m);
     return m;
   }
@@ -157,7 +169,9 @@ class Builder {
   }
   flush() {
     for (const [mat, list] of this.mergeBins) {
-      for (const g of list) for (const a of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(a)) g.deleteAttribute(a);
+      const keep = ['position', 'normal', 'uv'];
+      if (list.every((g) => g.attributes.color)) keep.push('color');
+      for (const g of list) for (const a of Object.keys(g.attributes)) if (!keep.includes(a)) g.deleteAttribute(a);
       const geo = mergeGeometries(list, false);
       this.add(geo, mat);
     }
@@ -194,53 +208,214 @@ class Builder {
 
 // ------------------------------------------------------------ builders
 
-function buildTemple(b) {
+function* buildTemple(b) {
   const { k, r } = b;
   const tiers = 4, tierH = 2.6, base = 13;
+  const front = 20, topEdge = base - (tiers - 1) * 2;
+  // one dressed stone: its own patch of the limestone, its own tint, darker near the ground
+  const blocks = new BlockBatch();
+  const foot = (y) => 0.6 + 0.4 * Math.min(1, Math.max(0, (y + 0.6) / 2.4));
+  const stone = (w, h, d, p, rot = [0, 0, 0], { c = 0.07, tone = range(r, 0.62, 1.08) } = {}) => {
+    const warm = range(r, -0.04, 0.05);
+    blocks.add(w, h, d, c, p, rot, 1.6, [r(), r()], [tone * (1 + warm), tone, tone * (1 - warm * 1.5)], foot);
+  };
+  const jit = (a) => range(r, -a, a);
+  // Courses of blocks on the four faces of a square terrace wall. The corners interlock: on
+  // even courses the z faces run over them, on odd courses the x faces.
+  const DEPTH = 0.55;
+  const courses = (half, y0, y1, rows) => {
+    const rh = (y1 - y0) / rows;
+    for (let row = 0; row < rows; row++) {
+      for (let side = 0; side < 4; side++) {
+        const zFace = side < 2, sgn = side % 2 === 0 ? 1 : -1;
+        const owns = (row % 2 === 0) === zFace;
+        const L0 = owns ? -half : -half + DEPTH, L1 = owns ? half : half - DEPTH;
+        for (let u = L0; u < L1 - 0.05;) {
+          let len = range(r, 0.8, 1.7);
+          if (L1 - (u + len) < 0.5) len = L1 - u;
+          const cu = u + len / 2, cn = half - DEPTH / 2 + range(r, -0.03, 0.05);
+          stone(zFace ? len - 0.06 : DEPTH, rh - 0.05, zFace ? DEPTH : len - 0.06,
+            [zFace ? cu : sgn * cn, y0 + rh * (row + 0.5) + jit(0.01), zFace ? sgn * cn : cu], [jit(0.012), jit(0.02), jit(0.012)]);
+          u += len;
+        }
+      }
+    }
+  };
   for (let i = 0; i < tiers; i++) {
     const half = base - i * 2;
     const top = (i + 1) * tierH;
-    const bottom = i === 0 ? -6 : i * tierH;
-    b.bin(worldBox(half * 2, top - bottom, half * 2, 3), k.stone, [0, (top + bottom) / 2, 0]);
-    b.bin(worldBox(half * 2 + 0.7, 0.4, half * 2 + 0.7, 3), k.stone, [0, top - 0.2, 0]);
+    const bottom = i === 0 ? -6 : i * tierH - 0.2;
+    // the core, set well back behind the facing so the joints between blocks are deep and dark
+    stone(half * 2 - 0.8, top - 0.14 - bottom, half * 2 - 0.8, [0, (top - 0.14 + bottom) / 2, 0], [0, 0, 0], { c: 0.02, tone: 0.55 });
+    courses(half, i === 0 ? -2.4 : i * tierH, top - 0.4, i === 0 ? 5 : 3);
+    // the terrace floor paved in slabs (only the ring the next terrace leaves uncovered)
+    const inner = i < tiers - 1 ? half - 2 - 0.6 : -1, edge = half - 0.55;
+    for (let z = -edge; z < edge - 0.05;) {
+      const rd = Math.min(range(r, 0.9, 1.4), edge - z);
+      for (let x = -edge; x < edge - 0.05;) {
+        const sl = Math.min(range(r, 0.8, 1.6), edge - x);
+        const cx = x + sl / 2, cz = z + rd / 2;
+        x += sl;
+        if (Math.abs(cx) < inner && Math.abs(cz) < inner) continue;
+        stone(sl - 0.04, 0.14, rd - 0.04, [cx, top - 0.07 + jit(0.012), cz], [jit(0.008), jit(0.015), jit(0.008)], { c: 0.03 });
+      }
+      z += rd;
+    }
+    // cap stones overhanging the course below; a few slipped, a few gone
+    for (let side = 0; side < 4; side++) {
+      const zFace = side < 2, sgn = side % 2 === 0 ? 1 : -1;
+      const ext = half + (zFace ? 0.35 : -0.55);
+      for (let u = -ext; u < ext - 0.05;) {
+        let len = range(r, 1.1, 2.0);
+        if (ext - (u + len) < 0.6) len = ext - u;
+        const cu = u + len / 2;
+        u += len;
+        if (side === 0 && Math.abs(cu) < 3.6) continue; // the stairway
+        const roll = r();
+        if (roll < 0.05) continue;
+        const slip = roll < 0.15 ? range(r, 0.08, 0.25) : 0, tilt = roll < 0.15 ? range(r, 0.04, 0.1) : jit(0.012);
+        const cn = half + 0.35 - 0.45 + slip;
+        stone(zFace ? len - 0.03 : 0.9, 0.4, zFace ? 0.9 : len - 0.03,
+          [zFace ? cu : sgn * cn, top - 0.2 - slip * 0.3, zFace ? sgn * cn : cu],
+          zFace ? [tilt * sgn, jit(0.03), 0] : [0, jit(0.03), -tilt * sgn]);
+      }
+    }
     b.boxCol(0, 0, half + 0.35, half + 0.35, top);
+    yield;
   }
-  // grand stairway up the +z face
-  const rise = 0.4, n = Math.round((tiers * tierH) / rise), front = 20, topEdge = base - (tiers - 1) * 2;
+  // grand stairway up the +z face: each step two or three blocks wide. Negative steps run
+  // down past the base so the stairs always meet the ground, even where it dips in front.
+  const rise = 0.4, n = Math.round((tiers * tierH) / rise);
   const run = (front - topEdge) / n;
-  // Negative steps run down past the base so the stairs always meet the
-  // ground, even where the terrain dips in front of the temple.
   for (let s = -6; s < n; s++) {
     const zf = front - s * run;
     const st = (s + 1) * rise;
-    b.bin(worldBox(5, st + 6, run, 2), k.stone, [0, (st - 6) / 2, zf - run / 2]);
+    stone(5, Math.max(0.2, st - rise - 0.3 + 6), run, [0, (st - rise - 0.3 - 6) / 2, zf - run / 2], [0, 0, 0], { c: 0.02, tone: 0.8 });
+    const nb = r() < 0.5 ? 2 : 3;
+    let x = -2.5;
+    for (let j = 0; j < nb; j++) {
+      const wdt = j === nb - 1 ? 2.5 - x : (5 / nb) * range(r, 0.8, 1.2);
+      stone(wdt - 0.03, rise + 0.3, run + 0.04, [x + wdt / 2, st - (rise + 0.3) / 2 + jit(0.015), zf - run / 2], [jit(0.01), jit(0.015), jit(0.01)]);
+      x += wdt;
+    }
     b.boxCol(0, zf / 2, 2.5, zf / 2, st);
   }
-  // balustrades
+  yield;
+  // balustrades, in sections, with serpent heads guarding the foot
   const len = Math.hypot(front - topEdge, tiers * tierH);
   const ang = Math.atan2(tiers * tierH, front - topEdge);
   for (const sx of [-3, 3]) {
-    b.bin(worldBox(1, 1, len, 2), k.stone, [sx, (tiers * tierH) / 2 + 0.3, (front + topEdge) / 2], [ang, 0, 0]);
-    // serpent heads guarding the stairs
-    b.bin(worldBox(1.4, 1.2, 1.8, 1), k.stone, [sx, 0.6, front + 0.6]);
-    b.bin(worldBox(1.5, 0.4, 1.0, 1), k.stone, [sx, 1.35, front + 1.1]);
-    b.bin(worldBox(0.3, 0.3, 0.2, 1), k.charred, [sx - 0.4, 1.0, front + 1.52]);
-    b.bin(worldBox(0.3, 0.3, 0.2, 1), k.charred, [sx + 0.4, 1.0, front + 1.52]);
+    const nseg = 7;
+    for (let j = 0; j < nseg; j++) {
+      const t = (j + 0.5) / nseg;
+      stone(1, 1, len / nseg - 0.04, [sx, 0.3 + tiers * tierH * t, front - (front - topEdge) * t], [ang, 0, 0]);
+    }
+    stone(1.4, 1.2, 1.8, [sx, 0.6, front + 0.6], [0, 0, 0], { c: 0.12 });
+    stone(1.5, 0.4, 1.0, [sx, 1.35, front + 1.1], [0, 0, 0], { c: 0.08 });
+    // eyes: dark stones set into the head
+    stone(0.3, 0.26, 0.1, [sx - 0.4, 1.0, front + 1.47], [0, 0, 0], { c: 0.03, tone: 0.3 });
+    stone(0.3, 0.26, 0.1, [sx + 0.4, 1.0, front + 1.47], [0, 0, 0], { c: 0.03, tone: 0.3 });
     b.boxCol(sx, front + 0.8, 0.8, 1.2, 1.6);
   }
-  // shrine on the summit
+  // shrine on the summit: a cella of coursed walls with a lintelled doorway in the front, two
+  // drum pillars making a porch, a corbelled roof stepping in course by course, and a pierced
+  // roof comb on top
   const Y = tiers * tierH;
-  for (const [px, pz] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) {
-    b.bin(worldBox(0.9, 3.4, 0.9, 1.5), k.stone, [px, Y + 1.7, pz]);
-    b.circleCol(px, pz, 0.6);
+  // a run of blocks from u0 to u1 along x (zFace) or z, its face centred on n, course height h;
+  // a dark core inside the run fills the joints (the walls are one block thick: the sky showed
+  // through them), unless the run is meant to be pierced
+  const lay = (zFace, n, u0, u1, y, h, d = DEPTH, gaps = 0) => {
+    if (!gaps && u1 - u0 > 0.2) {
+      const L = u1 - u0 - 0.12, m = (u0 + u1) / 2;
+      stone(zFace ? L : d - 0.22, h, zFace ? d - 0.22 : L, [zFace ? m : n, y, zFace ? n : m], [0, 0, 0], { c: 0.01, tone: 0.4 });
+    }
+    for (let u = u0; u < u1 - 0.05;) {
+      let len = range(r, 0.8, 1.5);
+      if (u1 - (u + len) < 0.45) len = u1 - u;
+      const cu = u + len / 2;
+      u += len;
+      if (gaps && r() < gaps) continue;
+      stone(zFace ? len - 0.04 : d, h - 0.04, zFace ? d : len - 0.04,
+        [zFace ? cu : n + jit(0.02), y + jit(0.01), zFace ? n + jit(0.02) : cu], [jit(0.01), jit(0.015), jit(0.01)]);
+    }
+  };
+  const SH = 3.6, WALL = 3.4, rows = 4, ch = WALL / rows, door = 1.5;
+  for (let row = 0; row < rows; row++) {
+    const y = Y + ch * (row + 0.5);
+    // corners interlock: the faces along x own them on even courses, the faces along z on odd
+    const ownX = row % 2 === 0;
+    const xa = ownX ? -SH : -SH + DEPTH, xb = ownX ? SH : SH - DEPTH;
+    const za = ownX ? -SH + DEPTH : -SH, zb = ownX ? SH - DEPTH : SH;
+    lay(true, -SH + DEPTH / 2, xa, xb, y, ch);
+    // the front, either side of the doorway; the top course carries a lintel across it
+    if (row < rows - 1) {
+      lay(true, SH - DEPTH / 2, xa, -door, y, ch);
+      lay(true, SH - DEPTH / 2, door, xb, y, ch);
+    } else {
+      lay(true, SH - DEPTH / 2, xa, -door - 0.5, y, ch);
+      lay(true, SH - DEPTH / 2, door + 0.5, xb, y, ch);
+      stone(door * 2 + 1.0, ch - 0.02, DEPTH + 0.1, [0, y, SH - DEPTH / 2], [0, 0, 0], { c: 0.05, tone: 0.85 });
+    }
+    lay(false, -SH + DEPTH / 2, za, zb, y, ch);
+    lay(false, SH - DEPTH / 2, za, zb, y, ch);
   }
-  b.bin(worldBox(7.8, 0.6, 7.8, 2), k.stone, [0, Y + 3.7, 0]);
-  b.bin(worldBox(5.6, 0.6, 5.6, 2), k.stone, [0, Y + 4.3, 0]);
-  b.bin(worldBox(3.2, 0.9, 3.2, 2), k.stone, [0, Y + 5.0, 0]);
-  b.bin(worldBox(6.6, 3.4, 0.6, 2), k.stone, [0, Y + 1.7, -3.2]);
-  b.boxCol(0, -3.2, 3.3, 0.35, Y + 3.4);
-  b.bin(worldBox(1.6, 1.0, 1.1, 1), k.stone, [0, Y + 0.5, -1.2]);
+  // the corbelled roof: each course set in from the one below until a row of capstones closes it
+  let half = SH + 0.25;
+  for (let k = 0; k < 5; k++) {
+    const y = Y + WALL + 0.25 + k * 0.5;
+    const ownX = k % 2 === 0;
+    const d = DEPTH + 0.15;
+    lay(true, -half + d / 2, ownX ? -half : -half + d, ownX ? half : half - d, y, 0.5, d);
+    lay(true, half - d / 2, ownX ? -half : -half + d, ownX ? half : half - d, y, 0.5, d);
+    lay(false, -half + d / 2, ownX ? -half + d : -half, ownX ? half - d : half, y, 0.5, d);
+    lay(false, half - d / 2, ownX ? -half + d : -half, ownX ? half - d : half, y, 0.5, d);
+    half -= 0.55;
+  }
+  for (let x = -half; x < half - 0.05;) {
+    const w = Math.min(range(r, 0.9, 1.4), half - x);
+    stone(w - 0.04, 0.45, half * 2 + 0.2, [x + w / 2, Y + WALL + 0.25 + 5 * 0.5 - 0.02, 0], [jit(0.01), 0, jit(0.01)], { c: 0.05 });
+    x += w;
+  }
+  // the roof comb: a thin wall along the ridge, pierced where blocks have fallen or were left out
+  for (let k = 0; k < 3; k++) lay(true, 0, -2.2 + k * 0.3, 2.2 - k * 0.3, Y + WALL + 3.0 + k * 0.55, 0.55, 0.45, k ? 0.3 : 0.12);
+  // the porch: two drum pillars before the doorway, each three drums under a square abacus
+  for (const px of [-2.3, 2.3]) {
+    const pz = SH + 1.0;
+    for (let d = 0; d < 3; d++) {
+      const dh = WALL / 3 - 0.03;
+      stone(0.8, dh, 0.8, [px + jit(0.03), Y + dh / 2 + (d * WALL) / 3, pz + jit(0.03)], [0, jit(0.1), 0], { c: 0.12 });
+    }
+    stone(1.1, 0.3, 1.1, [px, Y + WALL + 0.12, pz], [0, jit(0.05), 0], { c: 0.05 });
+    b.circleCol(px, pz, 0.55);
+  }
+  // walls as colliders: the back, the two sides, and the front either side of the doorway
+  b.boxCol(0, -SH + DEPTH / 2, SH, DEPTH / 2, Y + WALL);
+  b.boxCol(-SH + DEPTH / 2, 0, DEPTH / 2, SH, Y + WALL);
+  b.boxCol(SH - DEPTH / 2, 0, DEPTH / 2, SH, Y + WALL);
+  b.boxCol(-(SH + door) / 2, SH - DEPTH / 2, (SH - door) / 2, DEPTH / 2, Y + WALL);
+  b.boxCol((SH + door) / 2, SH - DEPTH / 2, (SH - door) / 2, DEPTH / 2, Y + WALL);
+  stone(1.6, 1.0, 1.1, [0, Y + 0.5, -1.2], [0, 0, 0], { c: 0.06 });
   b.boxCol(0, -1.2, 0.85, 0.6, Y + 1.0);
+  yield;
+  // fallen blocks: a skirt of rubble round the foot, and a few lying askew on the terraces
+  for (let q = 0; q < 34; q++) {
+    const side = irange(r, 0, 3), out = range(r, 0.4, 4.5), along = range(r, -base, base);
+    const zFace = side < 2, sgn = side % 2 === 0 ? 1 : -1;
+    const lx = zFace ? along : sgn * (base + out), lz = zFace ? sgn * (base + out) : along;
+    if (side === 0 && Math.abs(lx) < 4.2) continue;
+    const wp = b.w(lx, lz);
+    const gy = terrainHeight(wp.x, wp.z) - b.spec.y;
+    const h = range(r, 0.45, 0.8);
+    stone(range(r, 0.7, 1.5), h, range(r, 0.5, 0.8), [lx, gy + h * 0.25, lz], [jit(0.35), r() * TAU, jit(0.35)]);
+  }
+  for (let q = 0; q < 8; q++) {
+    const i = irange(r, 0, tiers - 2), half = base - i * 2;
+    const side = irange(r, 1, 3), along = range(r, -half + 1, half - 1);
+    const zFace = side < 2, sgn = side % 2 === 0 ? 1 : -1, d = half - range(r, 0.9, 1.5);
+    stone(range(r, 0.7, 1.3), 0.45, range(r, 0.5, 0.8), [zFace ? along : sgn * d, (i + 1) * tierH + 0.2, zFace ? sgn * d : along], [jit(0.15), r() * TAU, jit(0.15)]);
+  }
+  yield;
+  b.add(blocks.geometry(), k.block);
   const idol = getItemModel('golden_idol');
   idol.scale.multiplyScalar(2.2);
   idol.position.set(0, Y + 1.5, -1.2);
@@ -543,8 +718,19 @@ function buildWreck(b) {
 const BUILDERS = { temple: buildTemple, ruins: buildRuins, scrap: buildScrap, crates: buildCrates, camp: buildCamp, wreck: buildWreck };
 
 export function buildPOI(spec, flora) {
+  const it = buildPOISteps(spec, flora);
+  let r;
+  while (!(r = it.next()).done);
+  return r.value;
+}
+
+// The same, a slice at a time for streaming: builders that are generators (the temple) yield
+// while they work, and the merge at the end gets a frame of its own.
+export function* buildPOISteps(spec, flora) {
   const b = new Builder(spec, flora);
-  BUILDERS[spec.type](b);
+  const steps = BUILDERS[spec.type](b);
+  if (steps && typeof steps.next === 'function') yield* steps;
+  yield;
   return b.result();
 }
 

@@ -1,7 +1,7 @@
 // Functional test of the gather -> craft -> defend loop: forage with E, craft by clicking in the
 // satchel, place a tower with LMB, survive night 1 to day 2, upgrade the tower, hit with the
 // slingshot, earn a boon, autosave, and lose when the Heartwood falls.
-// Prints PASS/FAIL per step. Needs `npm run dev` on :5188.
+// Prints PASS/FAIL per step. Needs `npm run dev` on :5188 (or BASE=<url>).
 //
 //   node e2e/loop.mjs
 import { chromium } from 'playwright';
@@ -10,10 +10,23 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errs = [];
 page.on('pageerror', (e) => errs.push('PAGEERR ' + e.message + '\n' + e.stack));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.goto('http://localhost:5188/?debug&t=0.4');
+await page.goto((process.env.BASE ?? 'http://localhost:5188/') + '?debug&t=0.4');
 await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
 const ev = (f, a) => page.evaluate(f, a);
 const ok = (name, v) => console.log((v ? 'PASS ' : 'FAIL ') + name);
+// Hold a key until cond(arg) is true in the page, or ms pass. Hold actions run on game time and
+// a frame's dt is clamped to 0.05 s, so on a busy GPU (under ~20 fps) they take longer than their
+// nominal time; a fixed wait made the test flaky.
+const holdUntil = async (key, cond, arg, ms = 6000) => {
+  await page.keyboard.down(key);
+  await page.waitForFunction(cond, arg, { timeout: ms, polling: 100 }).catch(() => {});
+  await page.keyboard.up(key);
+};
+const fps = () => ev(() => new Promise((res) => {
+  let n = 0; const t0 = performance.now();
+  const f = () => { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else res(n); };
+  requestAnimationFrame(f);
+}));
 
 // 1. forage: stand next to the nearest forage item, look at it, tap E
 const f = await ev(() => {
@@ -79,9 +92,7 @@ const up = await ev(() => {
   return { tier: b.tier };
 });
 await page.waitForTimeout(300);
-await page.keyboard.down('KeyE');
-await page.waitForTimeout(1800);
-await page.keyboard.up('KeyE');
+await holdUntil('KeyE', (t) => window.game.buildings.list[0].tier > t, up.tier);
 const up2 = await ev(() => ({ tier: window.game.buildings.list[0].tier, upgraded: window.game.buildings.stats.upgraded }));
 ok(`hold E upgrades the tower (tier ${up.tier}->${up2.tier})`, up2.tier === up.tier + 1);
 
@@ -116,24 +127,29 @@ const bo = await ev(() => {
   return g.perks.length;
 });
 await page.waitForTimeout(300);
-await page.keyboard.down('KeyE');
-await page.waitForTimeout(1600);
-await page.keyboard.up('KeyE');
-await page.waitForTimeout(400);
-const shown = await ev(() => !document.querySelector('#perks').classList.contains('hidden'));
-await page.click('.perk').catch(() => {});
+console.log(`  (${await fps()} fps at the Heartwood)`);
+await holdUntil('KeyE', () => !document.querySelector('#perks').classList.contains('hidden'));
 await page.waitForTimeout(300);
+const shown = await ev(() => !document.querySelector('#perks').classList.contains('hidden'));
+// a big offering can earn more than one boon: the next picker opens 0.4 s after each pick
+for (let i = 0; i < 6; i++) {
+  if (!(await ev(() => !document.querySelector('#perks').classList.contains('hidden')))) break;
+  await page.click('.perk').catch(() => {});
+  await page.waitForTimeout(700);
+}
 const bo2 = await ev(() => window.game.perks.length);
-ok(`offering opens the boon picker and grants a boon (${bo}->${bo2})`, shown && bo2 === bo + 1);
+const picking = await ev(() => window.game.modal);
+ok(`offering opens the boon picker and grants boons (${bo}->${bo2})`, shown && bo2 > bo && !picking);
 
 // 8. a save round-trips
 const sv = await ev(() => { const g = window.game; g.debug = false; g.autosave(); g.debug = true; const d = JSON.parse(localStorage.getItem('og.save.v1')); return { night: d.night, b: d.buildings.map((x) => x[0]), perks: d.perks.length }; });
-ok(`autosave writes the run (${JSON.stringify(sv)})`, sv.night === 2 && sv.b.includes('bow_tower') && sv.perks === 1);
+ok(`autosave writes the run (${JSON.stringify(sv)})`, sv.night === 2 && sv.b.includes('bow_tower') && sv.perks === bo2);
 await ev(() => localStorage.removeItem('og.save.v1'));
 
 // 9. Heartwood falls -> game over (after the collapse)
 await ev(() => { const g = window.game; g.base.damage(1e6); });
-await page.waitForTimeout(3600);
+// the collapse runs on clamped frame time, so a slow frame stretches it: wait for the screen
+await page.waitForFunction(() => !document.querySelector('#gameover').classList.contains('hidden'), null, { timeout: 8000 }).catch(() => {});
 const over = await ev(() => ({ phase: window.game.waves.phase, shown: !document.querySelector('#gameover').classList.contains('hidden') }));
 ok(`heartwood destroyed -> game over`, over.phase === 'over' && over.shown);
 console.log(errs.slice(0, 10).join('\n'));

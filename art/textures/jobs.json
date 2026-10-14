@@ -1,0 +1,266 @@
+[
+ {
+  "name": "palmbark",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 106,
+  "prompt": "seamless tileable texture, orthographic close-up photograph of a coconut palm tree trunk, grey-brown fibrous bark with horizontal ring scars evenly spaced from top to bottom, flat diffuse lighting, no cast shadows, no vignette, sharp focus, highly detailed albedo texture"
+ },
+ {
+  "name": "gravel",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 109,
+  "prompt": "seamless tileable texture, top-down orthographic photograph of a riverbank of rounded river pebbles and coarse gravel in grey, tan and brown, some wet dark sand between stones, evenly distributed with no large features, flat overcast diffuse lighting, no cast shadows, no vignette, sharp focus, highly detailed albedo texture"
+ },
+ {
+  "name": "twig",
+  "w": 1024,
+  "h": 1024,
+  "batch": 4,
+  "seed": 201,
+  "prompt": "botanical flat lay photograph, top-down: one leafy tropical rainforest tree twig with about thirty glossy dark green elliptical leaves spreading out flat, natural color variation from yellow-green young leaves to deep green, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire twig visible, centered"
+ },
+ {
+  "name": "twigsmall",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 202,
+  "prompt": "botanical flat lay photograph, top-down: one branching tropical shrub twig densely covered in many small rounded green leaves of slightly different shades, fanning out into a round cluster, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire twig visible, centered"
+ },
+ {
+  "name": "banana",
+  "w": 512,
+  "h": 1024,
+  "batch": 3,
+  "seed": 203,
+  "prompt": "botanical flat lay photograph, top-down: a single large banana plant leaf, long oblong blade split by several deep wind tears between the veins, green with a pale midrib and fine parallel veins, slightly dry brown edges, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire leaf visible, leaf runs vertically from bottom to top of the frame"
+ },
+ {
+  "name": "monstera",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 204,
+  "prompt": "botanical flat lay photograph, top-down: a single large monstera deliciosa leaf with deep splits and oval holes, glossy dark green, with a short piece of its stem at the bottom, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire leaf visible, centered"
+ },
+ {
+  "name": "taro",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 205,
+  "prompt": "botanical flat lay photograph, top-down: a single large elephant ear alocasia leaf, heart shaped with a long pointed tip, deep green with pale green veins, the notch of the heart at the bottom, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire leaf visible, centered"
+ },
+ {
+  "name": "fern",
+  "w": 512,
+  "h": 1024,
+  "batch": 2,
+  "seed": 206,
+  "prompt": "botanical flat lay photograph, top-down: a single long tropical fern frond, pinnate with many narrow serrated leaflets on both sides of a thin dark stem, fresh green, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire frond visible, frond runs vertically from bottom to top of the frame"
+ },
+ {
+  "name": "palmfrond",
+  "w": 512,
+  "h": 1024,
+  "batch": 2,
+  "seed": 207,
+  "prompt": "botanical flat lay photograph, top-down: a single coconut palm frond, long central stem with many long narrow leaflets on both sides angled toward the tip, green with a few yellowing tips, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire frond visible, frond runs vertically from bottom to top of the frame"
+ },
+ {
+  "name": "grass",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 208,
+  "prompt": "botanical flat lay photograph: a tuft of tall wild tropical grass and sedge blades fanning upward from a single base at the bottom, green blades with a few dry yellow tips, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire tuft visible"
+ },
+ {
+  "name": "vine",
+  "w": 512,
+  "h": 1024,
+  "batch": 2,
+  "seed": 209,
+  "prompt": "botanical flat lay photograph, top-down: a long trailing philodendron vine with many small heart-shaped green leaves alternating along a thin stem, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire vine visible, the vine runs vertically from top to bottom of the frame"
+ },
+ {
+  "name": "heliconia",
+  "w": 512,
+  "h": 1024,
+  "batch": 2,
+  "seed": 210,
+  "prompt": "botanical flat lay photograph: a single heliconia flower stalk with bright red and yellow zigzag bracts on a green stem, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire flower visible, stalk runs vertically"
+ },
+ {
+  "name": "bromeliad",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 211,
+  "prompt": "botanical photograph seen from directly above: a single bromeliad plant rosette, stiff strap-shaped green leaves radiating from a reddish center, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire plant visible, centered"
+ },
+ {
+  "name": "seedling",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 212,
+  "prompt": "botanical flat lay photograph, top-down: a small tropical understory plant with seven broad oval leaves with subtle darker stripes radiating from the center, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire plant visible, centered"
+ },
+ {
+  "name": "orchid",
+  "w": 1024,
+  "h": 1024,
+  "batch": 1,
+  "seed": 213,
+  "prompt": "botanical flat lay photograph: a spray of small wild purple and white orchid flowers on a thin green stem with two leaves, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire spray visible, centered"
+ },
+ {
+  "name": "deadwood2",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 302,
+  "prompt": "close-up photograph of the weathered grey-brown wood of a fallen dead tree trunk with the bark gone, long cracks and grain running vertically, a few small patches of moss, the wood fills the whole frame, flat even lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "moss2",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 303,
+  "prompt": "close-up photograph from above of lush green cushion moss on a rainforest floor, rounded clumps of moss in slightly different greens with darker gaps between them, a few tiny fern sprouts, the moss fills the whole frame, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "mud2",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 304,
+  "prompt": "close-up photograph from above of dark wet muddy soil on a jungle riverbank with small stones, decaying leaf bits and thin roots, the mud fills the whole frame, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "rock3",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 401,
+  "prompt": "close-up photograph of a dark wet basalt rock face in a rainforest ravine, angular fractured planes and deep cracks, charcoal grey stone with brown iron stains, thin bright green moss growing in the cracks, the rock fills the whole frame, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "moss3",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 402,
+  "prompt": "close-up photograph from above of a flat carpet of short fine dark green moss on the rainforest floor, dense even texture with subtle variation in tone, a few tiny dead leaves and thin twigs lying on it, the moss fills the whole frame, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "blossom",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 501,
+  "prompt": "a single spray of lush tropical blossoms, clusters of creamy white and pale gold flowers with green leaves on a short branch, botanical photograph seen from above, plain pure white background, soft even studio lighting, no shadow, sharp focus, highly detailed"
+ },
+ {
+  "name": "litter3",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 601,
+  "prompt": "close-up photograph from above of a rainforest floor covered in large dry fallen leaves in tan, ochre and russet brown, mixed with smaller dark leaves, a few thin twigs and tiny green seedlings, the leaves fill the whole frame, flat even overcast lighting, matte dry leaves, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "litter4",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 701,
+  "prompt": "close-up photograph from above of a dark wet tropical rainforest floor, a dense mat of decomposing broad leaves of mixed sizes in dark brown, black-brown and dull olive, a few fallen green leaves, thin rootlets and dark soil showing between them, no seeds, no nuts, no seed pods, no lace leaves, the leaves fill the whole frame, flat even overcast lighting, matte, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "stone4",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 702,
+  "prompt": "flat frontal photograph of an ancient ruined temple wall of huge irregular weathered limestone blocks of very different sizes fitted together, polygonal megalithic masonry, dark grey stone stained black and green by rain and moss, deep worn joints with moss, eroded pitted surfaces, the wall completely fills the frame edge to edge, no sky, no ground, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "bark4",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 703,
+  "prompt": "close-up photograph of the bark of a giant tropical rainforest tree trunk, grey-brown bark with long continuous vertical fissures and ridges running from top to bottom, patches of green moss and pale grey lichen, no horizontal lines or rings, the bark fills the whole frame, flat even lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "rock4",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 402,
+  "prompt": "close-up photograph of a weathered grey limestone rock face in a tropical rainforest, dry matte stone, layered ledges and horizontal bedding cracks, rough pitted surface with small holes, patches of pale grey and ochre lichen, dark green moss in the deepest cracks, the rock fills the whole frame, flat even overcast lighting, no shadows, no wet shine, no reflections, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "rock5",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 403,
+  "prompt": "close-up photograph of a dry weathered dark grey-brown volcanic rock face in a rainforest, matte rough stone broken into blocky fractured planes and small ledges, warm brown iron stains, dusty pale weathering on the edges, thin moss in a few cracks, the rock fills the whole frame, flat even overcast lighting, no shadows, no wet shine, no glossy highlights, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "block",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 404,
+  "prompt": "close-up photograph of the face of one ancient weathered limestone temple block, matte grey stone with a pitted porous surface, small holes and erosion pockets, faint ochre and pale lichen stains, dark green moss in a few pits, no joints and no cracks, the stone surface fills the whole frame, flat even overcast lighting, no shadows, no wet shine, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "deadleaf",
+  "w": 1024,
+  "h": 1024,
+  "batch": 4,
+  "seed": 501,
+  "prompt": "botanical flat lay photograph, top-down: one single fallen dry tropical tree leaf, brown and tan with darker veins and a few small holes, slightly curled edges, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire leaf visible, centered"
+ },
+ {
+  "name": "deadleaf2",
+  "w": 1024,
+  "h": 1024,
+  "batch": 4,
+  "seed": 502,
+  "prompt": "botanical flat lay photograph, top-down: one single fallen decaying rainforest leaf, dark reddish brown and olive with spots of rot and a torn edge, long elliptical shape, isolated on a pure white seamless background, soft even studio lighting, no shadows, sharp focus, entire leaf visible, centered"
+ },
+ {
+  "name": "block2",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 405,
+  "prompt": "close-up photograph of the flat face of an ancient weathered sandstone temple block, fine sandy grain, subtle erosion streaks and shallow chips, faint grey and ochre lichen stains, matte dry surface, no holes, no pits, no cracks, no joints, the stone surface fills the whole frame, flat even overcast lighting, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "litter5",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 801,
+  "prompt": "top-down photograph of one square metre of rainforest floor seen from 1.5 m above, covered edge to edge by about a hundred small fallen leaves 5 to 15 cm long in tan, ochre, russet and dark brown, overlapping in layers, thin twigs, a few small seed pods and tiny green seedlings between them, the leaves fill the whole frame, flat even overcast lighting, matte dry leaves, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "litter6",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 901,
+  "prompt": "top-down photograph of one square metre of dark damp tropical rainforest floor seen from 1.5 m above, a dense mat of about a hundred small decomposing leaves 4 to 12 cm long in dark brown, black-brown, russet and dull olive, overlapping in layers, thin rootlets and twigs and dark soil between them, a few small fallen green leaves, the leaves fill the whole frame, flat even overcast lighting, matte, no shadows, sharp focus, highly detailed texture"
+ }
+]

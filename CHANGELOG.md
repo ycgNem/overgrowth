@@ -1,5 +1,61 @@
 # Patch notes
 
+## 0.4: The Living Floor (2026-10-14)
+
+An art overhaul. The jungle used to look flat and smooth, like a photo of leaves pasted on a
+hill. Now every surface is textured and has relief, and the forest floor is real at your feet.
+
+### The world
+- **New surfaces everywhere.** Leaf litter, moss, mud, gravel, rock, bark, dead wood and temple
+  stone are all new photographic textures, each with its own relief.
+- **A forest floor you can stand on.** The ground has depth: leaves overlap and cast small
+  shadows on each other, and gaps between them fall into shade. The leaves are life-size, about
+  10–30 cm (they used to be a metre long).
+- **3D fallen leaves and sticks** lie on the ground around you, gathered in drifts. Seedlings,
+  small ferns and dead fronds grow thickly within 25 m.
+- **Hillsides** no longer smear the leaves into long streaks.
+- **Soft, dappled shadows.** Sunlight through the canopy falls in soft flecks that sharpen where
+  things touch the ground. The sharp leaf shapes printed on the floor are gone.
+- **Giant trees** have six shapes with three kinds of crown. They grow low limbs, climbers and
+  lianas, and stand on rebuilt buttress roots that flare, ripple and run down into the ground.
+  Moss grows in patches on the damp side. Saplings no longer grow through their trunks.
+- **Cliffs** break into stepped limestone ledges instead of one smooth wall. Moss wraps around
+  rock edges and fills the cracks.
+- **The temple** is built block by block: coursed walls, paved terraces, a grand stair and rubble
+  at its foot. The summit shrine now has walls, a doorway, a pillared porch, a stepped roof and a
+  roof comb.
+- **Water** reflects the banks and trees around it.
+- **Light and air.** Under the canopy the air is a deep, green shade. Sunbeams are beams, not a
+  milky haze, and shadows are warm instead of teal.
+- **Rain soaks the world.** In a downpour the ground, bark and stone turn dark and glossy, then
+  dry out over a few minutes.
+- **The machete throws real leaves.** Cut a plant and its leaves scatter with brown scraps of
+  litter.
+- New mushrooms, greener plant stems, and stone-textured bone and crust on the Blight.
+
+### Gameplay
+- **Five rifts.** Two more tear open during the run, on nights 7 and 9. The night they open, a
+  banner warns you.
+- **New boons that change the rules:**
+  - *Splitting Shafts:* bow bolts split onto a second target.
+  - *Last Bloom:* the Heartwood bursts once a night when it falls low.
+  - *Grasping Roots:* roots seize the Blight closest to the Heart.
+  - *Harvest Dawn:* towers bring in materials at dawn.
+  - *Rotting Bloom:* slowed Blight burst into spores.
+- **Rotboars** charge any tower that shoots them.
+- **Balance.** The night-5 Thornback comes in lighter (it was the hardest night of the run).
+  Nights 7–10 hit harder: Blight HP grows faster after night 6, and the surge is bigger.
+- **Sticks and stones** lie near the Heartwood, so the first thing the journal asks for is close.
+- A big relic offering can now earn several boons at once.
+
+### Performance
+- **Quality setting** (High / Medium / Low) on the menu, remembered between visits. Low drops
+  ground relief, 3D litter, ambient occlusion, sunbeams and soft shadows.
+- Shaders compile while the game loads, so the first ruin you find no longer freezes the game.
+- The world streams in a little at a time, so walking into new ground hitches less. The temple
+  builds four times faster.
+- The shadow pass is cheaper to draw.
+
 ## 0.3: Hold the Heartwood (2026-10-13)
 
 The big one. Overgrowth is now a complete run: ten nights, a boss, a win screen, and saves.

@@ -9,10 +9,14 @@ until dawn. Each night is harder than the last, every fifth night brings a boss,
 through **night 10** wins the run (you can carry on in endless mode). The run saves itself every
 morning. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
-The world is procedural: textures are painted with the canvas API, plants and props are built from
-code, and the soundscape is synthesised with Web Audio. The hero models are the exception: the
-Heartwood, the five towers, the barricade, the vine snare and the four Blight are made in
-**Blender** from Python scripts (`art/blender/`) and shipped as GLBs in `public/models/`.
+The world is built from code and dressed with generated photographs. Terrain, plants and props are
+code-built meshes. Their surfaces (leaf litter, moss, mud, rock, bark, temple stone) and every leaf,
+frond and flower are Flux generations, turned into seamless tiles and cut-out atlases by
+`art/textures/` (see its README) and shipped in `public/textures/`. The image goes through an HDR post
+chain (ambient occlusion, sun shafts through the canopy, bloom, filmic grade). The soundscape is
+synthesised with Web Audio. The hero models (the Heartwood, the five towers, the barricade, the
+vine snare and the four Blight) are made in **Blender** from Python scripts (`art/blender/`),
+shipped as GLBs in `public/models/`, and pick up the same bark, stone and moss surfaces at load.
 
 ## Running
 
@@ -38,7 +42,7 @@ The Journal on the left walks you through the first day.
 | Tab / I | Satchel: inventory and crafting |
 | T (hold) | Skip daylight |
 | M | Mute |
-| Esc | Pause (mouse sensitivity and the Glow toggle are on the pause menu) |
+| Esc | Pause (mouse sensitivity, the Glow toggle and Quality are on the pause menu) |
 
 ### Debug mode
 
@@ -69,11 +73,17 @@ src/
   core/Journal.js      first-day tutorial steps, then rolling optional goals
   core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering
   assets/Models.js     loads the Blender GLBs, clones them, finds animated parts
-  art/merge.js         flattens models to one draw call per moving part (baked colour/emissive)
-  art/textures.js      every procedural texture, painted with canvas (leaves, bark, stone, rust…)
-  art/shaders.js       material patches: wind, foliage lighting, moss, terrain splat, fog
+  art/merge.js         flattens models to one draw call per moving part (baked colour/emissive),
+                       tri-planar bark/stone/moss detail on their parts
+  art/TextureLib.js    loads the generated surfaces and leaf atlases (public/textures)
+  art/textures.js      small canvas textures (glows, sparks, item details, water normals)
+  art/shaders.js       material patches: wind, foliage translucency, moss, terrain splat, fog
+  render/PostFX.js     HDR chain: SAO-style AO, ray-marched sun shafts, bloom, tone map + grade
+  render/Canopy.js     sky occlusion under the tree crowns (darkens and greens the forest floor)
   world/WorldGen.js    the height function (warped hills, ridged mountains, rivers)
   world/World.js       chunk streaming, plant and forage scattering, terrain, collisions
+  world/Litter.js      3D fallen leaves and sticks on the ground around the player
+  world/Cover.js       seedlings, small ferns and dead fronds within 25 m of the player
   world/flora/         plant library (Flora.js) + geometry helpers (geom.js)
   world/poi/POI.js     points of interest: placement rules + builders
   world/Sky.js         sky dome shader, sun/moon, day-night palette, environment map
@@ -100,7 +110,9 @@ src/
   audio/AudioSys.js    synthesised ambience + sound effects
   ui/HUD.js, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
 art/blender/           one Python script per Blender model, export_all.py, the saved .blend
+art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures
 public/models/         the exported GLBs
+public/textures/       generated tiles (albedo + packed normal/height) and leaf atlases
 ```
 
 ## Blender models
@@ -157,12 +169,15 @@ With the dev server running, `node e2e/shots.mjs <outDir> [filter...]` captures 
 views and prints the main scene's draw calls and triangles for each. Spawn, floor close-up,
 riverbank, cliffs, clearing, temple, dusk and hillside are covered.
 `python e2e/sheet.py <outDir> sheet.png` lays them out on one contact sheet.
+`node e2e/view.mjs <outDir> '<json shots>'` takes one-off views by place, plant type, time of day
+and pitch (see its header), and `node e2e/probe.mjs "<js>"` prints the result of a JS expression
+evaluated in a booted game.
 `node e2e/loop.mjs` checks the gather → craft → defend loop end to end, and
 `node e2e/balance.mjs <night> <starter|mid|late>` simulates one night against a fixed defence. Two review agents
 live in `.claude/agents/`:
 
 - `indie-critic` reviews look, feel and play as a whole.
-- `design-critic` is a stern pass/fail gate for "playable graphics".
+- `design-critic` is a stern pass/fail graphics gate, graded against shipped AAA jungle games.
 
 ## Extending it
 

@@ -5,9 +5,10 @@ import * as THREE from 'three';
 import {
   CHUNK_SIZE as CS, sampleTerrain, terrainHeight, terrainNormal, jungleDensity, groundPatch,
 } from './WorldGen.js';
-import { chunkRng, range } from '../utils/rng.js';
+import { chunkRng, range, hash2 } from '../utils/rng.js';
+import { createNoise2D } from '../utils/noise.js';
 import { smoothstep, clamp } from '../utils/math.js';
-import { poiSpec, poisAround, buildPOI } from './poi/POI.js';
+import { poiSpec, poisAround, buildPOISteps } from './poi/POI.js';
 import { makeTerrainMaterial } from '../art/shaders.js';
 import { mergeToGeometry, bakedMaterial } from '../art/merge.js';
 import { getItemModel } from '../items/ItemModels.js';
@@ -18,16 +19,33 @@ const SEG = 48;
 export const VIEW_RADIUS = 2;
 export const STEP_HEIGHT = 0.55;
 
-// Small floor props that only the nearby chunks carry.
-const DRESSING = new Set(['seedling', 'pebbles', 'leafPile', 'branch', 'deadFrond']);
+// Small floor props and the low herb layer only live in the 3x3 chunks around the player;
+// the outer ring is deep in haze, where only trees, palms, tall herbs and rocks read.
+const DRESSING = new Set([
+  'seedling', 'pebbles', 'branch', 'deadFrond', 'mushrooms', 'orchid', 'bromeliad',
+  'grass', 'fern', 'bush', 'taro', 'flower',
+]);
 
 // Soft contact shade each prop leaves on the ground: [radius, strength].
+// floor dressing small enough that one variant per chunk is plenty
+const SMALL_FRY = new Set(['pebbles', 'branch', 'deadFrond', 'mushrooms', 'seedling', 'stump', 'orchid', 'bromeliad']);
+
 const SHADE = {
-  bush: [1.4, 0.45], fern: [1.1, 0.35], banana: [1.2, 0.35], taro: [1.1, 0.4], smallTree: [1.6, 0.35],
-  palm: [1.0, 0.3], rock: [1.5, 0.5], stump: [1.0, 0.4], log: [1.8, 0.25],
+  bush: [1.4, 0.45], fern: [1.1, 0.35], banana: [1.3, 0.4], taro: [1.2, 0.4], smallTree: [1.8, 0.4], midTree: [1.9, 0.4],
+  palm: [1.0, 0.3], grass: [0.6, 0.3], rock: [1.6, 0.55], stump: [1.0, 0.4], log: [1.8, 0.3], treeFern: [1.6, 0.4], monstera: [1.3, 0.45],
 };
 
+// Species grow in patches, not evenly sprinkled: each reads its own slow noise field.
+const CLUMP = [11, 12, 13, 14, 15, 16].map((s) => createNoise2D(4217 + 500 + s));
+const clump = (k, x, z, f = 0.045) => CLUMP[k](x * f, z * f) * 0.5 + 0.5;
+
 const _m = new THREE.Matrix4();
+const _c = new THREE.Color();
+// run a build generator to the end in one go
+const finish = (it) => { let r; while (!(r = it.next()).done); return r.value; };
+// plain (non-instanced) shadow casters render with this, never with three's shared depth
+// material, which then only sees instanced draws (see the note in instance())
+const TERRAIN_DEPTH = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _p = new THREE.Vector3();
@@ -86,9 +104,10 @@ export class World {
     this.chunks = new Map();
     this.plans = new Map();
     this.bigPlans = new Map();
+    this.fallers = new Map(); // cut plants toppling over
     this.cut = new Set();
     this.looted = new Set();
-    this.terrainMat = makeTerrainMaterial(flora.textures);
+    this.terrainMat = makeTerrainMaterial(flora.lib);
     this.queue = [];
     this.cx = NaN;
     this.cz = NaN;
@@ -115,9 +134,9 @@ export class World {
     this.bigPlans.clear();
   }
 
-  cleared(x, z, pad = 0) {
+  cleared(x, z, pad = 0, inner = 1) {
     for (const c of this.clearings) {
-      const d = Math.hypot(x - c.x, z - c.z) - (c.r + pad);
+      const d = Math.hypot(x - c.x, z - c.z) - (c.r * inner + pad);
       if (d < 0) return true;
       if (d < c.soft) {
         const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
@@ -142,6 +161,45 @@ export class World {
     }
   }
 
+  // The ground as rendered at (x, z): the height and normal of the terrain mesh's own
+  // triangle there (not the smooth terrain function), the splat weights and the baked
+  // shade. null where no chunk is built.
+  groundAt(x, z, out = {}) {
+    const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
+    const ch = this.chunks.get(World.key(cx, cz));
+    if (!ch || !ch.heights || !ch.splat) return null;
+    const N = SEG + 1, W = N + 2, step = CS / SEG;
+    const fx = (x - cx * CS) / step, fz = (z - cz * CS) / step;
+    const i = Math.min(SEG - 1, Math.floor(fx)), j = Math.min(SEG - 1, Math.floor(fz));
+    const u = fx - i, v = fz - j;
+    const H = ch.heights, row = W, g0 = (j + 1) * row + (i + 1);
+    const ha = H[g0], hb = H[g0 + 1], hc = H[g0 + row], hd = H[g0 + row + 1];
+    let nx, nz;
+    // each grid quad is split along its b-c diagonal (see the index order in buildTerrain)
+    if (u + v <= 1) {
+      out.h = ha + (hb - ha) * u + (hc - ha) * v;
+      nx = ha - hb; nz = ha - hc;
+    } else {
+      out.h = hd + (hc - hd) * (1 - u) + (hb - hd) * (1 - v);
+      nx = hc - hd; nz = hb - hd;
+    }
+    const nl = Math.hypot(nx, step, nz);
+    out.nx = nx / nl; out.ny = step / nl; out.nz = nz / nl;
+    const S = ch.splat, C = ch.shade, a = j * N + i;
+    const w00 = (1 - u) * (1 - v), w10 = u * (1 - v), w01 = (1 - u) * v, w11 = u * v;
+    const sp = (k) => S[a * 4 + k] * w00 + S[(a + 1) * 4 + k] * w10 + S[(a + N) * 4 + k] * w01 + S[(a + N + 1) * 4 + k] * w11;
+    out.litter = sp(0); out.moss = sp(1); out.rock = sp(2); out.mud = sp(3);
+    out.shade = C[a * 3 + 1] * w00 + C[(a + 1) * 3 + 1] * w10 + C[(a + N) * 3 + 1] * w01 + C[(a + N + 1) * 3 + 1] * w11;
+    return out;
+  }
+
+  // Points of interest in built chunks within r of (x, z), as their placement specs.
+  poisNear(x, z, r) {
+    const out = [];
+    for (const ch of this.chunks.values()) if (ch.poi && Math.hypot(ch.poi.x - x, ch.poi.z - z) < r + ch.poi.radius) out.push(ch.poi);
+    return out;
+  }
+
   static key(cx, cz) {
     return `${cx},${cz}`;
   }
@@ -160,7 +218,7 @@ export class World {
       for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++)
         for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) want.push([cx + dx, cz + dz, dx * dx + dz * dz]);
       want.sort((a, b) => a[2] - b[2]);
-      this.queue = want.filter(([x, z]) => !this.chunks.has(World.key(x, z)));
+      this.queue = want.filter(([x, z]) => !this.chunks.has(World.key(x, z)) && this.building?.key !== World.key(x, z));
       for (const [k, ch] of this.chunks) {
         if (Math.max(Math.abs(ch.cx - cx), Math.abs(ch.cz - cz)) > VIEW_RADIUS + 1) this.unload(k);
       }
@@ -173,19 +231,27 @@ export class World {
       }
     }
     if (force) {
+      if (this.building) finish(this.building.steps);
+      this.building = null;
       while (this.queue.length) this.build(...this.queue.shift());
       for (const ch of this.chunks.values()) this.updateDressing(ch);
-    } else if (this.queue.length) {
-      this.build(...this.queue.shift());
+    } else if (this.building || this.queue.length) {
+      // one slice of the chunk under construction per frame
+      if (!this.building) {
+        const [x, z] = this.queue.shift();
+        this.building = { key: World.key(x, z), steps: this.buildSteps(x, z) };
+      }
+      if (this.building.steps.next().done) this.building = null;
     } else {
       // one dressing change per frame, so streaming stays smooth
       for (const ch of this.chunks.values()) if (this.updateDressing(ch)) break;
     }
+    this.updateFallers(dt);
     this.animate(dt);
   }
 
   get loading() {
-    return this.queue.length;
+    return this.queue.length + (this.building ? 1 : 0);
   }
 
   animate() {
@@ -233,7 +299,7 @@ export class World {
       if (this.cleared(x, z, 6)) continue;
       if (out.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < 100)) continue;
       if (terrainNormal(x, z).y < 0.82) continue;
-      out.push({ x, z, y: t.h - 0.25, s: 0.8 + r3 * 0.45, v: Math.floor(r4 * 3), ry: rand() * TAU });
+      out.push({ x, z, y: t.h - 0.25, s: 0.8 + r3 * 0.45, v: Math.floor(r4 * this.flora.types.bigTree.variants.length), ry: rand() * TAU });
     }
     this.bigPlans.set(k, out);
     return out;
@@ -250,10 +316,25 @@ export class World {
     const big = this.bigTrees(cx, cz);
     for (const b of big) items.push({ type: 'bigTree', v: b.v, x: b.x, y: b.y, z: b.z, ry: b.ry, s: b.s });
     const t = {};
-    const blocked = (x, z, pad) => this.cleared(x, z, pad) || pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
+    const blocked = (x, z, pad, inner = 1) => this.cleared(x, z, pad, inner) || pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
     const nearBig = (x, z, d) => big.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < d * d);
+    // Each chunk grows only one or two of a plant's variants (the neighbours pick others):
+    // every variant in a chunk is its own instanced mesh, i.e. its own draw calls.
+    const vr = chunkRng(cx, cz, 202);
+    const subsets = new Map();
+    const variantFor = (type) => {
+      const n = T[type].variants.length;
+      let sub = subsets.get(type);
+      if (!sub) {
+        const a = Math.floor(vr() * n);
+        sub = SMALL_FRY.has(type) || n < 3 ? [a] : [a, (a + 1 + Math.floor(vr() * (n - 1))) % n];
+        if (n === 2 && !SMALL_FRY.has(type)) sub = [0, 1];
+        subsets.set(type, sub);
+      }
+      return sub[Math.floor(rand() * sub.length)];
+    };
     const place = (type, x, y, z, s, v, tilt = false) => {
-      const it = { type, v: v ?? Math.floor(rand() * T[type].variants.length), x, y, z, ry: rand() * TAU, s };
+      const it = { type, v: v ?? variantFor(type), x, y, z, ry: rand() * TAU, s };
       if (tilt) {
         const n = terrainNormal(x, z);
         it.nx = n.x; it.ny = n.y; it.nz = n.z;
@@ -269,10 +350,11 @@ export class World {
       }
     };
 
+    // ---- the understory: palms by the water, tree ferns and young trees under the giants
     scatter('palm', 22, (x, z, t, roll) => {
       if (t.h < 0.3 || t.h > 14) return;
       const wet = 1 - smoothstep(1.5, 7, t.h);
-      if (roll > 0.1 + wet * 0.6 || blocked(x, z, 2) || nearBig(x, z, 5)) return;
+      if (roll > 0.08 + wet * 0.6 || blocked(x, z, 2) || nearBig(x, z, 5)) return;
       if (terrainNormal(x, z).y < 0.85) return;
       place('palm', x, t.h - 0.1, z, range(rand, 0.85, 1.2));
       // dead fronds lie around the foot of most palms
@@ -283,75 +365,129 @@ export class World {
         place('deadFrond', fx, terrainHeight(fx, fz), fz, 0.8 + rand() * 0.3, undefined, true);
       }
     });
-    scatter('smallTree', 70, (x, z, t, roll) => {
+    scatter('midTree', 34, (x, z, t, roll) => {
+      if (t.h < 0.6 || roll > 0.08 + jungleDensity(x, z) * 0.55 || blocked(x, z, 2.5) || nearBig(x, z, 4)) return;
+      if (terrainNormal(x, z).y < 0.82) return;
+      place('midTree', x, t.h - 0.1, z, range(rand, 0.85, 1.15));
+    });
+    scatter('smallTree', 140, (x, z, t, roll) => {
       if (t.h < 0.6) return;
-      if (roll > 0.2 + jungleDensity(x, z) * 0.55 || blocked(x, z, 2)) return;
+      if (roll > 0.15 + jungleDensity(x, z) * 0.5 || blocked(x, z, 2) || nearBig(x, z, 3)) return;
       if (terrainNormal(x, z).y < 0.8) return;
-      place('smallTree', x, t.h - 0.1, z, range(rand, 0.8, 1.2));
+      place('smallTree', x, t.h - 0.1, z, range(rand, 0.8, 1.25));
     });
-    scatter('fern', 260, (x, z, t, roll) => {
-      if (t.h < 0.4 || roll > 0.25 + jungleDensity(x, z) * 0.5 || blocked(x, z, 0.5)) return;
+    scatter('treeFern', 70, (x, z, t, roll) => {
+      const d = jungleDensity(x, z);
+      if (t.h < 0.8 || roll > (0.05 + d * 0.35) * smoothstep(0.35, 0.7, clump(0, x, z)) || blocked(x, z, 1.5) || nearBig(x, z, 3)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
+      place('treeFern', x, t.h - 0.1, z, range(rand, 0.8, 1.25));
+    });
+
+    // ---- the herb layer: aroids, ferns, bananas and shrubs in patches
+    scatter('monstera', 110, (x, z, t, roll) => {
+      const d = jungleDensity(x, z);
+      const shade = nearBig(x, z, 9) ? 1 : 0.4;
+      if (t.h < 0.4 || roll > d * 0.5 * shade * smoothstep(0.3, 0.65, clump(1, x, z)) || blocked(x, z, 0.8, 0.72)) return;
+      if (terrainNormal(x, z).y < 0.78) return;
+      place('monstera', x, t.h - 0.05, z, range(rand, 0.8, 1.35));
+    });
+    scatter('fern', 280, (x, z, t, roll) => {
+      const d = jungleDensity(x, z);
+      if (t.h < 0.4 || roll > (0.12 + d * 0.45) * (0.35 + 0.9 * smoothstep(0.35, 0.75, clump(2, x, z))) || blocked(x, z, 0.5, 0.5) || nearBig(x, z, 2.2)) return;
       if (terrainNormal(x, z).y < 0.7) return;
-      place('fern', x, t.h - 0.05, z, range(rand, 0.8, 1.45));
+      place('fern', x, t.h - 0.05, z, range(rand, 0.75, 1.45));
     });
-    scatter('bush', 150, (x, z, t, roll) => {
-      if (t.h < 0.4 || roll > 0.18 + jungleDensity(x, z) * 0.45 || blocked(x, z, 0.5)) return;
+    scatter('bush', 120, (x, z, t, roll) => {
+      if (t.h < 0.4 || roll > (0.12 + jungleDensity(x, z) * 0.4) * smoothstep(0.25, 0.6, clump(3, x, z)) || blocked(x, z, 0.5) || nearBig(x, z, 2.5)) return;
       if (terrainNormal(x, z).y < 0.72) return;
-      place('bush', x, t.h - 0.1, z, range(rand, 0.8, 1.35));
+      place('bush', x, t.h - 0.1, z, range(rand, 0.7, 1.3));
     });
-    // low ground cover: small leafy clumps so the floor isn't bare litter
-    scatter('bush', 140, (x, z, t, roll) => {
-      if (t.h < 0.4 || roll > 0.25 + jungleDensity(x, z) * 0.5 || blocked(x, z, 0)) return;
-      if (terrainNormal(x, z).y < 0.7) return;
-      place('bush', x, t.h - 0.05, z, range(rand, 0.4, 0.65));
-    });
-    scatter('banana', 40, (x, z, t, roll) => {
+    scatter('banana', 65, (x, z, t, roll) => {
       const wet = 1 - smoothstep(1.0, 6, t.h);
-      if (t.h < 0.25 || roll > 0.08 + wet * 0.5 + jungleDensity(x, z) * 0.12 || blocked(x, z, 1)) return;
+      const gap = 1 - jungleDensity(x, z);
+      if (t.h < 0.25 || roll > 0.04 + wet * 0.45 + gap * 0.2 || blocked(x, z, 1) || nearBig(x, z, 3)) return;
       if (terrainNormal(x, z).y < 0.8) return;
-      place('banana', x, t.h - 0.1, z, range(rand, 0.85, 1.3));
+      // bananas grow in stands
+      for (let k = 0; k < 1 + Math.floor(rand() * 3); k++) {
+        const bx = x + (rand() - 0.5) * 3.5, bz = z + (rand() - 0.5) * 3.5;
+        if (blocked(bx, bz, 1)) continue;
+        place('banana', bx, terrainHeight(bx, bz) - 0.1, bz, range(rand, 0.8, 1.3));
+      }
     });
-    scatter('rock', 26, (x, z, t, roll) => {
+    scatter('taro', 90, (x, z, t, roll) => {
+      const wet = 1 - smoothstep(1.0, 8, t.h);
+      if (t.h < 0.3 || roll > (0.05 + wet * 0.4 + jungleDensity(x, z) * 0.1) * smoothstep(0.3, 0.6, clump(4, x, z)) || blocked(x, z, 1, 0.72)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
+      place('taro', x, t.h - 0.05, z, range(rand, 0.8, 1.35));
+    });
+    scatter('flower', 40, (x, z, t, roll) => {
+      const gap = 1 - jungleDensity(x, z);
+      if (t.h < 0.5 || roll > 0.04 + gap * 0.3 || blocked(x, z, 0.5, 0.5)) return;
+      if (terrainNormal(x, z).y < 0.8) return;
+      place('flower', x, t.h - 0.03, z, range(rand, 0.85, 1.3));
+    });
+
+    // ---- rock: boulders bedded into slopes, big ones on cliffs and terrace risers
+    scatter('rock', 30, (x, z, t, roll) => {
       const slope = 1 - terrainNormal(x, z).y;
-      if (t.h < -2.2 || roll > 0.07 + slope * 2.5 + t.mountain * 0.5 || blocked(x, z, 1)) return;
+      if (t.h < -2.2 || roll > 0.06 + slope * 2.5 + t.mountain * 0.5 || blocked(x, z, 1)) return;
       const s = range(rand, 0.5, 2.1);
-      // bed rocks into the slope: tilt to the ground and sink the downhill side's gap
-      place('rock', x, t.h - (0.05 + slope * 0.25) * s, z, s, undefined, true);
+      place('rock', x, t.h - (0.12 + slope * 0.3) * s, z, s, undefined, true);
     });
-    // big boulders on cliffs and terrace risers
-    scatter('rock', 90, (x, z, t, roll) => {
+    scatter('rock', 110, (x, z, t, roll) => {
       const slope = 1 - terrainNormal(x, z).y;
-      if (slope < 0.35 || slope > 0.55 || t.h < 1 || roll > 0.8 || blocked(x, z, 2)) return;
-      const s = range(rand, 1.5, 3);
+      if (slope < 0.3 || slope > 0.6 || t.h < 1 || roll > 0.8 || blocked(x, z, 2)) return;
+      const s = range(rand, 1.6, 3.6);
       let y = Infinity;
       for (let k = 0; k < 6; k++) {
         const a = (k * TAU) / 6;
         y = Math.min(y, terrainHeight(x + Math.cos(a) * 0.8 * s, z + Math.sin(a) * 0.8 * s));
       }
-      place('rock', x, y - 0.15 * s, z, s, undefined, true);
+      place('rock', x, y - 0.2 * s, z, s, undefined, true);
     });
-    // ferns and bushes clinging to ledges on steep ground
-    scatter('fern', 60, (x, z, t, roll) => {
+    // cliff outcrops: stepped ledges of bedded rock on faces too steep for boulders, turned to
+    // face down the slope and bedded into it. A wall covers little of the map seen from above,
+    // so many tries, kept more often the steeper the ground
+    scatter('cliffRock', 320, (x, z, t, roll) => {
+      const n = terrainNormal(x, z);
+      if (t.h < 0.8 || roll > 0.75 * smoothstep(0.82, 0.45, n.y) || blocked(x, z, 3)) return;
+      const s = range(rand, 0.9, 1.5);
+      // out from the face a little (more the steeper it is), its front edge (0.6 m out and down
+      // at unit scale) just below the ground in front
+      const l = Math.hypot(n.x, n.z), dx = n.x / l, dz = n.z / l;
+      const out = 0.5 * s * (1 - n.y), px = x + dx * out, pz = z + dz * out;
+      const yFront = terrainHeight(px + dx * 0.6 * s, pz + dz * 0.6 * s);
+      place('cliffRock', px, yFront + 0.4 * s, pz, s);
+      items[items.length - 1].ry = Math.atan2(n.x, n.z);
+    });
+    // ferns and shrubs clinging to ledges on steep ground
+    scatter('fern', 70, (x, z, t, roll) => {
       const slope = 1 - terrainNormal(x, z).y;
       if (slope < 0.35 || t.h < 1 || groundPatch(x, z) < 0.3 - roll * 0.3 || blocked(x, z, 1)) return;
       place(roll < 0.6 ? 'fern' : 'bush', x, t.h - 0.15, z, range(rand, 0.7, 1.2));
     });
-    scatter('log', 4, (x, z, t, roll) => {
-      if (t.h < 0.8 || roll > 0.35 || blocked(x, z, 4) || nearBig(x, z, 5)) return;
+    scatter('log', 5, (x, z, t, roll) => {
+      if (t.h < 0.8 || roll > 0.4 || blocked(x, z, 4) || nearBig(x, z, 5)) return;
       if (terrainNormal(x, z).y < 0.93) return;
-      place('log', x, t.h - 0.05, z, range(rand, 0.9, 1.1));
+      place('log', x, t.h - 0.08, z, range(rand, 0.9, 1.1));
+      // fungi on the rotting wood
+      for (let k = 0; k < 2; k++) {
+        const mx = x + (rand() - 0.5) * 4, mz = z + (rand() - 0.5) * 2;
+        place('mushrooms', mx, terrainHeight(mx, mz) - 0.02, mz, range(rand, 0.8, 1.3));
+      }
     });
-    scatter('grass', 650, (x, z, t, roll) => {
+    // grass only where light reaches the floor: gaps, clearings and the river banks
+    scatter('grass', 600, (x, z, t, roll) => {
       if (t.h < -0.35) return;
-      // second pass along the water's edge: reeds twice as thick
       if (t.h < 1.1 && rand() < 0.5) {
         const ox = x + (rand() - 0.5) * 3, oz = z + (rand() - 0.5) * 3, oh = terrainHeight(ox, oz);
         if (oh > -0.35 && oh < 1.1) place('grass', ox, oh - 0.05, oz, range(rand, 0.7, 1.3), 1);
       }
       const reed = t.h < 1.1;
-      if (!reed && roll > 0.3 + (1 - jungleDensity(x, z)) * 0.6) return;
-      if (blocked(x, z, -2) || terrainNormal(x, z).y < 0.75) return;
-      place('grass', x, t.h - 0.05, z, range(rand, 0.7, 1.3), reed ? 1 : 0);
+      const open = 1 - jungleDensity(x, z);
+      if (!reed && roll > (0.05 + open * 0.75) * (nearBig(x, z, 8) ? 0.3 : 1)) return;
+      if (blocked(x, z, -2, 0.5) || terrainNormal(x, z).y < 0.75) return;
+      place('grass', x, t.h - 0.05, z, range(rand, 0.7, 1.3), reed ? 1 : (rand() < 0.5 ? 0 : 2));
     });
     // the jungle closing in on old stone: plants hugging temple and ruin footprints
     for (const p of pois) {
@@ -374,35 +510,24 @@ export class World {
         const h = terrainHeight(x, z);
         if (h < 0.3) continue;
         const roll = rand();
-        if (roll < 0.3) place('fern', x, h - 0.05, z, range(rand, 0.9, 1.5));
-        else if (roll < 0.45) place('taro', x, h - 0.05, z, range(rand, 0.8, 1.2));
-        else if (roll < 0.6) place('bush', x, h - 0.1, z, range(rand, 0.6, 1.1));
-        else if (roll < 0.8) place('seedling', x, h - 0.03, z, range(rand, 0.9, 1.4));
-        else place('leafPile', x, h - 0.02, z, range(rand, 0.8, 1.3), undefined, true);
+        if (roll < 0.28) place('fern', x, h - 0.05, z, range(rand, 0.9, 1.5));
+        else if (roll < 0.42) place('taro', x, h - 0.05, z, range(rand, 0.8, 1.2));
+        else if (roll < 0.55) place('monstera', x, h - 0.05, z, range(rand, 0.8, 1.2));
+        else if (roll < 0.65) place('bush', x, h - 0.1, z, range(rand, 0.6, 1.1));
+        else place('seedling', x, h - 0.03, z, range(rand, 0.9, 1.4));
       }
     }
 
-    // forest floor dressing: leaf drifts, fallen limbs, seedlings, stones
-    scatter('leafPile', 120, (x, z, t, roll) => {
-      if (t.h < 1.0 || roll > 0.3 + jungleDensity(x, z) * 0.55 || blocked(x, z, 0)) return;
-      if (terrainNormal(x, z).y < 0.85) return;
-      place('leafPile', x, t.h - 0.02, z, range(rand, 0.8, 1.3), undefined, true);
-    });
-    scatter('branch', 50, (x, z, t, roll) => {
+    // ---- forest floor dressing: fallen limbs, seedlings, stones, fungi, epiphytes
+    scatter('branch', 60, (x, z, t, roll) => {
       if (t.h < 0.6 || roll > 0.25 + jungleDensity(x, z) * 0.5 || blocked(x, z, 0.5)) return;
       if (terrainNormal(x, z).y < 0.8) return;
       place('branch', x, t.h - 0.03, z, range(rand, 0.8, 1.3), undefined, true);
     });
-    scatter('seedling', 340, (x, z, t, roll) => {
-      if (t.h < 0.5 || roll > 0.2 + jungleDensity(x, z) * 0.6 || blocked(x, z, 0)) return;
+    scatter('seedling', 360, (x, z, t, roll) => {
+      if (t.h < 0.5 || roll > (0.15 + jungleDensity(x, z) * 0.6) * (0.5 + 0.7 * clump(5, x, z)) || blocked(x, z, 0, 0.5)) return;
       if (terrainNormal(x, z).y < 0.75) return;
       place('seedling', x, t.h - 0.03, z, range(rand, 0.8, 1.4));
-    });
-    scatter('taro', 50, (x, z, t, roll) => {
-      const wet = 1 - smoothstep(1.0, 8, t.h);
-      if (t.h < 0.3 || roll > 0.06 + wet * 0.35 + jungleDensity(x, z) * 0.12 || blocked(x, z, 1)) return;
-      if (terrainNormal(x, z).y < 0.8) return;
-      place('taro', x, t.h - 0.05, z, range(rand, 0.8, 1.35));
     });
     scatter('pebbles', 60, (x, z, t, roll) => {
       const slope = 1 - terrainNormal(x, z).y;
@@ -411,17 +536,26 @@ export class World {
       if (roll > (0.04 + bank + t.mountain * 0.2) * (1 - smoothstep(0.05, 0.15, slope))) return;
       place('pebbles', x, t.h - 0.02, z, range(rand, 0.7, 1.1), undefined, true);
     });
-    scatter('stump', 3, (x, z, t, roll) => {
+    scatter('stump', 4, (x, z, t, roll) => {
       if (t.h < 0.8 || roll > 0.45 || blocked(x, z, 2) || nearBig(x, z, 4)) return;
       if (terrainNormal(x, z).y < 0.9) return;
       place('stump', x, t.h - 0.05, z, range(rand, 0.85, 1.2));
+      const mx = x + (rand() - 0.5) * 1.5, mz = z + (rand() - 0.5) * 1.5;
+      place('mushrooms', mx, terrainHeight(mx, mz) - 0.02, mz, range(rand, 0.8, 1.2));
     });
-    scatter('flower', 45, (x, z, t, roll) => {
-      const d = jungleDensity(x, z);
-      if (t.h < 0.5 || roll > 0.22 + d * 0.2 || blocked(x, z, 0)) return;
-      if (terrainNormal(x, z).y < 0.8) return;
-      place('flower', x, t.h - 0.03, z, range(rand, 0.8, 1.3), d > 0.75 && rand() < 0.5 ? 2 : Math.floor(rand() * 2));
-    });
+    // bromeliads, orchids and fungi gather around the feet of the giants
+    for (const b of big) {
+      if (Math.floor(b.x / CS) !== cx || Math.floor(b.z / CS) !== cz) continue;
+      const n = Math.floor(rand() * 4);
+      for (let k = 0; k < n; k++) {
+        const a = rand() * TAU, d = 2.5 + rand() * 3.5;
+        const x = b.x + Math.cos(a) * d, z = b.z + Math.sin(a) * d;
+        if (blocked(x, z, 0.5)) continue;
+        const roll = rand();
+        const type = roll < 0.4 ? 'bromeliad' : roll < 0.65 ? 'orchid' : 'mushrooms';
+        place(type, x, terrainHeight(x, z) - 0.03, z, range(rand, 0.8, 1.3));
+      }
+    }
 
     // forage: loose materials on the floor
     const forage = [];
@@ -441,6 +575,21 @@ export class World {
       else if (roll < 0.72 && d > 0.45) addForage(d > 0.8 && r2 < 0.12 ? 'glowcap' : 'mushroom', x, z);
       else if (roll < 0.8) addForage(r2 < 0.6 ? 'feather' : 'bone', x, z);
     });
+    // a few sticks and stones on the bare ground round the Heartwood, 8-20 m out, so the first
+    // thing the journal asks for (look down, tap E) lies near where a run starts. One fixed
+    // set, drawn whole for every chunk, of which each chunk keeps the ones inside it.
+    const home = this.clearings[0];
+    if (home) {
+      const hr = chunkRng(Math.floor(home.x), Math.floor(home.z), 977);
+      for (let i = 0; i < 8; i++) {
+        const a = hr() * TAU, d = 8 + hr() * 12, ry = hr() * TAU, sc = range(hr, 1.25, 1.6);
+        const x = home.x + Math.cos(a) * d, z = home.z + Math.sin(a) * d;
+        if (x < x0 || x >= x0 + CS || z < z0 || z >= z0 + CS) continue;
+        const n = terrainNormal(x, z);
+        if (n.y < 0.8) continue;
+        forage.push({ id: i % 3 === 2 ? 'stone' : 'stick', x, y: terrainHeight(x, z), z, ry, s: sc, nx: n.x, ny: n.y, nz: n.z });
+      }
+    }
 
     const plan = { items, forage };
     this.plans.set(k, plan);
@@ -450,20 +599,36 @@ export class World {
   // ------------------------------------------------------------- building
 
   build(cx, cz) {
+    finish(this.buildSteps(cx, cz));
+  }
+
+  // A chunk, a slice at a time (World.update runs one slice per frame): the plans it needs
+  // (its own and its neighbours', for shade and big trees), the terrain in bands of rows, the
+  // plants a dozen meshes at a time, then its point of interest.
+  *buildSteps(cx, cz) {
     const k = World.key(cx, cz);
     if (this.chunks.has(k)) return;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (this.plans.has(World.key(cx + dx, cz + dz))) continue;
+        this.plan(cx + dx, cz + dz);
+        yield;
+      }
+    }
     const plan = this.plan(cx, cz);
     const group = new THREE.Group();
     group.name = `chunk ${k}`;
     const chunk = { key: k, cx, cz, group, cuttables: [], colliders: [], interactables: [], animated: [], poi: null };
 
-    group.add(this.buildTerrain(cx, cz));
+    group.add(yield* this.terrainSteps(cx, cz, chunk));
+    yield;
 
-    this.instance(chunk, plan, group, (type) => !DRESSING.has(type));
+    yield* this.instanceSteps(chunk, plan, group, (type) => !DRESSING.has(type));
 
     const spec = poiSpec(cx, cz);
     if (spec) {
-      const res = buildPOI(spec, this.flora);
+      yield;
+      const res = yield* buildPOISteps(spec, this.flora);
       group.add(res.group);
       chunk.poi = spec;
       chunk.colliders.push(...res.colliders);
@@ -513,6 +678,7 @@ export class World {
     });
     for (const [id, list] of bins) {
       const mesh = new THREE.InstancedMesh(forageGeometry(id), forageMat, list.length);
+      mesh.setColorAt(0, _c.setRGB(1, 1, 1));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       list.forEach(([f, key], i) => {
@@ -565,6 +731,12 @@ export class World {
 
   // Instanced plants, one InstancedMesh per species variant.
   instance(chunk, plan, group, want, dress = false) {
+    finish(this.instanceSteps(chunk, plan, group, want, dress));
+  }
+
+  // the same, yielding every dozen meshes
+  *instanceSteps(chunk, plan, group, want, dress = false) {
+    let made = 0;
     const k = chunk.key;
     const bins = new Map();
     plan.items.forEach((it, idx) => {
@@ -574,6 +746,7 @@ export class World {
       bins.get(bk).push(idx);
     });
     for (const [bk, list] of bins) {
+      if (++made % 12 === 0) yield;
       const [type, v] = bk.split(':');
       const def = this.flora.types[type];
       const variant = def.variants[+v];
@@ -587,6 +760,17 @@ export class World {
         if (it.nx !== undefined) _q.premultiply(_q2.setFromUnitVectors(_up, _p.set(it.nx, it.ny, it.nz)));
         _m.compose(_p.set(it.x, it.y, it.z), _q, _s.setScalar(it.s));
         mesh.setMatrixAt(i, _m);
+        if (def.tint) {
+          // every plant a little different: a warm/cool shift and a lighter/darker one
+          const h = hash2(Math.round(it.x * 10), Math.round(it.z * 10), 7);
+          const hue = ((h & 1023) / 1023 - 0.5) * 2 * def.tint[0];
+          const val = 1 + (((h >>> 10) & 1023) / 1023 - 0.5) * 2 * def.tint[1];
+          mesh.setColorAt(i, _c.setRGB(val * (1 + hue * 1.6), val * (1 + hue * 0.4), val * (1 - hue * 1.8)));
+        } else {
+          // every instanced caster carries instance colours: when three's shared depth material
+          // meets meshes with and without them it rebuilds its program key on every switch
+          mesh.setColorAt(i, _c.setRGB(1, 1, 1));
+        }
         if (it.nx === undefined) {
           const n = terrainNormal(it.x, it.z);
           slope[i * 2] = -n.x / n.y;
@@ -612,12 +796,18 @@ export class World {
     }
   }
 
-  buildTerrain(cx, cz) {
+  buildTerrain(cx, cz, chunk = null) {
+    return finish(this.terrainSteps(cx, cz, chunk));
+  }
+
+  // the terrain mesh, yielding every band of rows
+  *terrainSteps(cx, cz, chunk = null) {
     const N = SEG + 1, W = N + 2, step = CS / SEG;
     const x0 = cx * CS, z0 = cz * CS;
     const H = new Float32Array(W * W), RV = new Float32Array(W * W), MT = new Float32Array(W * W);
     const t = {};
     for (let j = 0; j < W; j++) {
+      if (j % 17 === 16) yield;
       for (let i = 0; i < W; i++) {
         sampleTerrain(x0 + (i - 1) * step, z0 + (j - 1) * step, t);
         H[j * W + i] = t.h;
@@ -625,6 +815,7 @@ export class World {
         MT[j * W + i] = t.mountain;
       }
     }
+    if (chunk) chunk.heights = H; // the water reads these for its depth
     // canopy shade from big trees in this and neighbouring chunks
     const bigs = [];
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) bigs.push(...this.bigTrees(cx + dx, cz + dz));
@@ -649,6 +840,7 @@ export class World {
     const col = new Float32Array(N * N * 3), spl = new Float32Array(N * N * 4);
     const n = new THREE.Vector3();
     for (let j = 0; j < N; j++) {
+      if (j % 17 === 16) yield;
       for (let i = 0; i < N; i++) {
         const gi = (j + 1) * W + (i + 1);
         const h = H[gi];
@@ -661,7 +853,7 @@ export class World {
         let ao = 1;
         for (const b of bigs) {
           const dd = (b.x - wx) ** 2 + (b.z - wz) ** 2;
-          const R = 8.5 * b.s;
+          const R = 10.5 * b.s;
           if (dd < R * R) ao = Math.min(ao, 0.5 + 0.5 * smoothstep(0, 1, Math.sqrt(dd) / R));
         }
         const canopy = 1 - ao; // 0 in the open, 0.5 at a giant's foot
@@ -684,13 +876,14 @@ export class World {
         const dens = jungleDensity(wx, wz);
         // river banks are earth and mud, not bare rock; rock is for mountains and true cliffs
         const inland = smoothstep(0.5, 0.95, RV[gi]);
-        const rock = clamp(smoothstep(0.2, 0.45, slope) * (0.15 + 0.85 * inland) + MT[gi] * 0.7 * smoothstep(0.08, 0.25, slope) + smoothstep(20, 34, h) * 0.6, 0, 1);
-        // mud only near the waterline; the bank above is earth, litter and damp moss
+        const rock = clamp(smoothstep(0.3, 0.52, slope) * (0.15 + 0.85 * inland) + MT[gi] * 0.7 * smoothstep(0.16, 0.34, slope) + smoothstep(22, 36, h) * 0.5, 0, 1);
+        // mud near the waterline, and bare dark earth where slopes shed their litter
         const mn = groundPatch(wx * 2.7, wz * 2.7);
-        const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h)), 0, 1) * (1 - rock * 0.7);
-        // moss: in patches, in clearings and on damp shaded slopes; litter piles up under trees
+        const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h))
+          + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland, 0, 1) * (1 - rock * 0.7);
+        // moss: in patches, on damp banks and in clearings; litter piles up under trees
         const moss = clamp(
-          smoothstep(0.05, 0.55, patch) * 0.65 + (1 - dens) * 0.3 + smoothstep(0.08, 0.2, slope) * 0.25 + (1 - RV[gi]) * 0.5 - canopy * 0.8,
+          smoothstep(0.2, 0.65, patch) * 0.55 + (1 - dens) * 0.15 + (1 - RV[gi]) * 0.4 - canopy * 0.8,
           0, 1) * (1 - rock) * (1 - mud);
         const litter = clamp(0.5 + dens * 0.25 + canopy * 1.2 - moss * 0.5, 0.05, 1) * (1 - rock) * (1 - mud * 0.8);
         spl[v * 4] = litter; spl[v * 4 + 1] = moss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = mud;
@@ -715,12 +908,15 @@ export class World {
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('splat', new THREE.BufferAttribute(spl, 4));
+    // kept for groundAt (fallen leaves lie only where litter covers the ground)
+    if (chunk) { chunk.splat = spl; chunk.shade = col; }
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.terrainMat);
     mesh.position.set(x0, 0, z0);
     mesh.receiveShadow = true;
     mesh.castShadow = true;
+    mesh.customDepthMaterial = TERRAIN_DEPTH;
     mesh.userData.terrain = true;
     return mesh;
   }
@@ -792,11 +988,83 @@ export class World {
     }
   }
 
-  cutPlant(c) {
+  // One of every plant variant in a hidden group, for the loading-time shader warm-up.
+  warmFlora(x, y, z) {
+    const g = new THREE.Group();
+    for (const def of Object.values(this.flora.types)) {
+      def.variants.forEach((variant, i) => {
+        const mesh = new THREE.InstancedMesh(withSlope(variant.geometry), def.material, 1);
+        mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(new Float32Array(2), 2));
+        mesh.setMatrixAt(0, _m.makeTranslation(x + i * 3, y, z));
+        mesh.setColorAt(0, _c.setRGB(1, 1, 1));
+        mesh.castShadow = def.shadow;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        g.add(mesh);
+      });
+    }
+    this.scene.add(g);
+    return g;
+  }
+
+  // A cut plant doesn't blink out: a copy of it keels over away from the blade, then sinks and
+  // shrinks away. fall: horizontal direction to topple toward (optional).
+  cutPlant(c, fall = null) {
     c.alive = false;
+    const m0 = new THREE.Matrix4();
+    c.mesh.getMatrixAt(c.instance, m0);
     c.mesh.setMatrixAt(c.instance, ZERO);
     c.mesh.instanceMatrix.needsUpdate = true;
     this.cut.add(c.key);
+    const key = `${c.type}:${c.v}`;
+    let f = this.fallers.get(key);
+    if (!f) {
+      // one small instanced mesh per plant variant: the same shader program as the plants
+      // themselves, so the first cut never compiles anything
+      const def = this.flora.types[c.type];
+      const mesh = new THREE.InstancedMesh(withSlope(def.variants[c.v].geometry), def.material, 6);
+      mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(new Float32Array(12), 2));
+      mesh.setColorAt(0, _c.setRGB(1, 1, 1));
+      mesh.castShadow = def.shadow;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      this.scene.add(mesh);
+      f = { mesh, list: [] };
+      this.fallers.set(key, f);
+    }
+    if (f.list.length >= 6) f.list.shift();
+    const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    m0.decompose(pos, q, s);
+    const dir = fall ? new THREE.Vector3(fall.x, 0, fall.z) : new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5);
+    if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
+    dir.normalize();
+    const color = new THREE.Color(1, 1, 1);
+    if (c.mesh.instanceColor) c.mesh.getColorAt(c.instance, color);
+    f.list.push({ pos, q, s, axis: new THREE.Vector3(dir.z, 0, -dir.x), t: 0, color, big: c.r >= 1 });
+  }
+
+  updateFallers(dt) {
+    for (const f of this.fallers.values()) {
+      if (!f.list.length && f.mesh.count === 0) continue;
+      f.list = f.list.filter((o) => (o.t += dt) < 0.8);
+      f.list.forEach((o, i) => {
+        // tip over (easing in, like real weight), then sink and shrink away
+        const k = Math.min(1, o.t / 0.45);
+        const ang = k * k * (o.big ? 1.35 : 1.1);
+        _q.setFromAxisAngle(o.axis, ang).multiply(o.q);
+        const out = Math.max(0, (o.t - 0.45) / 0.35);
+        const sc = 1 - out * out;
+        _p.copy(o.pos);
+        _p.y -= out * 0.4;
+        _m.compose(_p, _q, _s.copy(o.s).multiplyScalar(Math.max(0.001, sc)));
+        f.mesh.setMatrixAt(i, _m);
+        if (f.mesh.instanceColor) f.mesh.setColorAt(i, o.color);
+      });
+      f.mesh.count = f.list.length;
+      f.mesh.instanceMatrix.needsUpdate = true;
+      if (f.mesh.instanceColor) f.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   finishInteractable(it, chunk, silent = false) {

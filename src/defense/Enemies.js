@@ -16,6 +16,20 @@ import { setFlash, setRim, setDissolve } from '../art/merge.js';
 import { terrainHeight } from '../world/WorldGen.js';
 import { clamp, damp, angleDelta } from '../utils/math.js';
 import { GOAL_RADIUS } from './Base.js';
+import { glowTexture } from '../art/textures.js';
+
+// one shared glow for every Wisp (additive, so it never darkens what's behind it)
+let wispGlowMat = null;
+function wispGlow() {
+  if (!wispGlowMat) {
+    wispGlowMat = new THREE.SpriteMaterial({
+      map: glowTexture(), color: 0xb060ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55, fog: false,
+    });
+  }
+  const s = new THREE.Sprite(wispGlowMat);
+  s.scale.setScalar(1.6);
+  return s;
+}
 
 export const ENEMY_TYPES = {
   blightling: {
@@ -24,11 +38,11 @@ export const ENEMY_TYPES = {
   },
   rotboar: {
     name: 'Rotboar', model: 'rotboar', hp: 240, speed: 2.2, radius: 0.95, dmg: 22, rate: 1.5, reach: 1.9, windup: 0.5,
-    aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5,
+    aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5, towerAggro: 6,
   },
   wisp: {
     name: 'Blight Wisp', model: 'wisp', hp: 55, speed: 3.4, radius: 0.5, dmg: 7, rate: 0.9, reach: 1.2, windup: 0.25,
-    aggro: 0, chest: 0, loot: 'wisp', scale: 1.5, flying: true, altitude: 2.7,
+    aggro: 0, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
   },
   thornback: {
     name: 'Thornback', model: 'thornback', hp: 1800, speed: 1.45, radius: 2.0, dmg: 40, rate: 2.2, reach: 3.7, windup: 0.6,
@@ -81,6 +95,12 @@ export class Enemies {
     for (const w of e.wings) if (w) w.userData.rest = w.rotation.clone();
     setRim(obj, 0.5, RIM[type]);
     setDissolve(obj, 0.9);
+    if (type === 'wisp') {
+      // a halo round the core, so it reads as a light in the dark rather than flat shards
+      e.glow = wispGlow();
+      e.glow.position.set(0, 0.05, 0);
+      obj.add(e.glow);
+    }
     obj.position.copy(e.pos);
     obj.position.y -= 1.2; // climbs out of the rift
     this.scene.add(obj);
@@ -215,9 +235,25 @@ export class Enemies {
     let want = null; // desired direction
     let attack = null; // { kind, ref }
     const seesPlayer = ctx.playerAlive && toPlayer < def.aggro && Math.abs(player.y - e.pos.y) < 2.5;
+    // Rotboars break off to gore a tower that comes within reach, and stay on it until it falls
+    if (def.towerAggro && !seesPlayer) {
+      if (e.prey && (e.prey.dead || e.prey.distTo(e.pos.x, e.pos.z) > def.towerAggro * 1.5)) e.prey = null;
+      if (!e.prey) {
+        let bd = def.towerAggro;
+        for (const b of ctx.buildings) {
+          if (b.dead || !b.def.range) continue;
+          const d = b.distTo(e.pos.x, e.pos.z);
+          if (d < bd) { bd = d; e.prey = b; }
+        }
+      }
+    }
     if (seesPlayer) {
       want = { x: (player.x - e.pos.x) / toPlayer, z: (player.z - e.pos.z) / toPlayer };
       if (toPlayer < def.reach * def.scale * 0.8 + 0.4) attack = { kind: 'player' };
+    } else if (e.prey) {
+      const dx = e.prey.x - e.pos.x, dz = e.prey.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+      want = { x: dx / dl, z: dz / dl };
+      if (e.prey.distTo(e.pos.x, e.pos.z) - def.radius < def.reach * 0.6) attack = { kind: 'building', ref: e.prey };
     } else if (toBase < GOAL_RADIUS + def.radius) {
       want = { x: (base.x - e.pos.x) / toBase, z: (base.z - e.pos.z) / toBase };
       attack = { kind: 'base' };
@@ -433,6 +469,12 @@ export class Enemies {
     if (wr) wr.rotation.z = wr.userData.rest.z + flap * 0.55;
     if (e.tail) e.tail.rotation.x = e.tail.userData.rest.x + Math.sin(t * 3 + e.phase) * 0.25 + Math.hypot(e.vel.x, e.vel.z) * 0.08;
     if (e.core) e.core.scale.setScalar(1 + Math.sin(t * 6 + e.phase) * 0.12 + (e.windT > 0 ? 0.35 : 0));
+    if (e.glow) e.glow.scale.setScalar((1.5 + Math.sin(t * 6 + e.phase) * 0.15 + (e.windT > 0 ? 0.6 : 0)) * (1 - e.rise));
+    // it sheds motes of blight-light as it flies
+    if (ctx.particles && Math.random() < dt * 9) {
+      _v.copy(e.pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, -0.2 + (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.4));
+      ctx.particles.ash(_v.clone(), 1, 0.15, 0xc070ff);
+    }
     const bank = clamp(-angleDelta(e.yaw, Math.atan2(e.vel.x, e.vel.z)) * 0.5, -0.5, 0.5);
     e.obj.position.copy(e.pos);
     e.obj.position.y += flap * 0.06;

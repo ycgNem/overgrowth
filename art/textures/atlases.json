@@ -1,0 +1,63 @@
+{
+  "canopy": {
+    "size": [2048,2048],
+    "cells": [
+      ["twig0", "twig_00002_.png", 0, 0, 1024, 1024, {"sat": 0.78, "gain": [0.96, 1, 0.92], "mean": 0.4, "satkey": true}],
+      ["twig1", "twig_00004_.png", 1024, 0, 1024, 1024, {"sat": 0.78, "gain": [0.96, 1, 0.92], "mean": 0.4, "satkey": true}],
+      ["twig2", "twig_00001_.png", 0, 1024, 1024, 1024, {"sat": 0.7, "gain": [0.94, 1, 0.92], "mean": 0.4, "satkey": true}],
+      ["vine0", "vine_00001_.png", 1024, 1024, 512, 1024, {"sat": 0.8, "mean": 0.4, "satkey": true}],
+      ["brom0", "bromeliad_00001_.png", 1536, 1024, 512, 512, {"align": "center", "sat": 0.72, "mean": 0.32, "satkey": true}],
+      ["twig3", "twig_00003_.png", 1536, 1536, 512, 512, {"sat": 0.7, "gain": [0.94, 1, 0.92], "mean": 0.4, "satkey": true}]
+    ]
+  },
+  "under": {
+    "size": [2048,3072],
+    "cells": [
+      ["twigs0", "twigsmall_00001_.png", 0, 0, 1024, 1024, {"sat": 0.9, "mean": 0.36, "satkey": true}],
+      ["twigs1", "twigsmall_00002_.png", 1024, 0, 1024, 1024, {"sat": 0.9, "mean": 0.36, "satkey": true}],
+      ["seed0", "seedling_00001_.png", 0, 1024, 1024, 1024, {"align": "center", "sat": 0.75, "mean": 0.3, "satkey": true}],
+      ["orchid0", "orchid_00001_.png", 1024, 1024, 512, 1024, {"sat": 0.9}],
+      ["seed1", "seedling_00002_.png", 1536, 1024, 512, 512, {"align": "center", "sat": 0.75, "mean": 0.3, "satkey": true}],
+      ["brom1", "bromeliad_00002_.png", 1536, 1536, 512, 512, {"align": "center", "sat": 0.72, "mean": 0.32, "satkey": true}],
+      ["bloom0", "blossom_00001_.png", 0, 2048, 1024, 1024, {"sat": 0.95, "gain": [1, 0.98, 0.92]}],
+      ["bloom1", "blossom_00002_.png", 1024, 2048, 1024, 1024, {"sat": 0.95, "gain": [1, 0.98, 0.92]}]
+    ]
+  },
+  "broad": {
+    "size": [2048,3072],
+    "cells": [
+      ["monst0", "monstera_00001_.png", 0, 0, 1024, 1024, {"sat": 0.82, "mean": 0.36, "satkey": true}],
+      ["taro0", "taro_00001_.png", 1024, 0, 1024, 1024, {"sat": 0.82, "flip": true, "mean": 0.37, "satkey": true}],
+      ["banana0", "banana_00001_.png", 0, 1024, 512, 1024, {"sat": 0.72, "gain": [0.95, 0.95, 0.9], "mean": 0.44, "satkey": true}],
+      ["banana1", "banana_00002_.png", 512, 1024, 512, 1024, {"sat": 0.72, "gain": [0.95, 0.95, 0.9], "mean": 0.44, "satkey": true}],
+      ["banana2", "banana_00003_.png", 1024, 1024, 512, 1024, {"sat": 0.72, "gain": [0.95, 0.95, 0.9], "mean": 0.44, "satkey": true}],
+      ["helic0", "heliconia_00002_.png", 1536, 1024, 512, 1024, {"sat": 0.95}],
+      ["monst1", "monstera_00002_.png", 0, 2048, 1024, 1024, {"sat": 0.82, "mean": 0.36, "satkey": true}],
+      ["taro1", "taro_00002_.png", 1024, 2048, 1024, 1024, {"sat": 0.82, "flip": true, "mean": 0.37, "satkey": true}]
+    ]
+  },
+  "fronds": {
+    "size": [2048,2048],
+    "cells": [
+      ["palm0", "palmfrond_00001_.png", 0, 0, 512, 1024, {"sat": 0.75, "gain": [0.97, 1, 0.9], "mean": 0.42, "satkey": true}],
+      ["palm1", "palmfrond_00002_.png", 512, 0, 512, 1024, {"sat": 0.75, "gain": [0.97, 1, 0.9], "mean": 0.42, "satkey": true}],
+      ["fern0", "fern_00001_.png", 1024, 0, 512, 1024, {"sat": 0.78, "mean": 0.4, "satkey": true}],
+      ["fern1", "fern_00002_.png", 1536, 0, 512, 1024, {"sat": 0.78, "mean": 0.4, "satkey": true}],
+      ["grass0", "grass_00001_.png", 0, 1024, 1024, 1024, {"sat": 0.78, "mean": 0.34, "satkey": true}],
+      ["grass1", "grass_00002_.png", 1024, 1024, 1024, 1024, {"sat": 0.78, "mean": 0.34, "satkey": true}]
+    ]
+  },
+  "debris": {
+    "size": [2048,1024],
+    "cells": [
+      ["dead0", "deadleaf_00001_.png", 0, 0, 512, 512, {"sat": 0.85, "mean": 0.27, "align": "center"}],
+      ["dead1", "deadleaf_00002_.png", 512, 0, 512, 512, {"sat": 0.85, "mean": 0.27, "align": "center"}],
+      ["dead2", "deadleaf_00003_.png", 1024, 0, 512, 512, {"sat": 0.85, "mean": 0.27, "align": "center"}],
+      ["dead3", "deadleaf_00004_.png", 1536, 0, 512, 512, {"sat": 0.85, "mean": 0.27, "align": "center"}],
+      ["dead4", "deadleaf2_00001_.png", 0, 512, 512, 512, {"sat": 0.85, "mean": 0.22, "align": "center", "rot": -1}],
+      ["dead5", "deadleaf2_00002_.png", 512, 512, 512, 512, {"sat": 0.85, "mean": 0.22, "align": "center", "rot": -1}],
+      ["dead6", "deadleaf2_00003_.png", 1024, 512, 512, 512, {"sat": 0.85, "mean": 0.22, "align": "center", "rot": -1}],
+      ["dead7", "deadleaf2_00004_.png", 1536, 512, 512, 512, {"sat": 0.85, "mean": 0.22, "align": "center"}]
+    ]
+  }
+}

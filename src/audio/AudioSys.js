@@ -184,8 +184,12 @@ export class AudioSys {
   }
 
   chop() {
-    this.noiseShot({ type: 'highpass', f0: 1800, f1: 900, a: 0.002, dec: 0.12, vol: 0.35 });
-    this.noiseShot({ f0: 3000, f1: 1500, q: 2, a: 0.01, dec: 0.25, vol: 0.18, delay: 0.02 });
+    // never the same twice: pitch wanders ±15%, a low thump under the slice, a rustle after
+    const k = 0.85 + Math.random() * 0.3;
+    this.noiseShot({ type: 'highpass', f0: 1800 * k, f1: 900 * k, a: 0.002, dec: 0.12, vol: 0.33 });
+    this.noiseShot({ f0: 3000 * k, f1: 1500 * k, q: 2, a: 0.01, dec: 0.25, vol: 0.16, delay: 0.02 });
+    this.tone({ type: 'sine', f0: 120 * k, f1: 60 * k, a: 0.003, dec: 0.08, vol: 0.32 });
+    this.noiseShot({ f0: 3500, f1: 2200, q: 0.8, a: 0.04, dec: 0.32, vol: 0.07, delay: 0.06 });
   }
 
   wood() {

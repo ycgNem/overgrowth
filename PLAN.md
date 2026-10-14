@@ -116,6 +116,10 @@ snare grabs, wings, legs, jaw).
    Heartwood light and beam, rift portals, a translucent placement ghost with range rings,
    recoloured mortar/totem/Blight, cliff facets broken up, audio for every combat event, the
    Journal tutorial, and a balance pass with the critics run against the build.
+5. **Art overhaul: done (2026-10-14, release 0.4).** Generated photographic surfaces with relief
+   on everything, a forest floor with parallax, 3D litter and an herb layer, soft canopy
+   shadows, rebuilt trees, cliffs and temple, water reflections, rain wetness, quality presets,
+   five rifts and rule-changing boons. See the handoff below.
 
 ## Balance
 
@@ -123,8 +127,11 @@ snare grabs, wings, legs, jaw).
   The tower holds night 1 (9 Blightlings) on its own.
 - Night *n*: Blightlings `6 + 3n`; Rotboars from night 2, `n − 1` (at most 8); Wisps from
   night 4, `floor((n − 2) × 1.3)`; the Thornback on nights 5 and 10. A wave arrives in three packs.
-- Enemy HP: +12% a night up to night 6, then +7% a night. The Thornback (1800 HP) scales at half
-  that rate. Tower damage only grows through upgrades and boons.
+- Enemy HP: +12% a night up to night 6, then +14% a night. The Thornback (1800 HP) comes at 0.8×
+  on night 5 and scales at half the Blight's rate after that. From night 7 the *surge* (a fourth
+  pack from every rift at once) adds `4(n − 6)` Blightlings, `1.5(n − 6)` Rotboars and
+  `(n − 6)/2` Wisps. Tower damage only grows through upgrades and boons.
+- Five rifts: three open from night 1, the fourth tears open on night 7 and the fifth on night 9.
 - Heartwood: 500 HP. Blightling bite 8 per 1 s, Wisp 7, Rotboar 22 per 1.5 s, Thornback 40 per
   2.2 s plus a slam every 6.5–8.5 s (30 to the Heart, 110 to buildings, 26 to you).
 - Measured with a passive player (`e2e/balance.mjs`, Heartwood HP left out of 500):
@@ -133,18 +140,20 @@ snare grabs, wings, legs, jaw).
   | --- | --- | --- | --- |
   | 1 | 500 | | |
   | 2 | 413 | | |
-  | 3 | lost | | |
+  | 3 | 26–74 (or lost) | | |
   | 4 | | 500 | |
-  | 5 (boss) | | 94–141 | |
+  | 5 (boss) | | 123 | |
   | 6 | | 391 | |
-  | 8 | | lost | 500 |
-  | 10 (boss) | | lost | 500 |
+  | 8 | | lost | |
+  | 9 | | | 500 |
+  | 10 (boss) | | | 183 |
 
   *starter* is the one bow tower. *mid* is two bow towers, a mortar, a brazier, and a barricade
   plus spike trap per rift. *late* adds a third bow, a totem, a second brazier and a snare per
-  rift, everything upgraded to tier 2. So the curve asks you to keep building and upgrading after
-  night 6. A *late* base takes no damage on night 10 with nobody fighting, which leaves room to
-  push nights 8–10 harder once real players have tried it.
+  rift, everything upgraded to tier 2. Spawns are random, so a run varies by ±50 HP and night 3
+  with the starter tower sometimes falls. The curve asks you to keep building after night 6: a
+  *late* base now loses about 300 HP on night 10 with nobody fighting (0.4 rebalance, measured on
+  2026-10-14).
 
 ## Where things live
 
@@ -158,23 +167,42 @@ snare grabs, wings, legs, jaw).
   `Towers.js` (buildings, tiers, projectiles, placement ghost) and `Waves.js` (the director).
 - `src/combat/Projectiles.js` (stones, firepots), `src/core/{Save,Perks,Journal}.js`,
   `src/fx/{LightPool,Weather}.js`.
+- Textures: `art/textures/jobs.json` holds the Flux prompts. `generate.py <raw dir>` renders
+  them through ComfyUI (raw photos are not committed). `OG_RAW=<raw dir> process.py [names]`
+  turns them into the tiles and atlases in `public/textures/`. `TILES` and `atlases.json` hold
+  the per-texture settings: crop, mean albedo, saturation, flatten, normal strength.
+- The ground: `makeTerrainMaterial` in `src/art/shaders.js` (height-blended splat, parallax,
+  side projection on slopes, wetness). `src/world/Litter.js` places the 3D leaves and sticks and
+  `src/world/Cover.js` the herb layer, both in 4 m cells around the player. `World.groundAt`
+  gives the exact terrain height, normal and splat under a point.
+- Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
+  filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
 
-## Handoff: state at the end of milestones 2–4 (2026-10-13)
+## Handoff: state after the 0.4 art overhaul (2026-10-14)
 
-**Live:** milestones 2–4 are commit `ec98dca` on `main`, pushed. `.github/workflows/deploy.yml`
-publishes to GitHub Pages on every push. Player-facing patch notes are in
-[CHANGELOG.md](CHANGELOG.md) (0.3); add a section there with each release.
+**Live:** 0.4 is on `main`, pushed. `.github/workflows/deploy.yml` publishes to GitHub Pages on
+every push. Player-facing patch notes are in [CHANGELOG.md](CHANGELOG.md); add a section there
+with each release.
 
 **Starting a new session:** read this file and `README.md`, start `npm run dev`, and run
 `node e2e/loop.mjs` to check the build. The critics are `.claude/agents/indie-critic.md` (a real
 agent type) and `.claude/agents/design-critic.md` (run through a general-purpose agent told to
-adopt that file). Point them at `http://localhost:5188` and a scratch folder for their output.
+adopt that file). Run them against a copy of the repo on its own Vite port (copy `src`,
+`public`, `e2e`, `index.html`, `package.json`, `vite.config.js` to a scratch folder, link
+`node_modules`, `PORT=<port> npx vite`). On the live dev server, every edit you make reloads
+their page and kills their run. Other projects on this machine hold ports 5190, 5191, 5197
+and 5200.
 
-**Verify a change:** with `npm run dev` running:
+**Verify a change:** with `npm run dev` running (or `BASE=<url>` for another server):
 - `node e2e/loop.mjs`: ten PASS lines (forage, craft, place, dusk, night → day 2, upgrade,
-  slingshot hit, boon, autosave, game over).
-- `node e2e/balance.mjs 3 starter` should lose; `5 mid` should hold narrowly; `10 late` should hold.
-- `node e2e/shots.mjs <dir>` + `python e2e/sheet.py <dir> sheet.png` for the visual views.
+  slingshot hit, boons, autosave, game over).
+- `node e2e/balance.mjs <night> <starter|mid|late>`: `5 mid` should hold narrowly and `10 late`
+  should hold while losing a few hundred HP. Night 3 with the starter tower only just holds.
+- `node e2e/view.mjs <dir> '<json shots>'` renders chosen views. The header lists the finders:
+  `spawn`, `river`, `cliff`, `clearing`, `slope`, `jungle`, `temple` and `base`, or a plant
+  `type` with `nth`/`dist`/`around`. `eval` runs page code before the capture.
+- `node e2e/perf.mjs`: sprint frame times. The two long frames are the script's teleports.
+  `e2e/probe.mjs "<js>"` prints any expression from the running game.
 - Don't edit `src/` while a balance or critic run is going: Vite reloads the page and the run dies.
 
 **Rules learned the hard way**
@@ -184,29 +212,69 @@ adopt that file). Point them at `http://localhost:5188` and a scratch folder for
 - Clamp every `pow()` input in custom shaders. A NaN under bloom spreads into black rectangles.
 - Keep emissive and rim terms under the bloom threshold (1.15) on anything you fight up close.
   The enemy rim is capped at 0.45.
+- three.js strips blank lines and indentation from its shader chunks at build time. A
+  multi-line `replace` anchor copied from `node_modules/three/src` silently matches nothing.
+  Anchor on one line, or on two lines joined with `\n\t\t\t`, and warn when the chunk is
+  unchanged.
+- GLSL ES has no `?:` on structs. Use `if`/`else`.
+- Compile the warm-up for the target play renders into (`PostFX.sceneRT`), not the canvas. The
+  canvas gives a different program variant, which then compiled again mid-game.
+- When blending two samples of a photo by height, let the higher one win outright (`ogPick`).
+  Any softer and two leaves of similar height cross-fade into a double exposure.
+- Sharp shadows from a canopy 20 m up print ghostly leaf shapes on the floor. That was the
+  "double-exposed leaves" both critics kept reporting. The shadows must soften with the
+  caster's distance.
 
-**Critic pass, round 2 (both run on this build, fixes applied)**
-- indie-critic: fixed the first-dusk freeze (rift lights → LightPool) and the 400 ms
-  flow-field rebuild (`Float32Array` → `Float64Array` distances: now ~3 ms). Also: rim capped;
-  particles fade near the camera; sling aim pose lowered; bigger stone with a trail; finisher
-  crits only from clicked swings; the Thornback is 1.4× with player collision and a slam warning
-  ring; the victory title no longer clips; buildings can be worked from 3.5 m; boon hotkeys no
-  longer leak to the belt; loot pickups count toward the first journal step.
-- design-critic: cliff seams are chipped bevels in the bump height, not drawn grout; the
-  Heartwood beam has soft view-dependent sides and only shows at night; tier decor lost its
-  glowing beads (tier 3 gets a bound collar); the ghost draws a depth-only pass first and its
-  emissive is off; range rings are thin and follow the ground; the Thornback has scutes, a
-  darker body, brow ridges and a dimmer sac; the Heartwood stones are chamfered, carved and
-  weathered; the tower foot-stones are darker and smooth; loot beams are half as tall.
+**This pass (both critics' reports applied):**
+- Ground:
+  - new small-leaf litters at life size;
+  - parallax relief with self-shadowing, crisp height switches;
+  - side projection on slopes;
+  - 3D leaves and sticks in drifts (14 m ring);
+  - seedlings, ferns and dead fronds to 25 m (`Cover.js`);
+  - warmer mud;
+  - a broken gravel edge;
+  - rain wetness.
+- Light:
+  - soft contact-hardening sun shadows;
+  - warm shade (no more teal);
+  - darker haze under the canopy;
+  - the terrain fades sun and moon where the ground faces away, which stops stair-step bands.
+- Models:
+  - buttresses rebuilt;
+  - cliff outcrops (`cliffRock`);
+  - mushrooms;
+  - temple shrine;
+  - cleaner temple stone;
+  - moss that buries the relief under it, wraps edges cleanly and patches on the damp side;
+  - plant stems coloured;
+  - atlas leaf bursts;
+  - creature bone and crust textured.
+- Play:
+  - 5 rifts;
+  - Rotboar tower aggro;
+  - five rule-changing boons;
+  - the night-5 Thornback lighter, nights 7–10 harder;
+  - forage near the Heartwood;
+  - Quality presets;
+  - staged chunk streaming;
+  - the shader warm-up fix.
 
 **Known issues / next up**
-- The late game is soft: a fully built *late* base takes no damage on night 10 with nobody
-  fighting. Push nights 8–10 (more Rotboars or Wisps, a second boss) once real play is in.
-- Boons are mostly +x% stat bumps. The indie critic wants fewer that change a rule.
-- The victory moment doesn't change the Heartwood itself (no bloom of the crown yet).
-- Chunk streaming still hitches (0.6–1.3 s) on the first sprint and on teleports.
-- `WorldGen` cliffs are smooth slopes; bigger ledge steps would break their silhouettes, but
-  that moves rifts and the base site, so it needs a balance re-run.
-- The Wisp still reads as flat purple shards.
+- Props still built from primitives:
+  - the camp tent (two quads and a box backpack);
+  - the wreck (capsule, box and cylinder);
+  - the Heartwood's moss "eggs".
+  Model them in Blender like the towers.
+- Night reads a bit like tinted day. Pale dry litter under the 3.2× night hemisphere light is
+  nearly as bright as the sky. Lowering it needs a pass on night readability (enemies must
+  still stand out).
+- Draw calls run 450–790 in the main pass. The fix is one `InstancedMesh` per plant variant
+  across the 5×5 window instead of one per chunk.
+- Frame time on this machine: sprinting p50 ~13 ms, p95 ~23 ms. Teleports still take ~1 s
+  because they build the 3×3 chunks at once.
+- Vines lying on the ground still read a little like green ropes, and leaf cards look flat
+  within 2 m.
+- The parallax fades out at 4–12 m. On High it could reach further (6–20 m) if the frame time
+  allows.
 - The GLBs are uncompressed (~7 MB total). Meshopt would cut load time.
-- The Space "glitch" the user reported in milestone 1 was never reproduced.

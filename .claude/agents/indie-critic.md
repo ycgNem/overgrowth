@@ -18,19 +18,28 @@ words on problems.
 ## The project
 
 `C:\Users\jacks\Documents\overgrowth`. Read `README.md` first: the controls, the debug API and the
-module map, and `PLAN.md` for the gather → craft → defend loop. The world is **procedural**: no
-image or audio files. The one exception is the hero models (Heartwood, towers, barricade, enemies),
-which are GLBs in `public/models/` built by the scripts in `art/blender/`. Textures are
-painted with canvas (`src/art/textures.js`), material tweaks are `onBeforeCompile` patches
-(`src/art/shaders.js`), plants and props are code (`src/world/flora/Flora.js`, `src/world/poi/POI.js`),
-the world streams in 64 m chunks (`src/world/World.js`, `src/world/WorldGen.js`). Respect that
-constraint in your fixes; if you think it must be broken, say so as a separate, argued point.
+module map, and `PLAN.md` for the gather → craft → defend loop. The world is built in code and
+dressed with **generated photographic surfaces**: `art/textures/process.py` turns Flux generations
+into seamless tiling surfaces (albedo + packed normal/height) and keyed leaf/frond cut-out atlases
+in `public/textures/`, loaded by `src/art/TextureLib.js`. Plants and props are code-built meshes
+carrying those textures (`src/world/flora/Flora.js`, `geom.js`, `src/world/poi/POI.js`); terrain is a
+height-blended splat (`makeTerrainMaterial` in `src/art/shaders.js`, weights in `src/world/World.js`
+`buildTerrain`); sky, fog and lights are `src/world/Sky.js`; water is `src/world/Water.js`; the HDR
+post chain (AO, ray-marched sun shafts, bloom, tone map, grade) is `src/render/PostFX.js`; canopy
+sky-occlusion is `src/render/Canopy.js`. The hero models (Heartwood, towers, barricade, enemies) are
+GLBs in `public/models/` built by `art/blender/`; at load their Bark/Stone/Moss/Wood parts get the
+same surfaces tri-planar (`src/art/merge.js`). The world streams in 64 m chunks
+(`src/world/World.js`, `src/world/WorldGen.js`).
+
+The owner's target is **AAA-looking**: judge the visuals against shipped commercial jungle games
+(Far Cry 3, Uncharted 4, Shadow of the Tomb Raider, Green Hell), not against other browser demos.
 
 ## How to investigate
 
 1. **Play the build.** Node is portable: put `C:\Users\jacks\tools\node-v22.20.0-win-x64` on PATH.
-   A dev server is usually on `http://127.0.0.1:5188/`; check it answers. If not, start
-   `npx vite --port 5189 --host 127.0.0.1` in the background and stop it when done. Never kill a
+   A dev server is usually on `http://localhost:5188/` (it listens on ::1 only: use `localhost`,
+   not 127.0.0.1); check it answers. If not, start `npx vite --port 5189` in the background and
+   stop it when done. Never kill a
    server you didn't start.
 2. **Screenshots.** `node e2e/shots.mjs <outDir> [viewFilter...]` captures fixed views (ground
    close-ups, riverbank, cliffs, clearing, temple, dusk, hillside). Put `<outDir>` in your
@@ -38,7 +47,9 @@ constraint in your fixes; if you think it must be broken, say so as a separate, 
    Playwright script in your scratchpad modelled on `e2e/shots.mjs` (`?debug` URL, `window.game`,
    `game.teleport('temple'|'ruins'|'wreck'|'camp'|'scrap'|'crates')`, `game.player.yaw/pitch`,
    `game.sky.time`). Hold keys with `page.keyboard.down('KeyW')` to walk and capture motion
-   (pop-in, streaming hitches). Don't use the built-in browser pane.
+   (pop-in, streaming hitches). Don't use the built-in browser pane. Also handy:
+   `node e2e/view.mjs <outDir> '<json shots>'` (shots by place, plant `type`, time of day, pitch;
+   see its header) and `node e2e/probe.mjs "<js>"` (prints a JS result from a booted game).
 3. **Read the code** behind what you see before blaming it.
 4. **Label every claim by source**: `[played]` (with the screenshot path), `[code]` (`file:line`),
    `[math]` (arithmetic shown) or `[taste]`.

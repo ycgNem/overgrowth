@@ -26,7 +26,7 @@ function buildModel() {
   geo.translate(0, 0, -0.0015);
   const uv = geo.attributes.uv, p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / 0.49, (p.getY(i) + 0.062) / 0.098);
-  const blade = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: bladeTexture(), metalness: 0.75, roughness: 0.42, envMapIntensity: 0.45, color: 0xf2ece4 }));
+  const blade = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: bladeTexture(), metalness: 0.75, roughness: 0.55, envMapIntensity: 0.45, color: 0xa8a6a0 }));
   g.add(blade);
 
   const wood = new THREE.MeshStandardMaterial({ map: handleWoodTexture(), roughness: 0.55 });

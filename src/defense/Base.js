@@ -4,6 +4,8 @@ import { cloneModel, part } from '../assets/Models.js';
 import { terrainHeight, terrainNormal, WATER_LEVEL } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
 import { setFlash } from '../art/merge.js';
+import { mulberry32, range } from '../utils/rng.js';
+import { twigCard, radialNormals, mergeSlots } from '../world/flora/geom.js';
 
 const S = 1.35; // the Heartwood model is drawn larger than it was built
 export const BASE_CLEAR = 30; // vegetation-free radius around the Heartwood (the arena)
@@ -129,8 +131,45 @@ export class Base {
     this.hp = Math.min(this.maxHp, this.hp + n);
   }
 
+  // Ten nights held: the Heartwood grows a crown of leaves and cream blossoms, and its light
+  // turns from seed-green to gold. grown: appear at full size (a won run being loaded).
+  bloom(flora, grown = false) {
+    if (this.crown) return;
+    const r = mulberry32(1010);
+    const top = new THREE.Vector3(0, 4.1 * S + 1.0, 0);
+    const clusters = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + range(r, -0.3, 0.3);
+      const out = range(r, 1.8, 3.0);
+      clusters.push({ P: top.clone().add(new THREE.Vector3(Math.cos(a) * out, range(r, 0.8, 2.2), Math.sin(a) * out)), R: range(r, 1.5, 2.1), from: top });
+    }
+    clusters.push({ P: top.clone().add(new THREE.Vector3(0, 2.8, 0)), R: 2.1, from: top });
+    const leaves = [], flowers = [];
+    const twigs = ['twig0', 'twig1', 'twig2'].map((n) => flora.cell('canopy', n));
+    flora.crown(r, leaves, clusters, top, { cards: [9, 13], size: [1.3, 1.9], cells: twigs, topY: top.y + 4, bottomY: top.y - 1 });
+    const blooms = ['bloom0', 'bloom1'].map((n) => flora.cell('under', n));
+    for (const { P, R } of clusters) {
+      for (let k = 0; k < 7; k++) {
+        const d = new THREE.Vector3(range(r, -1, 1), range(r, 0.15, 1), range(r, -1, 1)).normalize();
+        const pos = P.clone().addScaledVector(d, R * range(r, 0.7, 1.05));
+        const up = d.clone().add(new THREE.Vector3(0, 0.8, 0)).normalize();
+        const card = twigCard(blooms[k % 2], range(r, 0.8, 1.3), pos, d, up, { bend: 0.2, cup: 0.15 });
+        radialNormals(card, top, 0.5);
+        flowers.push(card);
+      }
+    }
+    const mesh = new THREE.Mesh(mergeSlots([leaves, flowers]), [flora.materials.canopy, flora.materials.under]);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.position.set(this.x, this.y, this.z);
+    this.scene.add(mesh);
+    this.crown = mesh;
+    this.bloomT = grown ? 1 : 0;
+    mesh.scale.setScalar(grown ? 1 : 0.01);
+  }
+
   // night: 0..1 from the sky, so the light only dominates after dark
-  update(dt, t, night = 1) {
+  update(dt, t, night = 1, particles = null) {
     const hurt = 1 - this.hp / this.maxHp;
     let life = 1;
     if (this.dead) {
@@ -150,6 +189,21 @@ export class Base {
     const sh = this.shake * 0.05;
     this.root.position.set(this.x + (Math.random() - 0.5) * sh, this.y, this.z + (Math.random() - 0.5) * sh);
     this.light.color.setRGB(0.49 + hurt * 0.5 + this.flash * 0.3, 1 - hurt * 0.55, 0.69 - hurt * 0.4);
+    if (this.crown) {
+      // the crown unfurls over six seconds (easing out with a little overshoot), shedding petals
+      const was = this.bloomT;
+      this.bloomT = Math.min(1, this.bloomT + dt / 6);
+      const k = this.bloomT, c1 = 1.4;
+      const e = 1 + (c1 + 1) * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+      this.crown.scale.setScalar(Math.max(0.01, e));
+      this.crown.rotation.y = Math.sin(t * 0.3) * 0.02;
+      if (particles && (was < 1 || Math.random() < dt * 0.6) && Math.random() < dt * (was < 1 ? 14 : 1)) {
+        const a = Math.random() * TAU, rr = 1 + Math.random() * 4;
+        particles.sparkle(new THREE.Vector3(this.x + Math.cos(a) * rr, this.y + 4.1 * S + 1 + Math.random() * 4, this.z + Math.sin(a) * rr), 0xfff0c8, 1);
+      }
+      // seed-green turns to gold
+      this.light.color.lerp(new THREE.Color(1.0, 0.86, 0.55), this.bloomT * 0.8);
+    }
     const k = (0.5 + 0.5 * (this.hp / this.maxHp)) * life;
     this.light.intensity = ((18 + 62 * night) + Math.sin(t * 2.2) * 6) * k + this.flash * 25;
     this.halo.material.color.copy(this.light.color);
@@ -208,7 +262,10 @@ export function findBaseSite(start) {
 // ----------------------------------------------------------------- rifts
 
 // Where the Blight comes from: tears in the forest floor just past the clearing's ragged edge.
-// Chosen once per run, on flat, dry, reachable ground, spread around the compass.
+// Chosen once per run, on flat, dry, reachable ground, spread around the compass: the first
+// three a third of a turn apart, the late ones (nights 7 and 9) in the gaps between them.
+export const RIFT_NIGHTS = [1, 1, 1, 7, 9];
+const RIFT_TURNS = [0, 1 / 3, 2 / 3, 1 / 2, 1 / 6];
 export function pickRifts(field, bx, bz, count = 3, seed = 1) {
   const out = [];
   const start = (seed * 2.399) % TAU;
@@ -216,7 +273,7 @@ export function pickRifts(field, bx, bz, count = 3, seed = 1) {
     let best = null;
     for (let tries = 0; tries < 96 && !best; tries++) {
       // sweep up to about ±60 degrees around this rift's direction, then step outwards
-      const a = start + (k / count) * TAU + ((tries % 12) - 5.5) * 0.18;
+      const a = start + (RIFT_TURNS[k] ?? k / count) * TAU + ((tries % 12) - 5.5) * 0.18;
       const d = 50 + Math.floor(tries / 12) * 3;
       const x = bx + Math.cos(a) * d, z = bz + Math.sin(a) * d;
       if (terrainHeight(x, z) < WATER_LEVEL + 0.4) continue;
@@ -225,7 +282,7 @@ export function pickRifts(field, bx, bz, count = 3, seed = 1) {
       if (out.some((o) => Math.hypot(o.x - x, o.z - z) < 30)) continue;
       best = { x, z };
     }
-    if (best) out.push(best);
+    if (best) out.push({ ...best, night: RIFT_NIGHTS[k] ?? 1 });
   }
   return out;
 }
@@ -264,9 +321,10 @@ const riftMat = () => new THREE.ShaderMaterial({
 });
 
 export class Rift {
-  constructor(scene, x, z) {
+  constructor(scene, x, z, night = 1) {
     this.x = x;
     this.z = z;
+    this.night = night; // the first night it opens
     this.y = terrainHeight(x, z);
     this.open = 0;
     this.target = 0;

@@ -1,7 +1,7 @@
 // Simulates one night with a fixed defence and a passive player, logging enemies and Heartwood HP
 // every 5 s. setup: 'starter' (one bow tower) or 'mid' (2 bow towers, mortar, brazier, barricades,
 // traps) or 'late' (mid plus a totem, snares, more towers, all upgraded once).
-// Needs `npm run dev` on :5188.
+// Needs `npm run dev` on :5188 (or BASE=<url>).
 //
 //   node e2e/balance.mjs <night> <starter|mid|late>
 import { chromium } from 'playwright';
@@ -11,7 +11,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, args:
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 const errs = [];
 page.on('pageerror', (e) => errs.push('PAGEERR ' + e.message));
-await page.goto('http://localhost:5188/?debug&t=0.7');
+await page.goto((process.env.BASE ?? 'http://localhost:5188/') + '?debug&t=0.7');
 await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
 await page.evaluate(({ night, setup }) => {
   const g = window.game, b = g.base;

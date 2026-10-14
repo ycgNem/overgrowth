@@ -1,6 +1,10 @@
 // Pooled instanced quads for leaf bursts, wood chips, dust and sparks.
 import * as THREE from 'three';
 import { glowTexture } from '../art/textures.js';
+import { addPackedNormal, patch } from '../art/shaders.js';
+
+// the dead-leaf photos' mean (linear) luminance over their opaque pixels
+const LEAF_LUM = 0.054;
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -10,8 +14,11 @@ const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 
 class Pool {
-  constructor(scene, material, count) {
+  // cells: atlas rects to pick from, one per particle (an aCell attribute the material reads)
+  constructor(scene, material, count, cells = null) {
     const geo = new THREE.PlaneGeometry(1, 1);
+    this.cells = cells;
+    if (cells) geo.setAttribute('aCell', new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4));
     this.mesh = new THREE.InstancedMesh(geo, material, count);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
@@ -23,6 +30,7 @@ class Pool {
   }
   spawn(o) {
     if (this.items.length >= this.max) this.items.shift();
+    if (this.cells && !o.cell) o.cell = this.cells[Math.floor(Math.random() * this.cells.length)];
     this.items.push(o);
   }
   update(dt, camera) {
@@ -59,8 +67,12 @@ class Pool {
       }
       if (p.billboard) _q.copy(camera.quaternion);
       else _q.setFromEuler(_e.set(p.rot.x, p.rot.y, p.rot.z));
-      _m.compose(p.pos, _q, _s.set(size, size, size));
+      _m.compose(p.pos, _q, _s.set(size * (p.cell?.aspect ?? 1), size, size));
       this.mesh.setMatrixAt(n, _m);
+      if (p.cell) {
+        const c = p.cell;
+        this.mesh.geometry.attributes.aCell.array.set([c.u0, c.v0, c.u1 - c.u0, c.v1 - c.v0], n * 4);
+      }
       this.mesh.setColorAt(n, _c.copy(p.color).multiplyScalar(p.additive ? fade * near : 1));
       n++;
     }
@@ -68,14 +80,28 @@ class Pool {
     this.mesh.count = n;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.cells) this.mesh.geometry.attributes.aCell.needsUpdate = true;
   }
 }
 
 export class Particles {
-  constructor(scene, leafTexture) {
-    this.leaves = new Pool(scene, new THREE.MeshStandardMaterial({
-      map: leafTexture, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.8,
-    }), 500);
+  constructor(scene, lib) {
+    // leaves: the dead-leaf photos, each particle its own cell, recoloured per instance (the
+    // photo's luminance times the instance colour) so a cut throws leaves of the plant's green
+    const A = lib.atlas.debris;
+    const leafMat = new THREE.MeshStandardMaterial({
+      map: A.map, normalMap: A.nmap, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.75, metalness: 0,
+    });
+    addPackedNormal(leafMat);
+    patch(leafMat, 'leafparticle', (shader) => {
+      shader.vertexShader = 'attribute vec4 aCell;\n' + shader.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
+        vMapUv = aCell.xy + uv * aCell.zw;
+        vNormalMapUv = vMapUv;`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor.rgb = vec3(clamp(dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15)) / ${LEAF_LUM.toFixed(4)}, 0.25, 2.2));`);
+    });
+    const cells = ['dead0', 'dead1', 'dead2', 'dead3', 'dead4', 'dead5', 'dead6', 'dead7'].map((n) => lib.cell('debris', n));
+    this.leaves = new Pool(scene, leafMat, 500, cells);
     this.chips = new Pool(scene, new THREE.MeshStandardMaterial({ roughness: 0.9, side: THREE.DoubleSide }), 200);
     this.glow = new Pool(scene, new THREE.MeshBasicMaterial({
       map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -106,10 +132,13 @@ export class Particles {
   }
 
   leafBurst(pos, color = 0x4f7f2a, count = 22, floor) {
-    // the leaf texture is already green, so tint gently toward the plant colour
-    const tint = new THREE.Color(color).lerp(new THREE.Color(1, 1, 1), 0.55);
+    // leaves in the plant's own colour, and every fourth a brown scrap of litter kicked up
     for (let i = 0; i < count; i++) {
-      this.leaves.spawn(this.base(pos, { spread: 0.8, speed: 5, up: 4.5, life: 2.6, size: 0.24, gravity: 3.5, drag: 2.2, flutter: 9, color: tint, floor }));
+      const dead = i % 4 === 3;
+      this.leaves.spawn(this.base(pos, {
+        spread: 0.8, speed: 5, up: 4.5, life: 2.6, size: dead ? 0.14 : 0.2, gravity: 3.5, drag: 2.2, flutter: 9,
+        color: dead ? 0x7a5a36 : color, floor,
+      }));
     }
   }
 

@@ -568,6 +568,39 @@ export class Buildings {
     if (b.hp <= 0) this.remove(b, true);
   }
 
+  // A homing bolt. With Splitting Shafts the first one splits on impact and a second,
+  // weaker bolt seeks the nearest other Blight.
+  bolt(from, target, dmg, ctx, mods, canSplit) {
+    const { enemies, particles } = ctx;
+    const mesh = new THREE.Mesh(boltGeo, boltMat);
+    mesh.add(new THREE.Mesh(trailGeo, trailMat));
+    mesh.position.copy(from);
+    this.scene.add(mesh);
+    const to = enemies.chest(target).clone();
+    this.shots.push({
+      kind: 'bolt', mesh, from, to, target, t: 0, dur: Math.max(0.08, from.distanceTo(to) / 42),
+      hit: () => {
+        if (!target.dying) {
+          const knock = new THREE.Vector3(to.x - from.x, 0, to.z - from.z).normalize().multiplyScalar(3);
+          enemies.damage(target, dmg, ctx, knock, { source: 'tower', stagger: 0.15 });
+          particles.chipBurst(to, 0x6a3a7a, 8, target.pos.y);
+        }
+        if (canSplit && mods.boltSplit) {
+          let next = null, nd = 7;
+          for (const e of enemies.list) {
+            if (e.dying || e === target) continue;
+            const d = Math.hypot(e.pos.x - to.x, e.pos.z - to.z);
+            if (d < nd) { nd = d; next = e; }
+          }
+          if (next) {
+            particles.sparks(to, 0xffe0a0, 4);
+            this.bolt(to.clone(), next, dmg * mods.boltSplit, ctx, mods, false);
+          }
+        }
+      },
+    });
+  }
+
   updateShots(dt, ctx) {
     const { enemies, particles } = ctx;
     for (let i = this.shots.length - 1; i >= 0; i--) {
@@ -598,21 +631,7 @@ export class Buildings {
     const from = b.muzzle(new THREE.Vector3());
     const dmg = b.stat('dmg', mods);
     if (b.def.kind === 'bow') {
-      const mesh = new THREE.Mesh(boltGeo, boltMat);
-      mesh.add(new THREE.Mesh(trailGeo, trailMat));
-      mesh.position.copy(from);
-      this.scene.add(mesh);
-      const to = enemies.chest(target).clone();
-      this.shots.push({
-        kind: 'bolt', mesh, from, to, target, t: 0, dur: Math.max(0.08, from.distanceTo(to) / 42),
-        hit: () => {
-          if (!target.dying) {
-            const knock = new THREE.Vector3(to.x - from.x, 0, to.z - from.z).normalize().multiplyScalar(3);
-            enemies.damage(target, dmg, ctx, knock, { source: 'tower', stagger: 0.15 });
-            particles.chipBurst(to, 0x6a3a7a, 8, target.pos.y);
-          }
-        },
-      });
+      this.bolt(from, target, dmg, ctx, mods, true);
       particles.sparks(from, 0xffe0a0, 3);
       audio.bowShot?.();
     } else if (b.def.kind === 'mortar') {

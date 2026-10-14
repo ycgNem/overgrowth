@@ -12,6 +12,30 @@ const _c = new THREE.Color();
 const _m = new THREE.Matrix4();
 const _inv = new THREE.Matrix4();
 
+// Surface detail for the hand-made models: parts whose Blender material is bark, wood,
+// stone or moss get the world's photographed surfaces, projected tri-planar in the model's
+// own space, so the Heartwood and the towers are made of the same stuff as the jungle.
+// The vertex colour still sets the hue; the texture adds grain, cracks and relief.
+export const detail = {
+  tBark: { value: null }, nBark: { value: null }, tRock: { value: null }, nRock: { value: null },
+  tMoss: { value: null }, nMoss: { value: null }, tWood: { value: null }, nWood: { value: null },
+  uDetailOn: { value: 0 },
+};
+export function setDetailTextures(lib) {
+  const S = lib.surface;
+  detail.tBark.value = S.bark.map; detail.nBark.value = S.bark.nmap;
+  detail.tRock.value = S.rock.map; detail.nRock.value = S.rock.nmap;
+  detail.tMoss.value = S.cushion.map; detail.nMoss.value = S.cushion.nmap;
+  detail.tWood.value = S.deadwood.map; detail.nWood.value = S.deadwood.nmap;
+  detail.uDetailOn.value = 1;
+}
+// creatures' bone and crust take the stone's pits and cracks (smooth, they read as plastic)
+const SURF = [[/^(Bark|Root)/, 1], [/^(Stone|Rock|Bone|Crust|Horn|Clay)/, 2], [/^Moss/, 3], [/^(Wood|Plank|Char)/, 4]];
+function surfaceOf(mat) {
+  for (const [re, k] of SURF) if (mat.name && re.test(mat.name)) return k;
+  return 0;
+}
+
 // Per-vertex colour/emissive/PBR material. `flash` is a per-material uniform (hit flash
 // for enemies, placement tint for build ghosts): clone the material to give an object its own.
 export function bakedMaterial({ side = THREE.FrontSide } = {}) {
@@ -30,22 +54,44 @@ export function bakedMaterial({ side = THREE.FrontSide } = {}) {
     shader.uniforms.uRim = mat.userData.rim;
     shader.uniforms.uDissolve = mat.userData.dissolve;
     shader.uniforms.uEmit = mat.userData.emit;
+    Object.assign(shader.uniforms, detail);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec3 aEmit;
 attribute vec2 aPbr;
+attribute float aSurf;
 varying vec3 vEmit;
 varying vec2 vPbr;
-varying vec3 vObj;`)
+varying vec3 vObj;
+varying vec3 vObjN;
+varying float vSurf;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 vEmit = aEmit;
 vPbr = aPbr;
-vObj = position;`);
+vObj = position;
+vObjN = normal;
+vSurf = aSurf;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 varying vec3 vEmit;
 varying vec2 vPbr;
 varying vec3 vObj;
+varying vec3 vObjN;
+varying float vSurf;
+uniform mat3 normalMatrix;
+uniform sampler2D tBark; uniform sampler2D nBark; uniform sampler2D tRock; uniform sampler2D nRock;
+uniform sampler2D tMoss; uniform sampler2D nMoss; uniform sampler2D tWood; uniform sampler2D nWood;
+uniform float uDetailOn;
+vec3 dOffset = vec3(0.0);
+// tri-planar sample of one surface: albedo, and a whiteout normal offset in object space
+vec3 dTri(sampler2D tc, sampler2D tn, vec3 p, vec3 w, vec3 sn, float sc, vec3 dpx, vec3 dpy, out vec3 off) {
+  vec2 ux = p.zy * sc, uy = p.xz * sc, uz = p.xy * sc;
+  vec2 gxx = dpx.zy * sc, gxy = dpy.zy * sc, gyx = dpx.xz * sc, gyy = dpy.xz * sc, gzx = dpx.xy * sc, gzy = dpy.xy * sc;
+  vec3 c = textureGrad(tc, ux, gxx, gxy).rgb * w.x + textureGrad(tc, uy, gyx, gyy).rgb * w.y + textureGrad(tc, uz, gzx, gzy).rgb * w.z;
+  vec2 nx = textureGrad(tn, ux, gxx, gxy).rg * 2.0 - 1.0, ny = textureGrad(tn, uy, gyx, gyy).rg * 2.0 - 1.0, nz = textureGrad(tn, uz, gzx, gzy).rg * 2.0 - 1.0;
+  off = vec3(0.0, nx.y, nx.x * sn.x) * w.x + vec3(ny.x, 0.0, ny.y * sn.y) * w.y + vec3(nz.x * sn.z, nz.y, 0.0) * w.z;
+  return c;
+}
 uniform vec3 uFlash;
 uniform vec4 uTint;
 uniform vec4 uRim;
@@ -67,9 +113,32 @@ if (uDissolve > 0.0) {
   dEdge = 1.0 - smoothstep(0.0, 0.09, de);
 }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  vec3 dpx = dFdx(vObj), dpy = dFdy(vObj);
+  if (uDetailOn > 0.5 && vSurf > 0.5) {
+    vec3 on = normalize(vObjN);
+    vec3 w = pow(abs(on), vec3(4.0)); w /= (w.x + w.y + w.z);
+    vec3 sn = sign(on);
+    vec3 tex; float mean; float keep;
+    if (vSurf < 1.5) { tex = dTri(tBark, nBark, vObj, w, sn, 0.55, dpx, dpy, dOffset); mean = 0.105; keep = 0.25; }
+    else if (vSurf < 2.5) { tex = dTri(tRock, nRock, vObj, w, sn, 0.6, dpx, dpy, dOffset); mean = 0.16; keep = 0.4; }
+    else if (vSurf < 3.5) { tex = dTri(tMoss, nMoss, vObj, w, sn, 0.5, dpx, dpy, dOffset); mean = 0.084; keep = 0.0; }
+    else { tex = dTri(tWood, nWood, vObj, w, sn, 0.7, dpx, dpy, dOffset); mean = 0.147; keep = 0.3; }
+    // the texture's own colour around the model's hue: grain and stains from the photo,
+    // overall tone from the vertex colour
+    float vl = max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-3);
+    // floored, or a near-black part turns the photo into black glass
+    vec3 photo = tex * (max(vl, 0.10) / mean);
+    diffuseColor.rgb = mix(photo, diffuseColor.rgb * dot(tex, vec3(0.2126, 0.7152, 0.0722)) / mean, keep);
+  }
+}
 diffuseColor.rgb = mix(diffuseColor.rgb, uTint.rgb, uTint.a);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+if (dot(dOffset, dOffset) > 0.0) normal = normalize(normal + normalMatrix * dOffset * 0.45);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-roughnessFactor *= vPbr.x;`)
+roughnessFactor *= vPbr.x;
+// bark, stone, moss and wood photographs are never glossy
+if (uDetailOn > 0.5 && vSurf > 0.5) roughnessFactor = max(roughnessFactor, 0.72);`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
 metalnessFactor *= vPbr.y;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -77,7 +146,7 @@ totalEmissiveRadiance += vEmit * uEmit + uFlash + uTint.rgb * uTint.a * 0.35;
 float rimF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0);
 totalEmissiveRadiance += uRim.rgb * rimF * uRim.a + vec3(1.0, 0.45, 1.6) * dEdge * 2.5;`);
   };
-  mat.customProgramCacheKey = () => 'baked';
+  mat.customProgramCacheKey = () => 'baked2';
   return mat;
 }
 
@@ -124,6 +193,7 @@ function bakeGeometry(geo, mat) {
     pbr[i * 2 + 1] = metal;
   }
   g.setAttribute('aPbr', new THREE.BufferAttribute(pbr, 2));
+  g.setAttribute('aSurf', new THREE.BufferAttribute(new Float32Array(n).fill(surfaceOf(mat)), 1));
   return g;
 }
 

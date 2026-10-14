@@ -206,7 +206,8 @@ export class Ambient {
 
     // light shafts, angled along the sun
     const sun = this.sky.sunDir;
-    const intensity = sun.y > 0.05 ? (0.05 + twilight * 0.07) * day : 0;
+    // (the volumetric shafts in PostFX replace these on High quality: shaftScale 0)
+    const intensity = sun.y > 0.05 ? (0.05 + twilight * 0.07) * day * (this.shaftScale ?? 1) : 0;
     this.shaftMat.uniforms.uIntensity.value = intensity;
     this.shaftMat.uniforms.uColor.value.copy(this.sky.uniforms.uSunColor.value);
     for (const s of this.shafts) {

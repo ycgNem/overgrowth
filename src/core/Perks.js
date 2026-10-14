@@ -15,6 +15,12 @@ export const PERKS = [
   { id: 'sling', glyph: '◎', name: 'Sling Mastery', desc: 'The slingshot draws 40% faster and hits 30% harder.', apply: (m) => { m.slingDraw *= 1.4; m.slingDmg *= 1.3; } },
   { id: 'blood', glyph: '♥', name: 'Bloodroot', desc: 'Every Blight you kill heals you for 4.', apply: (m) => { m.killHeal += 4; } },
   { id: 'hide', glyph: '⛨', name: 'Barkskin', desc: 'You take 25% less damage and have 30 more max HP.', apply: (m, g) => { m.playerArmor *= 0.75; g.player.maxHp += 30; g.player.hp += 30; } },
+  // boons that change a rule rather than a number
+  { id: 'split', glyph: '⋔', name: 'Splitting Shafts', desc: 'Bow bolts split on impact: a second bolt seeks the nearest other Blight for 60% damage.', apply: (m) => { m.boltSplit = 0.6; } },
+  { id: 'lastbloom', glyph: '❀', name: 'Last Bloom', desc: 'Once a night, when the Heartwood falls below 30%, it bursts: heals 25% and blasts Blight within 12 m for 60.', apply: (m) => { m.lastBloom = true; } },
+  { id: 'roots', glyph: '⌇', name: 'Grasping Roots', desc: 'At night, every 12 s roots seize the four Blight nearest the Heartwood (within 18 m) for 2.5 s.', apply: (m) => { m.rootPulse = true; } },
+  { id: 'harvest', glyph: '⚘', name: 'Harvest Dawn', desc: 'Every dawn each of your towers brings in two building materials.', apply: (m) => { m.harvest = true; } },
+  { id: 'rot', glyph: '☣', name: 'Rotting Bloom', desc: 'Blight that die while slowed burst into spores: everything within 4 m is slowed by half for 3 s.', apply: (m) => { m.sporeBurst = true; } },
 ];
 
 // favour needed for the 1st, 2nd, 3rd ... boon
@@ -24,6 +30,7 @@ export function baseMods() {
   return {
     macheteDmg: 1, towerRange: 1, towerRate: 1, towerDmg: 1, heartThorns: 0, lootBonus: 0, moveSpeed: 1, staminaRegen: 1,
     buildRegen: 0, mortarSplash: 1, sporeSlow: 1, slingDraw: 1, slingDmg: 1, killHeal: 0, playerArmor: 1,
+    boltSplit: 0, lastBloom: false, rootPulse: false, harvest: false, sporeBurst: false,
   };
 }
 

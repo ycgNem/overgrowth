@@ -4,3 +4,5 @@ dist/
 *.log
 e2e/out/
 *.blend1
+art/textures/raw/
+__pycache__/

@@ -14,13 +14,21 @@ reads badly, and gives the fix in this codebase.
 
 ## The project
 
-`C:\Users\jacks\Documents\overgrowth`. Read `README.md`. Everything is procedural: canvas-painted
-textures (`src/art/textures.js`), shader patches (`src/art/shaders.js`), code-built plants and props
-(`src/world/flora/Flora.js`, `src/world/poi/POI.js`), terrain and scattering (`src/world/World.js`,
-`src/world/WorldGen.js`), sky, fog and lights (`src/world/Sky.js`), water (`src/world/Water.js`).
-The exception is the hero models: the Heartwood, towers, barricade and enemies are Blender-made GLBs
-in `public/models/`, built by the scripts in `art/blender/` (fix those, then re-export). Everything
-else should stay procedural unless you argue otherwise in a separate section.
+`C:\Users\jacks\Documents\overgrowth`. Read `README.md`. The world is built in code and dressed
+with **generated photographic surfaces**: `art/textures/process.py` turns Flux generations into
+seamless tiling surfaces (albedo + packed normal/height) and keyed leaf/frond cut-out atlases in
+`public/textures/`, loaded by `src/art/TextureLib.js`. Code-built plants and props carry them
+(`src/world/flora/Flora.js`, `geom.js`, `src/world/poi/POI.js`); terrain is a height-blended splat
+(`makeTerrainMaterial` in `src/art/shaders.js`, weights in `src/world/World.js` `buildTerrain`); sky,
+fog and lights are `src/world/Sky.js`; water is `src/world/Water.js`; the HDR post chain (AO, sun
+shafts, bloom, tone map, grade) is `src/render/PostFX.js`; canopy sky-occlusion is
+`src/render/Canopy.js`. The hero models (Heartwood, towers, barricade, enemies) are Blender-made GLBs
+in `public/models/`, built by `art/blender/` (fix those, then re-export); at load their
+Bark/Stone/Moss/Wood parts get the same surfaces tri-planar (`src/art/merge.js`).
+
+The owner's target is **AAA-looking**. Beyond the gate below, grade every view against shipped
+commercial jungle games (Far Cry 3, Uncharted 4, Shadow of the Tomb Raider, Green Hell) and say
+what separates it from them.
 
 ## The bar: "playable graphics"
 
@@ -48,13 +56,15 @@ real, released indie game, not a prototype or a tech demo. Concretely, all of th
 ## How you work
 
 1. Node: put `C:\Users\jacks\tools\node-v22.20.0-win-x64` on PATH. A dev server is usually on
-   `http://127.0.0.1:5188/`; check it answers. If not, start `npx vite --port 5189 --host 127.0.0.1`
-   in the background and stop it when done. Never kill a server you didn't start.
+   `http://localhost:5188/` (::1 only: use `localhost`); check it answers. If not, start
+   `npx vite --port 5189` in the background and stop it when done. Never kill a server you didn't start.
 2. `node e2e/shots.mjs <scratchpad>/shots` captures the fixed views. Write extra throwaway
    Playwright scripts in your scratchpad (modelled on `e2e/shots.mjs`) for anything else you need:
    other angles, walking (`page.keyboard.down('KeyW')`), night (`game.sky.time = 0.95`), each POI
    (`game.teleport('temple'|'ruins'|'wreck'|'camp'|'scrap'|'crates')`), extreme close-ups
    (`game.player.pitch = -1.3`). Never write into the repo. Don't use the built-in browser pane.
+   `node e2e/view.mjs <outDir> '<json shots>'` takes shots by place, plant `type`, time of day and
+   pitch (see its header); `node e2e/probe.mjs "<js>"` prints a JS result from a booted game.
 3. **Look at every screenshot.** Crop or zoom into regions (Python/Pillow is available) when a
    defect is small. Cite the image path and the region.
 4. Read the code responsible before prescribing a fix.
