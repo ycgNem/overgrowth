@@ -1,5 +1,44 @@
 # Patch notes
 
+## 0.7: The Title (2026-10-14)
+
+Overgrowth now opens like a finished game instead of dropping you into a single run.
+
+### A new front door
+- **A live title screen.** Behind the menu the camera drifts round the Heartwood at sunset:
+  low gold light through the crowns, god rays, the heart glowing. It cuts slowly through
+  three shots. The menu sits on the left with a new sigil and wordmark, drifting spores of
+  light and a touch of film grain.
+- **Press any key.** Loading shows the sigil and a bar, then the forest fades up behind the
+  logo and waits for you.
+- **Title music.** A slow pad and a kalimba line picking over it, synthesised live like every
+  other sound. It fades out as you leave.
+- **The fly-in.** Choose Continue or New Game and the menu dissolves, the camera swoops down
+  to your eyes, dips to black and you wake at dawn.
+
+### More than one way to play
+- **Three difficulties.** *Verdant* (fewer, frailer Blight, a 700 HP Heartwood, two towers to
+  start), *Warden* (the game as it was) and *Blightborn* (Blight 30% tougher and 25% more of
+  them, a 400 HP Heartwood, no poultices). You choose when a run starts, and it's kept in
+  the save.
+- **Continue shows your vigil:** the day, difficulty, the Heartwood's health, nights held,
+  Blight felled, buildings standing, your boons and when it was saved.
+- **Field Guide.** Studio portraits of every Blight and defence. The Blight have lore, stats
+  and field notes, and stay as silhouettes until you've met them. Defences show their stats,
+  what they're good against and their recipe. All 18 boons are listed too.
+- **Records.** Lifetime totals across every run: vigils begun, nights held, Blight felled,
+  Thornbacks slain, Blooms burned, buildings raised, Heartwoods bloomed and your bests.
+- **Settings** has its own page: quality, glow, mouse sensitivity, **invert look** and
+  **volume** (both new), and title music on or off. **Controls** and **Credits** pages too.
+
+### In the game
+- **A proper pause menu.** Esc shows the day, the time and tonight's wave, with Resume, the
+  Field Guide, Settings, Controls and Quit to Title (which saves first). The HUD steps aside
+  while you're paused.
+- The victory and game-over screens have a way back to the title.
+- The whole menu works from the keyboard: arrows to choose, Enter to select, Esc to go back,
+  left and right to pick a difficulty.
+
 ## 0.6: Blight Blooms (2026-10-14)
 
 Grass in the clearings, a forest floor full of things to pick up, a sprint that doesn't look

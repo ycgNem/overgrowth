@@ -1,8 +1,8 @@
 {
   "name": "overgrowth",
   "private": true,
-  "version": "0.6.0",
-  "description": "A Three.js open-world jungle scavenging demo: hack through the undergrowth with a machete and collect scrap and relics.",
+  "version": "0.7.0",
+  "description": "A first-person gather, craft and defend game in a Three.js jungle: forage by day, hold the Heartwood against the Blight by night.",
   "type": "module",
   "scripts": {
     "dev": "vite",

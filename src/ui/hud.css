@@ -352,25 +352,8 @@ html, body {
 
 /* --------------------------------------------------------------- menu */
 
-#menu {
-  position: fixed; inset: 0; display: grid; place-items: center;
-  background:
-    radial-gradient(ellipse at 50% 120%, rgba(214,169,74,0.18), transparent 60%),
-    radial-gradient(ellipse at center, rgba(6,10,4,0.35), rgba(4,7,3,0.92));
-}
-#menu.ingame { background: rgba(4,7,3,0.6); backdrop-filter: blur(4px); }
 .menu-inner { text-align: center; max-width: 760px; padding: 24px; }
 .eyebrow { font-size: 15px; letter-spacing: 0.45em; text-transform: uppercase; color: var(--brass); }
-#menu h1 {
-  display: inline-block; white-space: nowrap; padding: 0 0.1em;
-  margin: 6px 0 4px; font-family: var(--display); font-weight: 800; font-size: clamp(40px, 9vw, 104px); letter-spacing: 0.06em;
-  background: linear-gradient(180deg, #f6ecd0 10%, #b8d47a 55%, #4f7a2a 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 4px 18px rgba(0,0,0,0.6));
-}
-.tag { font-size: 21px; color: var(--ink-dim); margin: 0 0 28px; }
-#loading { width: 320px; margin: 0 auto 18px; }
-#loading-bar { height: 3px; width: 0%; background: linear-gradient(90deg, var(--brass-dim), var(--brass)); border-radius: 2px; transition: width 0.2s; }
-#loading-text { display: block; margin-top: 8px; font-size: 15px; color: var(--ink-dim); letter-spacing: 0.08em; }
 .buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .buttons button {
   font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.12em; color: var(--ink);
@@ -385,21 +368,7 @@ html, body {
 .buttons button:hover:not(:disabled) { transform: translateY(-2px); background-color: rgba(255,255,255,0.12); }
 .buttons button.primary:hover:not(:disabled) { box-shadow: 0 10px 30px rgba(214,169,74,0.5); }
 .buttons button:disabled { opacity: 0.35; cursor: default; }
-#best { margin-top: 14px; font-size: 16px; color: var(--ink-dim); letter-spacing: 0.06em; min-height: 20px; }
-#best b { color: var(--brass); }
-#settings { display: flex; justify-content: center; align-items: center; gap: 26px; margin-top: 16px; }
-#bloom-opt { font-size: 16px; color: var(--ink-dim); display: flex; gap: 6px; align-items: center; cursor: pointer; }
-#bloom-opt input { accent-color: var(--brass); }
-#quality-opt { font-size: 16px; color: var(--ink-dim); display: flex; gap: 8px; align-items: center; letter-spacing: 0.04em; }
-#quality-opt select {
-  font: inherit; color: var(--ink); background: rgba(255,255,255,0.06); border: 1px solid rgba(243,234,210,0.3);
-  border-radius: 4px; padding: 2px 6px; cursor: pointer;
-}
-#quality-opt option { color: #1a1a14; }
-#sens { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; color: var(--ink-dim); letter-spacing: 0.04em; }
-#sens input { width: 200px; accent-color: var(--brass); }
-#sens output { width: 36px; color: var(--ink); font-weight: 600; text-align: left; }
-.controls { display: grid; grid-template-columns: repeat(2, auto); justify-content: center; gap: 8px 36px; margin-top: 30px; font-size: 17px; color: var(--ink-dim); text-align: left; }
+/* the title and pause menus live in menu.css */
 kbd {
   display: inline-block; min-width: 24px; padding: 1px 6px; margin-right: 3px; text-align: center;
   font-family: var(--body); font-weight: 700; font-size: 14px; color: var(--ink);

@@ -45,7 +45,8 @@ import { Blooms, BLOOM_RADIUS } from '../defense/Blooms.js';
 import { Projectiles } from '../combat/Projectiles.js';
 import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
 import { Journal } from './Journal.js';
-import { writeSave, clearSave, recordBest } from './Save.js';
+import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
+import { difficulty } from './Difficulty.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
@@ -60,6 +61,9 @@ const MACHETE_DMG = 28;
 const RESPAWN = 5;
 const FOV = 72;
 const STARTER = [['bow_tower', 1], ['spike_trap', 2], ['poultice', 2]];
+// the title's light: late afternoon, the sun low and gold through the crowns
+const TITLE_TIME = 0.728;
+const TITLE_SHOT = 19;
 const ease = (t) => 1 - (1 - t) ** 3;
 const _white = new THREE.Color();
 
@@ -119,6 +123,8 @@ export class Game {
     this.boonsTaken = 0;
     this.pendingBoons = 0;
     this.stats = { built: 0, upgraded: 0, bosses: 0, blooms: 0 };
+    this.difficulty = 'warden';
+    this.fadeEl = document.getElementById('title-fade'); // black, for the title's cuts and the fly-in
     this.bloom = true;
     this.rand = Math.random;
     this.resize();
@@ -223,6 +229,7 @@ export class Game {
     };
     this.waves.onDawn = (_held, won) => {
       this.weather.target = 0;
+      this.bankRecords({ nights: 1, wins: won ? 1 : 0 });
       if (this.mods.harvest) this.harvestDawn();
       if (won) this.onVictory();
     };
@@ -310,10 +317,134 @@ export class Game {
     this.renderer.setAnimationLoop((ts) => this.frame(ts));
   }
 
+  // ------------------------------------------------------------- title
+
+  // Behind the title menu the camera drifts through a few slow shots of the clearing at
+  // golden hour. The player isn't there yet: the clock is held and nothing hunts.
+  startTitle() {
+    this.title = { t: 0, shot: 0, shotT: 0, fade: 1, fly: null };
+    this.sky.time = TITLE_TIME;
+    this.sky.timeScale = 0.15;
+  }
+
+  // shot k at local time u (seconds): where the eye is and what it looks at
+  titleShot(k, u, eye, at) {
+    const b = this.base, h = b.heartPos;
+    const ang = (a, r, y) => eye.set(b.x + Math.sin(a) * r, 0, b.z + Math.cos(a) * r).setY(terrainHeight(eye.x, eye.z) + y);
+    if (k === 0) {
+      // low and slow round the Heartwood, through the grass
+      const a = 2.0 + u * 0.022;
+      ang(a, 17 - u * 0.06, 1.5 + u * 0.02);
+      at.copy(h).add(new THREE.Vector3(0, -0.6, 0));
+    } else if (k === 1) {
+      // a crane up out of the undergrowth at the clearing's edge
+      const a = -0.6 + u * 0.01;
+      ang(a, 24 - u * 0.2, 1.0 + u * 0.28);
+      at.copy(h).add(new THREE.Vector3(0, -1.2 + u * 0.05, 0));
+    } else {
+      // from inside the treeline, pushing in toward the light of the clearing
+      const a = 3.4 - u * 0.012;
+      ang(a, 29 - u * 0.3, 1.8 + u * 0.03);
+      at.copy(h).add(new THREE.Vector3(0, 1.5, 0));
+    }
+    // frame the subject right of centre: the menu sits on the left
+    const side = new THREE.Vector3().subVectors(at, eye).cross(new THREE.Vector3(0, 1, 0)).setY(0).normalize();
+    at.addScaledVector(side, -eye.distanceTo(at) * 0.26);
+  }
+
+  updateTitle(dt) {
+    const T = this.title;
+    T.t += dt;
+    const eye = this._tEye ??= new THREE.Vector3(), at = this._tAt ??= new THREE.Vector3();
+    const cam = this.camera;
+    if (T.fly) {
+      // the eye glides from the shot down into the player's head
+      const f = T.fly;
+      f.t = Math.min(1, f.t + dt / f.dur);
+      const k = (f.k = f.t * f.t * (3 - 2 * f.t));
+      // dip to black at the end, where the clock jumps to the morning
+      this.setFade(smoothstep(0.62, 1, f.t));
+      this.player.update(0, this.input, null);
+      eye.copy(f.eye).lerp(cam.position, k);
+      const q = f.quat.clone().slerp(cam.quaternion, k);
+      cam.position.copy(eye);
+      cam.quaternion.copy(q);
+      if (f.t >= 1) {
+        this.title = null;
+        this.sky.time = f.wake;
+        this.sky.timeScale = 1;
+        this.renderer.shadowMap.needsUpdate = true;
+        // hold the black a beat while the morning bakes, then open the eyes
+        setTimeout(() => this.setFade(0, 1.4), 120);
+        f.done?.();
+      }
+      return;
+    }
+    T.shotT += dt;
+    if (T.shotT > TITLE_SHOT) {
+      T.shotT = 0;
+      T.shot = (T.shot + 1) % 3;
+    }
+    // a slow fade through black at each cut
+    T.fade = Math.min(1, T.shotT / 1.6, (TITLE_SHOT - T.shotT) / 1.2, T.t / 3.5);
+    this.setFade(1 - T.fade);
+    this.titleShot(T.shot, T.shotT, eye, at);
+    // the world streams in around the eye, not the empty spawn
+    this.player.pos.set(eye.x, terrainHeight(eye.x, eye.z), eye.z);
+    // a breath of handheld drift
+    eye.x += Math.sin(T.t * 0.31) * 0.08;
+    eye.y += Math.sin(T.t * 0.23 + 1) * 0.06;
+    cam.position.copy(eye);
+    cam.lookAt(at);
+    cam.rotation.z += Math.sin(T.t * 0.17) * 0.006;
+  }
+
+  // Leave the title: the camera flies to the player's eye, then `done` runs.
+  flyIn(done, dur = 1.8) {
+    if (!this.title) return done?.();
+    this.respawn();
+    const wake = this.title.wake ?? this.startTime ?? 0.29;
+    this.title.fly = { t: 0, dur, eye: this.camera.position.clone(), quat: this.camera.quaternion.clone(), done, wake };
+  }
+
+  setFade(v, secs = 0) {
+    const el = this.fadeEl;
+    if (!el) return;
+    el.style.transition = secs ? `opacity ${secs}s ease-out` : 'none';
+    el.style.opacity = String(v);
+  }
+
+  // A new run on the chosen difficulty: the Heartwood's HP, the Blight and the starting kit.
+  setDifficulty(id) {
+    const d = difficulty(id);
+    this.difficulty = id;
+    this.waves.setDifficulty(d);
+    this.base.maxHp = this.base.hp = Math.round(500 * d.heart);
+    const inv = this.inventory;
+    inv.slots.fill(null);
+    for (const [item, n] of d.starter) inv.add(item, n);
+    inv.select(inv.slots.findIndex((s, i) => !s && i < HOTBAR));
+    inv.changed();
+  }
+
+  // Bank what this run has done since the last time into the lifetime records.
+  bankRecords(extra = {}) {
+    if (this.debug) return;
+    const now = { kills: this.enemies.kills, bosses: this.stats.bosses, blooms: this.stats.blooms, built: this.buildings.stats.built };
+    const last = this.banked ?? now;
+    const delta = { ...extra };
+    for (const k in now) delta[k] = Math.max(0, now[k] - last[k]);
+    this.banked = now;
+    addRecords(delta, Object.keys(this.enemies.killsByType));
+  }
+
   // A fresh run starts with the day-one banner; a loaded one with its own.
   begin() {
     if (this.begun) return;
     this.begun = true;
+    // records count from here (a loaded run banked its past already)
+    this.banked = { kills: this.enemies.kills, bosses: this.stats.bosses, blooms: this.stats.blooms, built: this.buildings.stats.built };
+    if (!this.loaded && !this.debug) addRecords({ runs: 1 });
     const w = this.waves;
     if (this.loaded) this.hud.banner(`Day ${w.night}`, 'The Heartwood remembers you.');
     else this.hud.banner('Day 1', 'Gather from the forest, craft defences, guard the Heartwood.');
@@ -396,13 +527,17 @@ export class Game {
     this.buildings.stats.upgraded = d.stats?.upgraded || 0;
     this.base.maxHp = d.base.maxHp;
     this.base.hp = d.base.hp;
+    this.difficulty = d.difficulty || 'warden';
+    this.waves.setDifficulty(difficulty(this.difficulty));
     this.player.maxHp = d.player?.maxHp || 100;
     this.player.hp = this.player.maxHp;
     this.waves.setNight(d.night);
     this.showRifts(d.night);
     this.waves.won = !!d.won;
     if (this.waves.won) this.base.bloom(this.flora, true);
-    this.sky.time = DAWN + 0.004;
+    // on the title the clock is the cinematic's until the fly-in lands
+    if (this.title) this.title.wake = DAWN + 0.004;
+    else this.sky.time = DAWN + 0.004;
     this.perks = d.perks || [];
     const dummy = { base: { maxHp: 0, hp: 0 }, player: { maxHp: 0, hp: 0 } };
     for (const id of this.perks) PERKS.find((p) => p.id === id)?.apply(this.mods, dummy);
@@ -1458,6 +1593,7 @@ export class Game {
     this.hud.buildHint(null);
     this.hud.prompt(null);
     this.hud.charge(0);
+    this.bankRecords();
     clearSave();
   }
 
@@ -1519,7 +1655,7 @@ export class Game {
     const input = this.input;
     const over = this.waves.phase === 'over';
     const paused = this.paused || !!this.modal;
-    const active = !paused && !this.hud.inventoryOpen && !over;
+    const active = !paused && !this.hud.inventoryOpen && !over && !this.title;
 
     // dead: wait, then come back at the Heartwood
     if (this.deadT > 0 && !paused) {
@@ -1565,6 +1701,8 @@ export class Game {
       }
       if (input.mouse.rclicked) this.startUse();
       this.interact(dt, input);
+    } else if (this.title) {
+      this.updateTitle(realDt);
     } else {
       this.player.update(0, input, null);
       if (!this.playerAlive || over) this.hud.prompt(null);
@@ -1578,7 +1716,7 @@ export class Game {
     }
     // the slingshot draw narrows the view a touch
     // (and opens a little at a sprint)
-    const fov = FOV - this.aimK * 4 - this.draw * 6 + (this.player.runK || 0) * 5;
+    const fov = this.title ? 50 + (FOV - 50) * (this.title.fly?.k ?? 0) : FOV - this.aimK * 4 - this.draw * 6 + (this.player.runK || 0) * 5;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1604,10 +1742,7 @@ export class Game {
         else if (!this.debug) input.lock();
       }
     }
-    if (input.hit('KeyM')) {
-      this.audio.enabled = !this.audio.enabled;
-      if (this.audio.master) this.audio.master.gain.value = this.audio.enabled ? 0.7 : 0;
-    }
+    if (input.hit('KeyM')) this.audio.toggleMute();
 
     const pos = this.player.pos;
     this.world.update(pos.x, pos.z, dt);

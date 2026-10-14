@@ -27,8 +27,10 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5188 and click **Enter the jungle** (or **Continue** when a save exists).
-The Journal on the left walks you through the first day.
+Open http://localhost:5188, press any key at the title, and choose **New Game** (pick a
+difficulty) or **Continue**. The title also has the **Field Guide** (every Blight, defence and
+boon), your lifetime **Records**, **Settings**, **Controls** and **Credits**. The Journal on the
+left walks you through the first day.
 
 | Key | Action |
 | --- | --- |
@@ -44,7 +46,7 @@ The Journal on the left walks you through the first day.
 | Tab / I | Satchel: inventory and crafting |
 | T (hold) | Skip daylight |
 | M | Mute |
-| Esc | Pause (mouse sensitivity, the Glow toggle and Quality are on the pause menu) |
+| Esc | Pause: resume, the Field Guide, settings, controls, or quit to the title |
 
 ### Debug mode
 
@@ -60,17 +62,23 @@ game.waves.setNight(5)    // pretend it's night 5 (a boss night)
 game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)   // also 'blightling', 'wisp', 'thornback'
 ```
 
-Debug runs never autosave. The save lives in `localStorage` under `og.save.v1`, and the best run
-under `og.best`.
+Debug runs never autosave. The save lives in `localStorage` under `og.save.v1`, the best run
+under `og.best`, lifetime records under `og.records`, and settings under `og.quality`,
+`og.bloom`, `og.sensitivity`, `og.invertY`, `og.volume` and `og.music`.
 
 ## How it's put together
 
 ```
 src/
-  main.js              boot, menu (continue / new run), pointer-lock pause, settings
+  main.js              boot, wires the title menu to the game, pointer-lock pause
+  ui/Menu.js, menu.css the splash, title menu and its pages (continue, new game, field guide,
+                       records, settings, controls, credits) and the pause menu
+  ui/Portraits.js      renders the Blender models to portraits for the Field Guide
+  core/Difficulty.js   Verdant / Warden / Blightborn
+  audio/TitleTheme.js  the synthesised title music
   core/Game.js         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
                        building, boss slams, endings, autosave
-  core/Save.js         localStorage save/load of a run, best-run record
+  core/Save.js         localStorage save/load of a run, best-run record, lifetime records
   core/Perks.js        boons offered at the Heartwood and the stat modifiers they change
   core/Journal.js      first-day tutorial steps, then rolling optional goals
   core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering

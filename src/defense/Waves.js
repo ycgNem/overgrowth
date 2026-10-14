@@ -19,15 +19,16 @@ const hash = (n) => Math.abs(Math.sin(n * 91.345 + 7.13) * 43758.5453) % 1;
 // Does it rain on night n? Never on the first two.
 export const rainsOn = (n) => n >= 3 && hash(n) < 0.4;
 
-// What crawls out on night n.
-export function waveFor(n) {
+// What crawls out on night n. `count` scales the packs (the difficulty); the boss stays.
+export function waveFor(n, count = 1) {
   const late = Math.max(0, n - 6);
+  const sc = (x) => Math.round(x * count);
   // the surge (nights 7+): everything at once, from every side
-  const surge = { blightling: late * 4, rotboar: Math.round(late * 1.5), wisp: Math.ceil(late / 2) };
+  const surge = { blightling: sc(late * 4), rotboar: sc(Math.round(late * 1.5)), wisp: sc(Math.ceil(late / 2)) };
   const counts = {
-    blightling: 6 + 3 * n + surge.blightling,
-    rotboar: Math.min(8, Math.max(0, n - 1)) + surge.rotboar,
-    wisp: (n >= 4 ? Math.floor((n - 2) * 1.3) : 0) + surge.wisp,
+    blightling: Math.max(3, sc(6 + 3 * n)) + surge.blightling,
+    rotboar: sc(Math.min(8, Math.max(0, n - 1))) + surge.rotboar,
+    wisp: sc(n >= 4 ? Math.floor((n - 2) * 1.3) : 0) + surge.wisp,
     thornback: n % 5 === 0 ? (n >= 10 ? 2 : 1) : 0,
   };
   const main = { blightling: counts.blightling - surge.blightling, rotboar: counts.rotboar - surge.rotboar, wisp: counts.wisp - surge.wisp };
@@ -96,6 +97,7 @@ export class Waves {
     this.spawnIdx = 0;
     this.skipping = false; // fast-forwarding to dusk on request
     this.won = false;
+    this.diff = { hp: 1, count: 1 }; // the difficulty (core/Difficulty.js)
     this.onDay = null; // (night) when a new day starts (autosave)
     this.onNight = null;
     this.onDawn = null;
@@ -107,7 +109,7 @@ export class Waves {
   // +12% a night to night 6, then +14%: a late defence held nights 9 and 10 without a scratch
   get hpScale() {
     const n = this.night - 1;
-    return 1 + 0.12 * Math.min(n, 5) + 0.14 * Math.max(0, n - 5);
+    return (1 + 0.12 * Math.min(n, 5) + 0.14 * Math.max(0, n - 5)) * this.diff.hp;
   }
 
   get remaining() {
@@ -131,13 +133,18 @@ export class Waves {
 
   setNight(n) {
     this.night = n;
-    this.preview = waveFor(n);
+    this.preview = waveFor(n, this.diff.count);
+  }
+
+  setDifficulty(d) {
+    this.diff = { hp: d.hp, count: d.count };
+    this.preview = waveFor(this.night, d.count);
   }
 
   startNight() {
     this.phase = 'night';
     this.skipping = false;
-    const w = waveFor(this.night);
+    const w = waveFor(this.night, this.diff.count);
     this.queue = w.list;
     this.spawnIdx = 0;
     this.surgeCalled = false;
@@ -157,7 +164,7 @@ export class Waves {
     const held = this.night;
     this.base.heal(this.base.maxHp * 0.15);
     this.night++;
-    this.preview = waveFor(this.night);
+    this.preview = waveFor(this.night, this.diff.count);
     this.world.regrow();
     if (held === WIN_NIGHT && !this.won) {
       this.won = true;
@@ -195,7 +202,7 @@ export class Waves {
         const a = Math.random() * Math.PI * 2;
         // the boss is already a wall of HP: its first night it comes in light (a mid defence lost
         // night 5 to it), then it scales at half rate (two come on night 10, with the surge)
-        const k = s.type === 'thornback' ? (this.night <= 5 ? 0.8 : 1 + (this.hpScale - 1) * 0.5) : this.hpScale;
+        const k = s.type === 'thornback' ? (this.night <= 5 ? 0.8 : 1 + (this.hpScale / this.diff.hp - 1) * 0.5) * this.diff.hp : this.hpScale;
         this.enemies.spawn(s.type, r.x + Math.cos(a) * 1.2, r.z + Math.sin(a) * 1.2, k);
         if (s.type === 'thornback') {
           this.hud.banner('The Thornback', 'It is out of the rift. Bring it down.', 'boss');

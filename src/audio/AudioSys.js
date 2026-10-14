@@ -1,11 +1,13 @@
 // Fully synthesised audio: an ambient jungle bed plus one-shot effects.
 // Nothing is loaded from disk — every sound is built from oscillators and
 // filtered noise with the Web Audio API.
+import { TitleTheme } from './TitleTheme.js';
 
 export class AudioSys {
   constructor() {
     this.ctx = null;
     this.enabled = true;
+    this.volume = 1; // the Settings slider; M mutes on top of it
     this.birdTimer = 2;
     this.day = 1;
     this.water = 0;
@@ -19,9 +21,11 @@ export class AudioSys {
     }
     const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)());
     this.master = ctx.createGain();
-    this.master.gain.value = 0.7;
     const comp = ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(ctx.destination);
+    this.applyVolume();
+    this.theme = new TitleTheme(ctx, this.master);
+    if (this.wantTheme) this.theme.start();
 
     // White noise buffer shared by everything.
     const len = ctx.sampleRate * 2;
@@ -113,6 +117,38 @@ export class AudioSys {
     rn.connect(rbp).connect(this.rainGain);
     rlo.connect(rlp).connect(this.rainGain);
     this.rainGain.connect(this.master);
+  }
+
+  applyVolume() {
+    if (this.master) this.master.gain.value = this.enabled ? 0.7 * this.volume : 0;
+  }
+
+  setVolume(v) {
+    this.volume = v;
+    this.applyVolume();
+  }
+
+  toggleMute() {
+    this.enabled = !this.enabled;
+    this.applyVolume();
+  }
+
+  // the title theme plays while the menu is up (it waits for start() if audio isn't running yet)
+  music(on) {
+    this.wantTheme = on;
+    if (!this.theme) return;
+    if (on) this.theme.start();
+    else this.theme.stop();
+  }
+
+  // menu: a soft tick on hover, a wooden knock on choose
+  hover() {
+    this.tone({ type: 'sine', f0: 1400, f1: 1250, a: 0.003, dec: 0.05, vol: 0.025 });
+  }
+
+  choose() {
+    this.tone({ type: 'triangle', f0: 330, f1: 290, a: 0.004, dec: 0.18, vol: 0.09 });
+    this.tone({ type: 'sine', f0: 660, f1: 640, a: 0.004, dec: 0.3, vol: 0.04, delay: 0.03 });
   }
 
   setRain(a) {

@@ -58,6 +58,9 @@ You hold the line with your towers and your machete until dawn.
 | Weather | `fx/Weather.js` | rain nights: streaks, lightning, heavier fog, dimmer light |
 | Lights | `fx/LightPool.js` | six pooled point lights for fire, arcs, mortar bursts and rifts |
 | Assets | `assets/Models.js`, `public/models/*.glb` | Blender-made GLBs, procedural fallback if a file is missing |
+| Title & pause | `ui/Menu.js`, `ui/menu.css`, `main.js` | splash, title menu and its pages, pause menu; `Game.startTitle/flyIn` run the cinematic |
+| Difficulty | `core/Difficulty.js` | Verdant / Warden / Blightborn: Blight HP and numbers, Heartwood HP, starting kit |
+| Records | `core/Save.js` | lifetime totals in `og.records`, banked at each dawn and when a run ends |
 
 ## Content (first pass)
 
@@ -131,6 +134,11 @@ snare grabs, wings, legs, jaw).
    a mouse prompt for smashables, and Blight Blooms: the day's guarded pods that open new lanes
    at dusk if left standing. See the handoff below.
 
+8. **The Title: done (2026-10-14, release 0.7).** A live cinematic title screen with a
+   sigil, a press-any-key splash and synthesised title music; a fly-in from the menu into the
+   game; three difficulties; a Continue card; the Field Guide with rendered portraits; lifetime
+   Records; Settings, Controls and Credits pages; a real pause menu. See the handoff below.
+
 ## Balance
 
 - Day 1 is generous: you start with one Bramble Bow Tower, two spike traps and two poultices.
@@ -177,6 +185,8 @@ snare grabs, wings, legs, jaw).
   `Towers.js` (buildings, tiers, projectiles, placement ghost) and `Waves.js` (the director).
 - `src/player/MacheteModel.js` (machete + hand), `src/fx/Marks.js` (gashes, scrapes),
   `src/world/Stubs.js` (cut stalks).
+- `src/ui/Menu.js` + `menu.css` (title, pages, pause), `src/ui/Portraits.js`,
+  `src/audio/TitleTheme.js`, `src/core/Difficulty.js`.
 - `src/combat/Projectiles.js` (stones, firepots), `src/core/{Save,Perks,Journal}.js`,
   `src/fx/{LightPool,Weather}.js`.
 - Textures: `art/textures/jobs.json` holds the Flux prompts. `generate.py <raw dir>` renders
@@ -189,6 +199,48 @@ snare grabs, wings, legs, jaw).
   gives the exact terrain height, normal and splat under a point.
 - Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
   filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
+
+## Handoff: 0.7 "The Title" (2026-10-14)
+
+**Live:** 0.7 is on `main`, pushed (GitHub Pages deploys on push). The version is 0.7.0 and
+CHANGELOG has the notes. **Starting a new session:** read this file and `README.md`,
+`npm run dev`, then `node e2e/loop.mjs`; `node e2e/menu.mjs <outDir>` screenshots the title
+flow (`SAVE=<save.json>` seeds a save, `PANELS=new,guide,...` opens pages, `FLY=1` films the
+fly-in and the pause menu). `?debug` skips the title entirely, so the other e2e scripts are
+unchanged. The developer's alias is **ycgNem** (credits, git author).
+
+**What changed and where**
+- Title cinematic: `Game.startTitle()` holds the clock near sunset (`TITLE_TIME` 0.728, crawling
+  at `timeScale` 0.15) and `updateTitle` moves the camera through three shots (`titleShot`:
+  a low orbit of the Heartwood, a crane up out of the grass, a push in from the treeline),
+  framing the heart right of centre, cutting every `TITLE_SHOT` s through `#title-fade`.
+  `player.pos` follows the eye so the world, grass and litter stream round the camera. While
+  `game.title` is set the frame loop skips player control (`active` is false).
+- Fly-in: `Game.flyIn(done)` respawns the player, slerps the camera from the shot to the eye
+  (FOV 50 to 72), dips to black, sets the clock to `title.wake` (a loaded save's dawn, else
+  `startTime ?? 0.29`) and fades in. `loadFrom` writes `title.wake` instead of the clock while
+  the title runs.
+- `src/ui/Menu.js`: modes `boot`, `title`, `flying`, `play`, `pause`. Pages are built in the
+  `page*()` methods; their widths are in `open()`. Hovering Continue previews its card
+  (unpinned); clicks pin a page. `crowd()` dims the logo when a wide page reaches it. Settings
+  live in localStorage (`og.quality`, `og.bloom`, `og.sensitivity`, `og.invertY`, `og.volume`,
+  `og.music`). Quit to Title autosaves and reloads (a new run needs a clean world anyway).
+- Portraits: `src/ui/Portraits.js` renders GLBs to 360 px PNGs on the first open of the guide
+  or records, with a coloured rim light. The spike trap has no GLB and uses its item icon.
+- Audio: `src/audio/TitleTheme.js` (pad through Am-F-C-G, pentatonic kalimba, drone,
+  generated reverb, echo). `AudioSys.music(on)`, `setVolume`, `toggleMute`, `hover`, `choose`.
+- Difficulty: `waveFor(n, count)` scales the packs (not the boss); `Waves.diff.hp` multiplies
+  `hpScale` (the Thornback's own curve is scaled the same); `Game.setDifficulty(id)` sets the
+  Heartwood HP and the starting kit. Saves carry `difficulty` (old saves load as Warden).
+- Records: `Game.bankRecords` adds kills, bosses, blooms and builds since the last bank at each
+  dawn and on defeat; `begin()` counts a run. `seen` holds the Blight types felled; the guide
+  also treats a type as known once your best run held through the night it first comes.
+
+**Ideas for next time**
+- A rendered portrait for the spike trap; slowly turning portraits in the guide.
+- Per-difficulty bests, and a victory badge per difficulty on the Records page.
+- Return to the title without a reload (needs a world reset).
+- Title shots at other times of day or in rain, picked from how far the save has got.
 
 ## Handoff: 0.6 "Blight Blooms" (2026-10-14)
 

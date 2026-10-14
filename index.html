@@ -7,8 +7,9 @@
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;800&family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/ui/hud.css" />
+    <link rel="stylesheet" href="/src/ui/menu.css" />
   </head>
   <body>
     <canvas id="game"></canvas>
@@ -101,7 +102,7 @@
         <div class="eyebrow">Ten nights held</div>
         <h1>The Heartwood Blooms</h1>
         <p class="stats"></p>
-        <div class="buttons"><button id="endless" class="primary">Keep going</button><button id="victory-new">New run</button></div>
+        <div class="buttons"><button id="endless" class="primary">Keep going</button><button id="victory-title">Title screen</button></div>
       </div>
     </div>
 
@@ -110,37 +111,85 @@
         <div class="eyebrow">The Blight takes the clearing</div>
         <h1>Overgrown</h1>
         <p class="stats"></p>
-        <div class="buttons"><button id="again" class="primary">Try again</button></div>
+        <div class="buttons"><button id="again" class="primary">Try again</button><button id="over-title">Title screen</button></div>
       </div>
     </div>
 
-    <div id="menu">
-      <div class="menu-inner">
-        <div class="eyebrow">Gather · Craft · Defend</div>
-        <h1>Overgrowth</h1>
-        <p class="tag">Strip the jungle by day. Hold the Heartwood by night.</p>
-        <div id="loading"><div id="loading-bar"></div><span id="loading-text">Growing the jungle…</span></div>
-        <div class="buttons">
-          <button id="play" class="primary" disabled>Enter the jungle</button>
-          <button id="newrun" class="hidden">New run</button>
-        </div>
-        <div id="best"></div>
-        <div id="settings">
-          <label id="sens">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.05" value="1" /><output>1.00</output></label>
-          <label id="bloom-opt"><input type="checkbox" checked /> Glow</label>
-          <label id="quality-opt">Quality <select><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
-        </div>
-        <div class="controls">
-          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> sprint</div>
-          <div><kbd>Space</kbd> jump</div>
-          <div><kbd>LMB</kbd> swing · draw the sling · place</div>
-          <div><kbd>E</kbd> gather · search · upgrade · offer</div>
-          <div><kbd>1</kbd>–<kbd>8</kbd> / wheel belt slot</div>
-          <div><kbd>RMB</kbd> use · <kbd>R</kbd> rotate · <kbd>F</kbd> pack up</div>
-          <div><kbd>Tab</kbd> satchel &amp; crafting</div>
-          <div><kbd>T</kbd> hold to skip daylight</div>
-        </div>
-      </div>
+    <div id="title-fade"></div>
+
+    <div id="menu" class="boot">
+      <div class="scrim"></div>
+      <div id="spores"></div>
+      <div class="grain"></div>
+
+      <!-- the sigil, drawn once and reused -->
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <defs>
+          <linearGradient id="g-gold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f7e2a6" /><stop offset="0.55" stop-color="#d6a94a" /><stop offset="1" stop-color="#7a5a22" />
+          </linearGradient>
+          <radialGradient id="g-orb" cx="0.42" cy="0.38" r="0.65">
+            <stop offset="0" stop-color="#ffffff" /><stop offset="0.35" stop-color="#d4ffe2" /><stop offset="1" stop-color="#3fd27a" />
+          </radialGradient>
+          <filter id="f-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="3.2" /></filter>
+          <symbol id="sigil" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="55" fill="none" stroke="url(#g-gold)" stroke-width="1.6" />
+            <circle cx="60" cy="60" r="49.5" fill="none" stroke="url(#g-gold)" stroke-width="0.7" opacity="0.55" />
+            <g fill="url(#g-gold)">
+              <path d="M60 1.5 l3 4.5 -3 4.5 -3 -4.5z" /><path d="M60 109.5 l3 4.5 -3 4.5 -3 -4.5z" />
+              <path d="M1.5 60 l4.5 -3 4.5 3 -4.5 3z" /><path d="M109.5 60 l4.5 -3 4.5 3 -4.5 3z" />
+              <circle cx="20.4" cy="20.4" r="1.6" /><circle cx="99.6" cy="20.4" r="1.6" /><circle cx="20.4" cy="99.6" r="1.6" /><circle cx="99.6" cy="99.6" r="1.6" />
+            </g>
+            <!-- roots, trunk and the two boughs cradling the heart -->
+            <g fill="url(#g-gold)">
+              <path d="M56.5 96 C55 86 56 76 57.5 68 C52 64 46 58 44.5 49 C43.5 42 46 35.5 50.5 31.5 C48.5 37 48.5 43 51 48 C53.5 53 57.5 57 60 60 C62.5 57 66.5 53 69 48 C71.5 43 71.5 37 69.5 31.5 C74 35.5 76.5 42 75.5 49 C74 58 68 64 62.5 68 C64 76 65 86 63.5 96z" />
+              <path d="M57 94 C50 96 42 97.5 33 103 C41 99.5 49 99 56 99z" />
+              <path d="M63 94 C70 96 78 97.5 87 103 C79 99.5 71 99 64 99z" />
+              <path d="M58.5 97 C55 101 51 104.5 45 108 C52 106 56 104 59.5 100.5z" />
+              <path d="M61.5 97 C65 101 69 104.5 75 108 C68 106 64 104 60.5 100.5z" />
+              <path d="M46.6 52 C40 50 35 45.5 33.5 39 C39 41 44 45 46.6 52z" />
+              <path d="M73.4 52 C80 50 85 45.5 86.5 39 C81 41 76 45 73.4 52z" />
+              <path d="M50 29.5 C49 24.5 50.5 20 54 17 C54 21.5 52.5 26 50 29.5z" />
+              <path d="M70 29.5 C71 24.5 69.5 20 66 17 C66 21.5 67.5 26 70 29.5z" />
+            </g>
+            <circle cx="60" cy="40" r="11" fill="#7dffb0" opacity="0.65" filter="url(#f-glow)" class="sigil-glow" />
+            <circle cx="60" cy="40" r="7.5" fill="url(#g-orb)" />
+          </symbol>
+        </defs>
+      </svg>
+
+      <!-- loading, then "press any key" -->
+      <section id="splash">
+        <svg class="sigil big"><use href="#sigil" /></svg>
+        <h1 class="logo">Overgrowth</h1>
+        <div class="rule"><i></i><span>Hold the Heartwood</span><i></i></div>
+        <div id="loading"><div id="loading-bar"></div></div>
+        <div id="loading-text">Growing the jungle…</div>
+        <div id="press">Press any key</div>
+      </section>
+
+      <!-- the title / pause menu -->
+      <section id="main">
+        <header class="brand">
+          <svg class="sigil"><use href="#sigil" /></svg>
+          <div>
+            <h1 class="logo">Overgrowth</h1>
+            <div class="rule"><i></i><span id="brand-sub">Hold the Heartwood</span><i></i></div>
+          </div>
+        </header>
+        <nav id="nav"></nav>
+        <footer class="foot">
+          <span id="version"></span>
+          <span class="keys"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>Enter</kbd> select <kbd>Esc</kbd> back</span>
+        </footer>
+      </section>
+
+      <aside id="panel" class="hidden">
+        <div class="panel-frame"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i></div>
+        <div id="panel-body"></div>
+      </aside>
+
+      <button id="mute" title="Sound (M)" aria-label="Toggle sound"></button>
     </div>
 
     <script type="module" src="/src/main.js"></script>

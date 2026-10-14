@@ -4,6 +4,7 @@
 // it never saves during a night, so quitting mid-fight sends you back to that morning.
 const KEY = 'og.save.v1';
 const BEST = 'og.best';
+const RECORDS = 'og.records';
 
 function store() {
   try {
@@ -35,6 +36,7 @@ export function writeSave(game) {
   const data = {
     v: 1,
     at: Date.now(),
+    difficulty: g.difficulty,
     night: g.waves.night,
     time: g.sky.time,
     won: g.waves.won,
@@ -78,4 +80,28 @@ export function recordBest(nights, kills) {
     // storage blocked
   }
   return out;
+}
+
+// Lifetime records across every run, for the title's Records page. Nights and kills are
+// banked at each dawn (and when a run ends), so a run quit halfway still counts.
+const EMPTY = { runs: 0, wins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, seen: [] };
+
+export function loadRecords() {
+  try {
+    return { ...EMPTY, ...(JSON.parse(store()?.getItem(RECORDS) || 'null') || {}) };
+  } catch {
+    return { ...EMPTY };
+  }
+}
+
+export function addRecords(delta, seen = []) {
+  const r = loadRecords();
+  for (const [k, v] of Object.entries(delta)) r[k] = (r[k] || 0) + v;
+  r.seen = [...new Set([...r.seen, ...seen])];
+  try {
+    store()?.setItem(RECORDS, JSON.stringify(r));
+  } catch {
+    // storage blocked
+  }
+  return r;
 }
