@@ -1199,43 +1199,6 @@ export function clothTexture(seed, hue = 40) {
 }
 
 // Machete blade: dark spine, ground bevel, bright cutting edge, wear.
-export function bladeTexture() {
-  const W = 512, H = 128;
-  const c = makeCanvas(W, H);
-  const ctx = c.getContext('2d');
-  const r = mulberry32(77);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#3a3c3e');
-  g.addColorStop(0.12, '#55585b');
-  g.addColorStop(0.55, '#8d9296');
-  g.addColorStop(0.62, '#b8bdc0');
-  g.addColorStop(0.9, '#d8dcde');
-  g.addColorStop(1, '#f2f4f5');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-  for (let k = 0; k < 260; k++) {
-    ctx.strokeStyle = `rgba(${r() < 0.5 ? '255,255,255' : '20,20,20'},${0.05 + r() * 0.12})`;
-    ctx.lineWidth = 0.5 + r();
-    const x = r() * W, y = r() * H;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + 10 + r() * 50, y + (r() - 0.5) * 6);
-    ctx.stroke();
-  }
-  for (let k = 0; k < 40; k++) {
-    const x = r() * W, y = r() * H * 0.45, rad = 2 + r() * 9;
-    const rg = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    rg.addColorStop(0, 'rgba(120,60,20,0.55)');
-    rg.addColorStop(1, 'rgba(120,60,20,0)');
-    ctx.fillStyle = rg;
-    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  ctx.font = 'bold 22px Georgia, serif';
-  ctx.fillStyle = 'rgba(30,30,30,0.45)';
-  ctx.fillText('★ COLLINS & Co.', 60, 50);
-  return canvasTexture(c);
-}
-
 export function handleWoodTexture() {
   const S = 256;
   const c = makeCanvas(S);

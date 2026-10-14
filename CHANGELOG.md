@@ -1,5 +1,45 @@
 # Patch notes
 
+## 0.5: Sharp Edges (2026-10-14)
+
+A new machete in a gloved hand, a jungle floor with real variety, and the same depth the
+ground got in 0.4 now on bark and stone.
+
+### The machete
+- **A real machete, held in a real hand.** A long, broad blade of dark carbon steel with a
+  bright filed edge, wooden scales with brass rivets and a leather thong, gripped in a worn
+  leather work glove with a rolled canvas sleeve. It sits off to the right instead of
+  standing in the middle of the screen like a sword.
+- **New swings.** A forehand cut from over the right shoulder and a backhand from the left,
+  with your arm following through. The blade leaves a faint smear of air behind it.
+- **It hits what it hits.** Chips, sparks and splinters fly off the exact spot the blade
+  struck, away from the surface.
+- **Trees keep the scars.** Every blow cuts a notch of pale wood into the bark, and hacking at
+  the same spot opens it wider. Stone keeps bright scrapes.
+- **Wood grabs, stone rings.** The blade sinks into a trunk and has to be wrenched free; on
+  rock it bounces back at you.
+- **Plants react.** Everything in reach whips along with a swing and springs back. Plants
+  lean aside as you push through them.
+- **Cutting leaves a mark.** A cut plant is knocked over, lies on the ground for a few
+  seconds, and leaves its sliced stalks standing.
+- The blade no longer flares white when it catches the sun.
+- **Swing at your feet** and the blade bites into the forest floor with a thud, kicking up
+  leaves and dirt.
+- **The slingshot is held in the same gloved hand**, with a leather pouch.
+
+### The world
+- **A forest floor that isn't one carpet.** The pale, identical leaves are gone. The floor is
+  now a mix of many species' leaves in browns, russets and olives with a few still green,
+  broken by patches of bare dark earth, roots and seedlings.
+- **The camp is trampled earth** around the Heartwood.
+- **Bark and stone have depth.** Tree trunks, logs, dead wood, rocks and the temple's stone
+  now have the same parallax relief as the ground: fissures and cracks look deep up close.
+- **New rock.** Rocks and cliffs are dry, fractured stone in angular plates instead of a
+  pitted surface that read like foam.
+- **Trees are no longer flat.** Crowns were big cards of leaves all facing the sky, so they
+  looked like paper plates from below and cut-outs from the side. They are now fuller and
+  rounder, with smaller sprays facing every way and crossed through each other. Bushes too.
+
 ## 0.4: The Living Floor (2026-10-14)
 
 An art overhaul. The jungle used to look flat and smooth, like a photo of leaves pasted on a

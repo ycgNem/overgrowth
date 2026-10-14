@@ -262,5 +262,37 @@
   "batch": 3,
   "seed": 901,
   "prompt": "top-down photograph of one square metre of dark damp tropical rainforest floor seen from 1.5 m above, a dense mat of about a hundred small decomposing leaves 4 to 12 cm long in dark brown, black-brown, russet and dull olive, overlapping in layers, thin rootlets and twigs and dark soil between them, a few small fallen green leaves, the leaves fill the whole frame, flat even overcast lighting, matte, no shadows, sharp focus, highly detailed texture"
+ },
+ {
+  "name": "litter7",
+  "w": 1024,
+  "h": 1024,
+  "batch": 4,
+  "seed": 1001,
+  "prompt": "top-down photograph of one square metre of tropical rainforest floor seen from 1.5 m above, a natural mix of fallen leaves from many different tree species, small and medium leaves of different shapes, elliptical, heart-shaped, lobed and narrow, in dark brown, russet, ochre, olive and a few yellow-green fresh leaves, some partly decomposed and skeletonised, dark crumbly humus soil, tiny twigs, seed pods and rootlets showing between them, overlapping in uneven layers, flat even overcast light, no cast shadows, sharp focus, highly detailed, fills the whole frame"
+ },
+ {
+  "name": "humus",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 1101,
+  "prompt": "top-down photograph of bare dark tropical rainforest soil seen from 1.5 m above, rich dark brown crumbly humus and earth, small decayed leaf fragments, thin twigs and exposed rootlets, a few tiny green seedlings and small pebbles, sparse and uneven, flat even overcast lighting, no cast shadows, sharp focus, highly detailed, fills the whole frame"
+ },
+ {
+  "name": "rock6",
+  "w": 1024,
+  "h": 1024,
+  "batch": 2,
+  "seed": 1201,
+  "prompt": "close-up photograph of the surface of a large weathered grey limestone boulder in a tropical rainforest, smooth water-worn rounded areas broken by sharp fine cracks and shallow fissures, subtle grey, beige and dark rain stains, small patches of pale lichen, matte dry stone, flat even overcast lighting, no cast shadows, sharp focus, the stone fills the whole frame"
+ },
+ {
+  "name": "rock7",
+  "w": 1024,
+  "h": 1024,
+  "batch": 3,
+  "seed": 1301,
+  "prompt": "flat frontal close-up photograph of a dry weathered grey limestone cliff face in a tropical rainforest, solid rough stone broken by angular fractures, sharp-edged small ledges and long shallow cracks, no holes, no pits, no pores, medium grey with warm beige and brown weathering stains and a few small pale lichen spots, matte dry surface, flat even overcast lighting, no cast shadows, sharp focus, highly detailed, the rock fills the whole frame"
  }
 ]

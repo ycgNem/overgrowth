@@ -142,17 +142,20 @@ export class Particles {
     }
   }
 
-  chipBurst(pos, color = 0x8a6a40, count = 16, floor) {
+  // dir: the struck surface's outward normal; chips fly off it instead of in every direction
+  chipBurst(pos, color = 0x8a6a40, count = 16, floor, dir = null) {
     for (let i = 0; i < count; i++) {
-      const p = this.base(pos, { spread: 0.4, speed: 6, up: 5, life: 1.6, size: 0.12, gravity: 16, drag: 0.6, color, floor });
+      const p = this.base(pos, { spread: dir ? 0.12 : 0.4, speed: 6, up: 5, life: 1.6, size: dir ? 0.07 : 0.12, gravity: 16, drag: 0.6, color, floor });
+      if (dir) p.vel.multiplyScalar(0.5).addScaledVector(dir, 3 + this.rand() * 4);
       p.shrink = true;
       this.chips.spawn(p);
     }
   }
 
-  sparks(pos, color = 0xffc070, count = 10) {
+  sparks(pos, color = 0xffc070, count = 10, dir = null) {
     for (let i = 0; i < count; i++) {
       const p = this.base(pos, { spread: 0.05, speed: 7, up: 4, life: 0.45, size: 0.12, gravity: 14, drag: 1.5, color });
+      if (dir) p.vel.multiplyScalar(0.6).addScaledVector(dir, 4 + this.rand() * 5);
       p.billboard = true;
       p.additive = true;
       p.shrink = true;

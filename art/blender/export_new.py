@@ -4,7 +4,7 @@ import os, sys, bpy
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).replace("\\", "/")
 COLL = {'heartwood': 'Heartwood', 'bow_tower': 'BowTower', 'spore_mortar': 'SporeMortar', 'tesla_totem': 'TeslaTotem',
         'barricade': 'Barricade', 'blightling': 'Blightling', 'rotboar': 'Rotboar', 'wisp': 'Wisp', 'thornback': 'Thornback',
-        'ember_brazier': 'EmberBrazier', 'vine_snare': 'VineSnare'}
+        'ember_brazier': 'EmberBrazier', 'vine_snare': 'VineSnare', 'hand': 'Hand'}
 # OG_OUT overrides the output folder (e.g. to compare before copying over the live models)
 OUT = os.environ.get('OG_OUT', f"{ROOT}/public/models")
 names = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else list(COLL)

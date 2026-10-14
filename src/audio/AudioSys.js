@@ -192,6 +192,14 @@ export class AudioSys {
     this.noiseShot({ f0: 3500, f1: 2200, q: 0.8, a: 0.04, dec: 0.32, vol: 0.07, delay: 0.06 });
   }
 
+  // the blade driven into the forest floor: a dull low thump and a scatter of leaves
+  thud() {
+    const k = 0.85 + Math.random() * 0.3;
+    this.tone({ type: 'sine', f0: 95 * k, f1: 45 * k, a: 0.004, dec: 0.12, vol: 0.38 });
+    this.noiseShot({ type: 'lowpass', f0: 700 * k, f1: 250, a: 0.003, dec: 0.1, vol: 0.3 });
+    this.noiseShot({ f0: 2600, f1: 1800, q: 0.8, a: 0.02, dec: 0.25, vol: 0.08, delay: 0.03 });
+  }
+
   wood() {
     this.tone({ type: 'triangle', f0: 180, f1: 90, dec: 0.18, vol: 0.4 });
     this.noiseShot({ f0: 900, f1: 400, q: 3, dec: 0.1, vol: 0.3 });

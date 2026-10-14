@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as T from '../../art/textures.js';
-import { addMoss, addNightFill, addPackedNormal } from '../../art/shaders.js';
+import { addMoss, addNightFill, addPackedNormal, addRelief } from '../../art/shaders.js';
 import { worldBox, BlockBatch, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
 import { terrainHeight, terrainNormal, CHUNK_SIZE } from '../WorldGen.js';
@@ -90,15 +90,18 @@ function kit(flora) {
   // generated surfaces (TextureLib): albedo + packed normal maps
   const lib = flora.lib.surface;
   const stone = new THREE.MeshStandardMaterial({ map: lib.stone.map, normalMap: lib.stone.nmap, roughness: 0.9, envMapIntensity: 0.5 });
+  addRelief(stone, 0.04);
   addPackedNormal(stone);
   addMoss(stone, moss, { amount: 0.6, scale: 0.25, flat });
   addNightFill(stone, 0.45);
   const rubble = new THREE.MeshStandardMaterial({ map: lib.rock.map, normalMap: lib.rock.nmap, roughness: 0.88, envMapIntensity: 0.5 });
+  addRelief(rubble, 0.045);
   addPackedNormal(rubble);
   addMoss(rubble, moss, { amount: 0.55, flat });
   addNightFill(rubble, 0.5);
   // dressed limestone for the temple: every block carries its own tint in vertex colours
   const block = new THREE.MeshStandardMaterial({ map: lib.block.map, normalMap: lib.block.nmap, vertexColors: true, roughness: 0.9, envMapIntensity: 0.5 });
+  addRelief(block, 0.02);
   addPackedNormal(block);
   addMoss(block, moss, { amount: 0.2, scale: 0.9, low: 0.8, flat });
   addNightFill(block, 0.45);

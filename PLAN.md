@@ -121,6 +121,11 @@ snare grabs, wings, legs, jaw).
    shadows, rebuilt trees, cliffs and temple, water reflections, rain wetness, quality presets,
    five rifts and rule-changing boons. See the handoff below.
 
+6. **Sharp edges: done (2026-10-14, release 0.5).** The machete and a gloved
+   hand rebuilt, blade contact with gashes and scrapes, plants that bend and whip, cut plants
+   that fall and leave stalks, a mixed forest floor with bare earth, parallax relief on bark,
+   rock and stone, a new rock surface, and fuller tree crowns. See the handoff below.
+
 ## Balance
 
 - Day 1 is generous: you start with one Bramble Bow Tower, two spike traps and two poultices.
@@ -165,6 +170,8 @@ snare grabs, wings, legs, jaw).
   dissolve and emissive-scale uniforms.
 - `src/defense/`: `Base.js` (the Heartwood, site search, rifts), `FlowField.js`, `Enemies.js`,
   `Towers.js` (buildings, tiers, projectiles, placement ghost) and `Waves.js` (the director).
+- `src/player/MacheteModel.js` (machete + hand), `src/fx/Marks.js` (gashes, scrapes),
+  `src/world/Stubs.js` (cut stalks).
 - `src/combat/Projectiles.js` (stones, firepots), `src/core/{Save,Perks,Journal}.js`,
   `src/fx/{LightPool,Weather}.js`.
 - Textures: `art/textures/jobs.json` holds the Flux prompts. `generate.py <raw dir>` renders
@@ -177,6 +184,50 @@ snare grabs, wings, legs, jaw).
   gives the exact terrain height, normal and splat under a point.
 - Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
   filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
+
+## Handoff: 0.5 "Sharp Edges" (2026-10-14, overnight autonomous pass)
+
+**Live:** 0.5 is on `main`, pushed (GitHub Pages deploys on push). `node e2e/loop.mjs` passes
+all ten checks and `vite build` is clean. CHANGELOG has the 0.5 notes; the version is 0.5.0.
+
+**What changed and where**
+- Machete: `src/player/MacheteModel.js` builds the blade (its own grid geometry: flat, filed
+  bevel and spine as separate strips), the canvas steel and roughness maps, the scales, rivets
+  and thong, and loads `public/models/hand.glb`. The hand is `art/blender/hand.py`: metaballs
+  along each finger, the palm and the forearm, meshed, decimated and vertex-coloured
+  (`blender -b --factory-startup -P art/blender/export_new.py -- hand`). Its frame matches the
+  machete's: handle along -x, spine +y, back of the hand +z, forearm roughly +y.
+- `Machete.js`: poses are `makePose(grip, bladeDir, armDir)`; the arm direction keeps the
+  forearm running off the bottom right. The viewmodel camera is 14 degrees narrower than the
+  world's. `SwingTrail` draws the smear. `bite(strength, 'flesh' | 'wood' | 'stone')`.
+  The steel's direct specular is halved and its output capped below the bloom threshold.
+- Contact: `Game.bladeContact` raycasts the one instance a collider belongs to (colliders now
+  carry `mesh` and `instance`). `src/fx/Marks.js` lays curved decals (gash, scrape) and deepens
+  a gash hit again. `WOODY` in Game.js lists what bites like wood.
+- Plants: `addWind(..., { push: true })` bends plants away from `uPush` (the player) and whips
+  them with `uSwing`/`uSwingDir` (set in `onSwingHit`). Cut plants lie down for `FALL_LIFE`
+  seconds and leave `src/world/Stubs.js` stalks.
+- Ground: `litter3` (mixed species) replaced the pale `litter2`; `humus` is bare earth in
+  noise patches inside the litter and doubles as the riverbank "mud" layer (the terrain
+  shader was at 16 texture units). `campEarth` in `World.terrainSteps` bares the camp.
+- Relief: `addRelief(material, depthMetres)` in `shaders.js` marches the normal map's height in
+  UV space (scale from screen derivatives) and `#define`s the map UVs to the result. It is on
+  bark, palm bark, logs, dead wood, rocks and the POI stone/rubble/temple blocks.
+- Rock: `rock7_00002_.png` (dry fractured plates). Raw photos live in ComfyUI's output folder
+  (`OG_RAW=C:/Users/jacks/AppData/Local/Comfy-Desktop/ComfyUI-Shared/output`).
+- Crowns: `Flora.crown` uses ~1.5x as many cards at ~0.74x the size, facing out of the crown,
+  with 60% crossed by a second card; bushes cross 55% of their sprays. Main-pass triangles at
+  spawn went from ~4.7M to ~6.4M; sprint p50 4.8 ms, p95 6.8 ms on this machine.
+- New e2e tools: `e2e/vm.mjs` (viewmodel poses, `lerp` between named poses) and `e2e/hit.mjs`
+  (stand at a plant type, swing, report marks and stubs; `hide` captures without the
+  viewmodel, `mid` captures particles in flight).
+
+**Next up (ideas, not started)**
+- Gashes are only on trees/logs/rocks the player can reach; Blight hits still use generic chips.
+- The scrape decal on stone is subtle; the gash could get a few chips lying at the tree's foot.
+- The hand is one fixed grip; a second, open-hand pose for consumables would remove the
+  floating item.
+- The 0.4 items below still stand.
 
 ## Handoff: state after the 0.4 art overhaul (2026-10-14)
 

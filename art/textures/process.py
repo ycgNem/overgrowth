@@ -32,15 +32,17 @@ TILES = {
     # a square metre of floor each (leaves 5-15 cm; the first photos had a few giant leaves per
     # frame, so at any tiling the floor read as a picture of leaves). Dry, paler leaves are
     # mixed with the wet litter in big drifts by the terrain shader
-    'litter2':  dict(src='litter5_00003_.png', size=1024, strength=2.4, mean=0.27, sat=0.62, flat=0.7, despec=0.6),
     'litter':   dict(src='litter6_00001_.png', size=1024, strength=2.4, mean=0.25, sat=0.8, flat=0.7, despec=0.85, desheen=0.85),
+    # 0.5: a floor of many species' leaves in mixed colours (the pale dry litter2 read as one
+    # carpet of identical chips) and bare humus between the drifts
+    'litter3':  dict(src='litter7_00002_.png', size=1024, strength=2.4, mean=0.235, sat=0.58, flat=0.8, despec=0.6, gain=[1.0, 0.97, 0.9]),
+    'humus':    dict(src='humus_00002_.png', size=1024, strength=3.5, mean=0.16, sat=0.8, flat=0.7, despec=0.5),
     # cushion moss for logs, rocks and stone (the ground gets the flat carpet above)
     'cushion':  dict(src='moss2_00001_.png', size=1024, strength=5.0, mean=0.3, sat=0.72, flat=0.6, fsig=40),
     'moss':     dict(src='moss3_00001_.png', size=1024, strength=3.0, mean=0.24, sat=0.75, flat=0.6, fsig=40, gain=[1.08, 1.0, 0.82]),
-    # wet tropical earth: the photo's grey-blue (it read as tarmac) given a warm brown
-    'mud':      dict(src='mud2_00001_.png', size=1024, strength=5.0, mean=0.31, sat=0.95, flat=0.7, desheen=0.8, gain=[1.12, 1.0, 0.84]),
-    # matte weathered limestone with bedding ledges (the wet basalt read as black glass)
-    'rock':     dict(src='rock4_00001_.png', size=1024, strength=5.0, mean=0.34, sat=0.75, flat=0.6, gain=[1.05, 1.02, 0.9]),
+    # dry fractured limestone in angular plates (0.5: the pitted rock4 read as foam, every pore
+    # a white speck; the wet basalt before it read as black glass)
+    'rock':     dict(src='rock7_00002_.png', size=1024, strength=4.0, mean=0.33, sat=0.6, flat=0.65, gain=[1.03, 1.0, 0.93]),
     'bark':     dict(src='bark4_00001_.png', size=1024, strength=6.0, mean=0.34, sat=0.8, flat=0.8, fsig=6),
     'palmbark': dict(src='palmbark_00002_.png', size=1024, strength=6.0, mean=0.38, sat=0.8, flat=0.6),
     'deadwood': dict(src='deadwood2_00001_.png', size=1024, strength=5.0, mean=0.42, sat=0.75, flat=0.6),

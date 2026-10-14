@@ -13,6 +13,7 @@ import { makeTerrainMaterial } from '../art/shaders.js';
 import { mergeToGeometry, bakedMaterial } from '../art/merge.js';
 import { getItemModel } from '../items/ItemModels.js';
 import { ITEMS } from '../items/ItemDB.js';
+import { Stubs } from './Stubs.js';
 
 const TAU = Math.PI * 2;
 const SEG = 48;
@@ -51,6 +52,8 @@ const _q2 = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+// cut plants: how many of each kind can be falling or lying at once, and for how long
+const FALL_MAX = 10, FALL_LIFE = 4.5;
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 // Forage: loose materials lying on the forest floor, picked up with E. They come back
@@ -105,6 +108,7 @@ export class World {
     this.plans = new Map();
     this.bigPlans = new Map();
     this.fallers = new Map(); // cut plants toppling over
+    this.stubs = new Stubs(scene); // and the stalks they leave standing
     this.cut = new Set();
     this.looted = new Set();
     this.terrainMat = makeTerrainMaterial(flora.lib);
@@ -784,6 +788,7 @@ export class World {
             z: it.z + (-col.x * s + col.z * c) * it.s,
             r: col.r * it.s,
             top: col.top !== undefined ? it.y + col.top * it.s : Infinity,
+            mesh, instance: i, // the model, so the machete can find the surface it strikes
           });
         }
         if (def.cut) {
@@ -806,6 +811,13 @@ export class World {
     const x0 = cx * CS, z0 = cz * CS;
     const H = new Float32Array(W * W), RV = new Float32Array(W * W), MT = new Float32Array(W * W);
     const t = {};
+    // the camp: trampled bare earth round the Heartwood, ragged at the edge, giving way to litter
+    const home = this.clearings[0];
+    const campEarth = (x, z, n) => {
+      if (!home) return 0;
+      const d = Math.hypot(x - home.x, z - home.z) / home.r;
+      return (1 - smoothstep(0.25 + n * 0.25, 0.6 + n * 0.3, d)) * 0.75;
+    };
     for (let j = 0; j < W; j++) {
       if (j % 17 === 16) yield;
       for (let i = 0; i < W; i++) {
@@ -880,7 +892,7 @@ export class World {
         // mud near the waterline, and bare dark earth where slopes shed their litter
         const mn = groundPatch(wx * 2.7, wz * 2.7);
         const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h))
-          + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland, 0, 1) * (1 - rock * 0.7);
+          + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland + campEarth(wx, wz, mn), 0, 1) * (1 - rock * 0.7);
         // moss: in patches, on damp banks and in clearings; litter piles up under trees
         const moss = clamp(
           smoothstep(0.2, 0.65, patch) * 0.55 + (1 - dens) * 0.15 + (1 - RV[gi]) * 0.4 - canopy * 0.8,
@@ -1022,8 +1034,8 @@ export class World {
       // one small instanced mesh per plant variant: the same shader program as the plants
       // themselves, so the first cut never compiles anything
       const def = this.flora.types[c.type];
-      const mesh = new THREE.InstancedMesh(withSlope(def.variants[c.v].geometry), def.material, 6);
-      mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(new Float32Array(12), 2));
+      const mesh = new THREE.InstancedMesh(withSlope(def.variants[c.v].geometry), def.material, FALL_MAX);
+      mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(new Float32Array(FALL_MAX * 2), 2));
       mesh.setColorAt(0, _c.setRGB(1, 1, 1));
       mesh.castShadow = def.shadow;
       mesh.receiveShadow = true;
@@ -1033,7 +1045,7 @@ export class World {
       f = { mesh, list: [] };
       this.fallers.set(key, f);
     }
-    if (f.list.length >= 6) f.list.shift();
+    if (f.list.length >= FALL_MAX) f.list.shift();
     const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
     m0.decompose(pos, q, s);
     const dir = fall ? new THREE.Vector3(fall.x, 0, fall.z) : new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5);
@@ -1041,22 +1053,27 @@ export class World {
     dir.normalize();
     const color = new THREE.Color(1, 1, 1);
     if (c.mesh.instanceColor) c.mesh.getColorAt(c.instance, color);
-    f.list.push({ pos, q, s, axis: new THREE.Vector3(dir.z, 0, -dir.x), t: 0, color, big: c.r >= 1 });
+    // knocked along the swing, it topples over and lies there a while before it withers away
+    f.list.push({ pos, q, s, axis: new THREE.Vector3(dir.z, 0, -dir.x), dir, t: 0, color, big: c.r >= 1, ground: pos.y });
+    // the cut stalks stay standing (not under mushrooms: they have no stalks)
+    if (c.type !== 'mushrooms' && !(c.type === 'flower' && c.v === 2)) this.stubs.add(c.x, c.y, c.z, c.r * (c.type === 'grass' ? 0.6 : 1), c.def.cut.color);
   }
 
   updateFallers(dt) {
     for (const f of this.fallers.values()) {
       if (!f.list.length && f.mesh.count === 0) continue;
-      f.list = f.list.filter((o) => (o.t += dt) < 0.8);
+      f.list = f.list.filter((o) => (o.t += dt) < FALL_LIFE);
       f.list.forEach((o, i) => {
-        // tip over (easing in, like real weight), then sink and shrink away
-        const k = Math.min(1, o.t / 0.45);
-        const ang = k * k * (o.big ? 1.35 : 1.1);
+        // pushed along the swing, it tips over (easing in, like real weight) with a small
+        // bounce as it lands, lies there, then sinks and shrinks away
+        const k = Math.min(1, o.t / 0.5);
+        const land = o.t > 0.5 ? Math.exp(-(o.t - 0.5) * 9) * Math.sin((o.t - 0.5) * 30) * 0.08 : 0;
+        const ang = k * k * (o.big ? 1.42 : 1.3) - land;
         _q.setFromAxisAngle(o.axis, ang).multiply(o.q);
-        const out = Math.max(0, (o.t - 0.45) / 0.35);
+        const out = Math.max(0, (o.t - (FALL_LIFE - 0.7)) / 0.7);
         const sc = 1 - out * out;
-        _p.copy(o.pos);
-        _p.y -= out * 0.4;
+        _p.copy(o.pos).addScaledVector(o.dir, Math.min(1, o.t / 0.35) * 0.25);
+        _p.y -= out * 0.3 + 0.12 * k;
         _m.compose(_p, _q, _s.copy(o.s).multiplyScalar(Math.max(0.001, sc)));
         f.mesh.setMatrixAt(i, _m);
         if (f.mesh.instanceColor) f.mesh.setColorAt(i, o.color);

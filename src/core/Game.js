@@ -23,6 +23,7 @@ import { Player } from '../player/Player.js';
 import { Machete } from '../player/Machete.js';
 import { Input } from './Input.js';
 import { Particles } from '../fx/Particles.js';
+import { Marks } from '../fx/Marks.js';
 import { Ambient } from '../fx/Ambient.js';
 import { LightPool } from '../fx/LightPool.js';
 import { Weather } from '../fx/Weather.js';
@@ -51,6 +52,8 @@ const nextFrame = () => new Promise((r) => {
   setTimeout(r, 60);
 });
 const REACH = 2.7;
+// what the machete bites into (and leaves a gash in) rather than rings off
+const WOODY = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'treeFern', 'log', 'stump', 'branch']);
 const MACHETE_DMG = 28;
 const RESPAWN = 5;
 const FOV = 72;
@@ -223,6 +226,8 @@ export class Game {
     this.machete.onHit = (combo) => this.onSwingHit(combo);
     this.machete.onUse = () => this.finishUse();
     this.particles = new Particles(this.scene, this.flora.lib);
+    this.marks = new Marks(this.scene);
+    this.uniforms = globalUniforms; // (for e2e probes)
     this.ambient = new Ambient(this.scene, this.world, this.sky);
     this.pickups = new Pickups(this.scene, this.world);
     this.pickups.canTake = (id) => this.inventory.fits(id, 1);
@@ -421,6 +426,10 @@ export class Game {
   onSwingHit(combo) {
     const p = this.player.pos;
     const fwd = this.forwardXZ();
+    // every plant the blade sweeps through whips along with it (forehand right to left)
+    const side = combo ? 1 : -1;
+    globalUniforms.uSwing.value.set(p.x + fwd.x * 1.2, p.z + fwd.y * 1.2, 0, REACH + 0.6);
+    globalUniforms.uSwingDir.value.set(-fwd.y * side, fwd.x * side);
     const lookDown = this.player.pitch;
     let cut = 0;
 
@@ -527,6 +536,7 @@ export class Game {
     }
 
     // Nothing soft in reach? Harvest a trunk or a rock (or ring off a wall).
+    let solid = false;
     if (!cut && !broke && !struck) {
       const eye = this.camera.position;
       const probe = new THREE.Vector3(p.x + fwd.x * 1.4, 0, p.z + fwd.y * 1.4);
@@ -541,28 +551,111 @@ export class Game {
         }
         if (!inside) continue;
         probe.y = Math.min(eye.y - 0.3 - lookDown * 0.5, c.top - 0.1);
+        const hit = this.bladeContact(c, probe);
+        const at = hit.point, out = hit.normal;
+        // the way the blade travels across the surface: forehand right to left
+        const side = combo ? 1 : -1;
+        const sweep = new THREE.Vector3(-fwd.y * side, combo ? -0.35 : -0.5, fwd.x * side);
+        const woody = WOODY.has(c.kind);
         if (c.building) {
           this.audio.wood();
-          this.particles.chipBurst(probe, 0x8a6a40, 6, p.y);
-        } else if (c.top === Infinity && c.kind && c.kind !== 'stone' && c.kind !== 'heartwood') {
-          this.harvestTrunk(c, probe);
-        } else if (c.kind === 'rock') {
-          this.harvestRock(c, probe);
+          this.particles.chipBurst(at, 0x8a6a40, 6, p.y, out);
+          this.machete.bite(0.7, 'wood');
+        } else if (woody) {
+          if (c.top === Infinity) this.harvestTrunk(c, at, out);
+          else {
+            this.audio.wood();
+            this.particles.chipBurst(at, 0x7a6248, 10, p.y, out);
+          }
+          this.marks.add('wood', at, out, sweep, c.kind === 'palm' || c.kind === 'treeFern' ? 0.28 : 0.4);
+          this.machete.bite(1, 'wood');
+        } else if (c.kind === 'rock' || c.kind === 'cliffRock') {
+          this.harvestRock(c, at, out);
+          this.marks.add('stone', at, out, sweep, 0.34);
+          this.machete.bite(1, 'stone');
         } else {
-          this.particles.sparks(probe, 0xfff0c0, 10);
+          this.particles.sparks(at, 0xfff0c0, 12, out);
+          this.particles.chipBurst(at, 0x8a877b, 5, p.y, out);
+          this.marks.add('stone', at, out, sweep, 0.3);
           this.audio.clank();
+          this.machete.bite(1, 'stone');
         }
-        this.machete.bite(0.7);
-        this.player.shake = 0.5;
+        this.player.shake = woody ? 0.45 : 0.6;
+        solid = true;
+        break;
+      }
+    }
+
+    // Looking down with nothing else in reach: the blade bites into the forest floor and
+    // kicks up leaves and dirt
+    if (!cut && !broke && !struck && !solid && lookDown < -0.35) {
+      const eye = this.camera.position;
+      const d = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      for (let t = 0.4; t < REACH + 0.6; t += 0.08) {
+        const x = eye.x + d.x * t, y = eye.y + d.y * t, z = eye.z + d.z * t;
+        const gy = terrainHeight(x, z);
+        if (y > gy) continue;
+        const at = new THREE.Vector3(x, gy + 0.03, z);
+        if (gy < WATER_LEVEL) {
+          this.particles.sparkle(at, 0xcfe8ff, 10);
+          this.audio.chop();
+        } else {
+          this.particles.leafBurst(at, 0x6b4a2c, 9, gy);
+          this.particles.dust(at, 8, 0.25, 0x5a4630);
+          this.particles.chipBurst(at, 0x3a2a1c, 5, gy, new THREE.Vector3(0, 1, 0));
+          this.audio.thud();
+          this.machete.bite(0.6, 'wood');
+        }
+        this.player.shake = Math.max(this.player.shake, 0.3);
         break;
       }
     }
   }
 
+  // Where the blade meets a collider's model: a ray from the eye to the struck point on the
+  // real mesh (trunks lean and flare, rocks are lumpy), with the surface's outward normal.
+  // Falls back to the collider's own shape when there's no mesh or the ray misses.
+  bladeContact(c, probe) {
+    const eye = this.camera.position;
+    const out = { point: probe.clone(), normal: new THREE.Vector3() };
+    if (c.type === 'circle') {
+      const dx = eye.x - c.x, dz = eye.z - c.z, l = Math.hypot(dx, dz) || 1;
+      out.normal.set(dx / l, 0, dz / l);
+      out.point.set(c.x + (dx / l) * c.r, probe.y, c.z + (dz / l) * c.r);
+    } else {
+      const f = this.forwardXZ();
+      out.normal.set(-f.x, 0, -f.y);
+    }
+    if (!c.mesh) return out;
+    const m = this._hitMesh ||= new THREE.Mesh();
+    m.geometry = c.mesh.geometry;
+    m.material = c.mesh.material;
+    c.mesh.getMatrixAt(c.instance, m.matrixWorld);
+    m.matrixWorld.premultiply(c.mesh.matrixWorld);
+    const rc = this._hitRay ||= new THREE.Raycaster();
+    rc.far = REACH + 1.5;
+    const dirs = [
+      new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion),
+      out.point.clone().sub(eye).normalize(),
+    ];
+    for (const d of dirs) {
+      rc.set(eye, d);
+      const hits = rc.intersectObject(m, false);
+      const h = hits.find((x) => x.face);
+      if (!h) continue;
+      out.point.copy(h.point);
+      out.normal.copy(h.face.normal).transformDirection(m.matrixWorld);
+      if (out.normal.dot(d) > 0) out.normal.negate();
+      break;
+    }
+    return out;
+  }
+
   // Hacking at a tree: bark, resin, vines; every third good blow frees a log.
-  harvestTrunk(c, at) {
+  harvestTrunk(c, at, out) {
     this.audio.wood();
-    this.particles.chipBurst(at, 0x8a6a40, 12, this.player.pos.y);
+    this.particles.chipBurst(at, 0x8a6a40, 14, this.player.pos.y, out);
+    this.particles.chipBurst(at, 0xd8bf8c, 8, this.player.pos.y, out); // fresh pale wood
     c.hits = (c.hits || 0) + 1;
     const logs = c.kind === 'bigTree' ? 3 : c.kind === 'palm' ? 1 : 2;
     const drop = (id) => this.pickups.spawn(id, at.clone(), 0.6);
@@ -575,10 +668,11 @@ export class Game {
     }
   }
 
-  harvestRock(c, at) {
+  harvestRock(c, at, out) {
     this.audio.stone();
-    this.particles.sparks(at, 0xfff0c0, 8);
-    this.particles.chipBurst(at, 0x8a877b, 8, this.player.pos.y);
+    this.particles.sparks(at, 0xfff0c0, 12, out);
+    this.particles.chipBurst(at, 0x8a877b, 8, this.player.pos.y, out);
+    this.particles.dust(at, 6, 0.15, 0xb0aa98);
     c.hits = (c.hits || 0) + 1;
     if (c.hits <= 8) this.loot('rock', at, 0.6);
   }
@@ -1238,6 +1332,12 @@ export class Game {
       }
     }
     globalUniforms.uTime.value = t;
+    {
+      // plants lean away from the player moving through them; the last swing's whip ages
+      const pp = this.player.pos, pv = this.player.vel;
+      globalUniforms.uPush.value.set(pp.x, pp.z, 0.95, Math.min(1, Math.hypot(pv.x, pv.z) / 3.5));
+      globalUniforms.uSwing.value.z = Math.min(99, globalUniforms.uSwing.value.z + realDt);
+    }
     const input = this.input;
     const over = this.waves.phase === 'over';
     const paused = this.paused || !!this.modal;

@@ -10,7 +10,7 @@
 // small colour shift, so no two plants match.
 import * as THREE from 'three';
 import * as T from '../../art/textures.js';
-import { addWind, addFoliageLighting, addMoss, addSlopeShear, addPackedNormal, addNightFill, addDetailMap } from '../../art/shaders.js';
+import { addWind, addFoliageLighting, addMoss, addSlopeShear, addPackedNormal, addNightFill, addDetailMap, addRelief } from '../../art/shaders.js';
 import { createNoise2D } from '../../utils/noise.js';
 import { mulberry32, range, irange } from '../../utils/rng.js';
 import { clamp, smoothstep } from '../../utils/math.js';
@@ -25,7 +25,7 @@ const _n = new THREE.Vector3(), _up = new THREE.Vector3(0, 0.55, 0);
 const SRGB = THREE.SRGBColorSpace;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const TREE_WIND = { sway: 0.0035 };
-const PLANT_WIND = { sway: 0.03 };
+const PLANT_WIND = { sway: 0.03, push: true };
 
 // Rocks and props: per-triangle box projection (no spherical pinching at the poles).
 function boxUV(geo, scale) {
@@ -91,31 +91,33 @@ export class Flora {
       moss: S.cushion.map, mossFlat: S.moss.map, rock: S.rock.map, bark: S.bark.map, stone: S.stone,
     };
 
-    const surf = (s, opts = {}) => {
+    // relief: the surface's parallax depth in metres (0 = none)
+    const surf = (s, { relief = 0, ...opts } = {}) => {
       const m = new THREE.MeshStandardMaterial({
         // rough, porous surfaces: only a little of the sky in them
         map: S[s].map, normalMap: S[s].nmap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.45, ...opts,
       });
+      if (relief) addRelief(m, relief);
       addPackedNormal(m);
       return m;
     };
-    const bark = surf('bark');
+    const bark = surf('bark', { relief: 0.035 });
     addWind(bark, TREE_WIND);
     addSlopeShear(bark, 3);
     addMoss(bark, S.cushion.map, { amount: 0.22, low: 1.6, side: true, tile: 0.3, flat: S.moss.map });
-    const palmBark = surf('palmbark');
+    const palmBark = surf('palmbark', { relief: 0.02 });
     addWind(palmBark, TREE_WIND);
     addSlopeShear(palmBark, 1.5);
-    const fernTrunk = surf('palmbark');
+    const fernTrunk = surf('palmbark', { relief: 0.02 });
     addWind(fernTrunk, { sway: 0.012 });
     // a cool moonlit fill so trunks hold their shape at night
     for (const mat of [bark, palmBark, fernTrunk]) addNightFill(mat, 0.2);
-    const rock = surf('rock', { roughness: 0.85 });
+    const rock = surf('rock', { roughness: 0.85, relief: 0.05 });
     addMoss(rock, S.cushion.map, { amount: 0.36, tile: 0.28, flat: S.moss.map });
-    const log = surf('bark');
+    const log = surf('bark', { relief: 0.035 });
     addMoss(log, S.cushion.map, { amount: 0.5, scale: 0.6, tile: 0.35, flat: S.moss.map });
     addSlopeShear(log, 2);
-    const deadwood = surf('deadwood');
+    const deadwood = surf('deadwood', { relief: 0.025 });
     addMoss(deadwood, S.cushion.map, { amount: 0.25, tile: 0.3, flat: S.moss.map });
     addSlopeShear(deadwood, 1.5);
     const pebble = surf('rock', { roughness: 0.7 });
@@ -147,7 +149,7 @@ export class Flora {
       palm: leaf('fronds', TREE_WIND, { flutter: 0.02, rough: 0.5 }),
       fern: leaf('fronds', PLANT_WIND, { flutter: 0.02, trans: 0.8 }),
       treeFern: leaf('fronds', { sway: 0.012 }, { flutter: 0.02, trans: 0.8 }),
-      grass: leaf('fronds', { sway: 0.09 }, { glow: 0.04, rough: 0.7, flutter: 0 }),
+      grass: leaf('fronds', { sway: 0.09, push: true }, { glow: 0.04, rough: 0.7, flutter: 0 }),
       broad: leaf('broad', PLANT_WIND, { flutter: 0.01, rough: 0.55, trans: 0.7, env: 0.3 }),
       under: leaf('under', PLANT_WIND, { flutter: 0.012, trans: 0.7 }),
       underTree: leaf('under', TREE_WIND, { flutter: 0.012, trans: 0.7 }),
@@ -187,27 +189,41 @@ export class Flora {
 
   // A crown of twig cards around a cluster centre: cards near the top and outside face the
   // sky; the inside and underside are darker (ambient occlusion), the top catches the light.
+  // Big cards all facing the sky in a squashed layer read as flat paper plates from below and
+  // as cut-outs from the side, so the cards are smaller and more of them, face every way out
+  // of the crown (only leaning toward the sky), and over half get a second card crossed
+  // through them along the twig, so no twig is ever seen edge-on as a line.
   crown(r, out, clusters, crownC, { cards = [16, 24], size = [2.2, 3.2], flat = 0.65, cells, topY, bottomY }) {
     const span = Math.max(topY - bottomY, 1);
+    const fl = flat + (1 - flat) * 0.5;
+    const paint = (card, tr, tg, tb) => {
+      radialNormals(card, crownC, 0.45);
+      shade(card, (p, nn, col) => {
+        const h = clamp((p.y - bottomY) / span, 0, 1);
+        const inner = clamp(p.clone().sub(crownC).setY(0).length() / (span * 1.4), 0, 1);
+        const s = 0.42 + 0.5 * h + 0.2 * inner;
+        col.setRGB(s * tr, s * tg, s * tb);
+      });
+      out.push(card);
+    };
     for (const { P, R, from, k: kk = 1 } of clusters) {
-      const n = Math.max(3, Math.round(irange(r, cards[0], cards[1]) * kk));
+      const n = Math.max(4, Math.round(irange(r, cards[0], cards[1]) * kk * 1.5));
       for (let k = 0; k < n; k++) {
-        const d = V(range(r, -1, 1), range(r, -0.35, 1), range(r, -1, 1)).normalize();
-        const pos = P.clone().add(V(d.x * R, d.y * R * flat, d.z * R).multiplyScalar(range(r, 0.2, 0.82)));
-        // the twig points away from its branch, the leaves face out and up
+        const d = V(range(r, -1, 1), range(r, -0.45, 1), range(r, -1, 1)).normalize();
+        const pos = P.clone().add(V(d.x * R, d.y * R * fl, d.z * R).multiplyScalar(range(r, 0.25, 0.92)));
+        // the twig points away from its branch, the leaves face out of the crown, leaning up
         const stemDir = pos.clone().sub(from).normalize().lerp(d, 0.5).normalize();
-        const up = d.clone().add(V(0, 0.9, 0)).normalize();
+        const up = d.clone().multiplyScalar(0.9).add(V(range(r, -0.4, 0.4), 0.55, range(r, -0.4, 0.4))).normalize();
         const c = cells[Math.floor(r() * cells.length)];
-        const card = twigCard(c, range(r, size[0], size[1]), pos, stemDir, up, { bend: range(r, 0.1, 0.3), cup: 0.12 });
-        radialNormals(card, crownC, 0.4);
+        const sz = range(r, size[0], size[1]) * 0.74;
         const tr = range(r, 0.9, 1.05), tg = range(r, 0.95, 1.05), tb = range(r, 0.8, 1.0);
-        shade(card, (p, nn, col) => {
-          const h = clamp((p.y - bottomY) / span, 0, 1);
-          const inner = clamp(p.clone().sub(crownC).setY(0).length() / (span * 1.4), 0, 1);
-          const s = 0.42 + 0.5 * h + 0.2 * inner;
-          col.setRGB(s * tr, s * tg, s * tb);
-        });
-        out.push(card);
+        paint(twigCard(c, sz, pos, stemDir, up, { bend: range(r, 0.1, 0.3), cup: 0.14 }), tr, tg, tb);
+        if (r() < 0.6) {
+          // the crossed card: the same twig seen turned a quarter round its stem
+          const side = V().crossVectors(stemDir, up).normalize().lerp(up, 0.25).normalize();
+          const c2 = cells[Math.floor(r() * cells.length)];
+          paint(twigCard(c2, sz * range(r, 0.75, 0.9), pos.clone().addScaledVector(stemDir, sz * 0.08), stemDir, side, { bend: range(r, 0.1, 0.25), cup: 0.14 }), tr, tg, tb);
+        }
       }
     }
   }
@@ -636,14 +652,19 @@ export class Flora {
         // roll each spray about its own axis so they don't stack like plates
         const side = V(-Math.sin(ya), 0, Math.cos(ya)).multiplyScalar(range(r, -0.5, 0.5));
         const up = V(0, 1, 0).addScaledVector(out, -0.25).add(side).normalize();
-        const card = twigCard(cells[Math.floor(r() * 2)], range(r, 0.6, 0.95) * (0.7 + 0.3 * t), at, out, up, { bend: range(r, 0.2, 0.4), cup: 0.12 });
-        radialNormals(card, V(0, h * 0.55, 0), 0.45);
+        const sz = range(r, 0.6, 0.95) * (0.7 + 0.3 * t);
         const tn = range(r, 0.88, 1.08);
-        shade(card, (p, n, c) => {
-          const ao = 0.45 + 0.55 * smoothstep(0, 1.9, p.y);
-          c.setRGB(tn * ao, tn * ao, tn * ao * 0.9);
-        });
-        parts.push(card);
+        const sprays = [twigCard(cells[Math.floor(r() * 2)], sz, at, out, up, { bend: range(r, 0.2, 0.4), cup: 0.12 })];
+        // a second spray crossed through it, so the bush has depth from every side
+        if (r() < 0.55) sprays.push(twigCard(cells[Math.floor(r() * 2)], sz * 0.8, at, out, V().crossVectors(out, up).normalize().lerp(up, 0.3).normalize(), { bend: range(r, 0.2, 0.35), cup: 0.12 }));
+        for (const card of sprays) {
+          radialNormals(card, V(0, h * 0.55, 0), 0.45);
+          shade(card, (p, n, c) => {
+            const ao = 0.45 + 0.55 * smoothstep(0, 1.9, p.y);
+            c.setRGB(tn * ao, tn * ao, tn * ao * 0.9);
+          });
+          parts.push(card);
+        }
       }
     }
     return { geometry: mergeSlots([stems, parts]), colliders: [] };

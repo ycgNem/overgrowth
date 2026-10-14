@@ -9,6 +9,11 @@ export const globalUniforms = {
   uDay: { value: 1 }, // 1 = full daylight, 0 = night
   uPom: { value: 1 }, // ground relief (parallax occlusion) on or off, for the quality setting
   uWet: { value: 0 }, // how wet the world is: rises in the rain, dries after (Weather)
+  // the player brushing through plants: x, z, radius, strength (0 = standing still)
+  uPush: { value: new THREE.Vector4(0, 0, 0.9, 0) },
+  // the last machete swing: x, z, its age in seconds, reach; and the sweep direction (x, z)
+  uSwing: { value: new THREE.Vector4(0, 0, 99, 2.6) },
+  uSwingDir: { value: new THREE.Vector2(1, 0) },
 };
 
 const f = (n) => Number(n).toFixed(5);
@@ -26,11 +31,41 @@ export function patch(material, key, fn) {
 }
 
 // Height-proportional sway (whole plant) + optional leaf flutter.
-export function addWind(material, { sway = 0.004, flutter = 0 } = {}) {
-  return patch(material, `wind:${sway}:${flutter}`, (shader) => {
+// push: the plant also bends away from the player walking through it, and whips round when a
+// machete swing passes through it (uPush, uSwing)
+export function addWind(material, { sway = 0.004, flutter = 0, push = false } = {}) {
+  return patch(material, `wind:${sway}:${flutter}:${push ? 1 : 0}`, (shader) => {
     shader.uniforms.uTime = globalUniforms.uTime;
     shader.uniforms.uWind = globalUniforms.uWind;
-    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' +
+    if (push) Object.assign(shader.uniforms, { uPush: globalUniforms.uPush, uSwing: globalUniforms.uSwing, uSwingDir: globalUniforms.uSwingDir });
+    const pushTerm = !push ? '' : /* glsl */`
+      {
+        // where this vertex stands in the world, before any bending
+        #ifdef USE_INSTANCING
+          vec3 wp = (modelMatrix * instanceMatrix * vec4(position, 1.0)).xyz;
+          mat3 im = mat3(instanceMatrix);
+        #else
+          vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+          mat3 im = mat3(1.0);
+        #endif
+        float h = min(hgt, 2.5);
+        // brushed aside: the stems lean away from the player, most at the top
+        vec2 d = wp.xz - uPush.xy;
+        float l = length(d);
+        float k = (1.0 - smoothstep(uPush.z * 0.3, uPush.z, l)) * uPush.w;
+        vec2 away = d / max(l, 1e-3) * k * 0.35 * h;
+        // the swing: everything in reach whips along with the blade and springs back
+        float ls = length(wp.xz - uSwing.xy);
+        float reach = 1.0 - smoothstep(uSwing.w * 0.6, uSwing.w, ls);
+        away += uSwingDir * reach * exp(-uSwing.z * 5.0) * sin(uSwing.z * 22.0 + 0.6) * 0.3 * h;
+        // into the plant's own frame (instances are rotated and scaled)
+        vec3 aw = vec3(away.x, 0.0, away.y);
+        float sc = max(length(im[0]), 1e-3);
+        transformed.x += dot(aw, normalize(im[0])) / sc;
+        transformed.z += dot(aw, normalize(im[2])) / sc;
+        transformed.y -= dot(away, away) * 0.6 / sc;
+      }`;
+    shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' + (push ? 'uniform vec4 uPush;\nuniform vec4 uSwing;\nuniform vec2 uSwingDir;\n' : '') +
       shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`#include <begin_vertex>
       {
         vec3 ip = vec3(0.0);
@@ -44,6 +79,7 @@ export function addWind(material, { sway = 0.004, flutter = 0 } = {}) {
         transformed.x += s * ${f(sway)} * hgt;
         transformed.z += s * ${f(sway * 0.5)} * hgt;
         ${flutter > 0 ? `transformed += objectNormal * sin(uTime * 7.0 + dot(position, vec3(3.1, 2.3, 2.7)) + ph) * ${f(flutter)} * min(hgt, 3.0) * gust;` : ''}
+        ${pushTerm}
       }`);
   });
 }
@@ -167,6 +203,59 @@ export function addDetailMap(material, mean, strength = 0.6) {
     shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', /* glsl */`#ifdef USE_MAP
       diffuseColor.rgb *= mix(vec3(1.0), texture2D(map, vMapUv).rgb / ${f(mean)}, ${f(strength)});
     #endif`);
+  });
+}
+
+// Parallax relief for the tiling surfaces on models (bark, rock, dead wood, temple stone), the
+// same idea as the ground's: march the eye ray down through the height in the normal map's B
+// channel and sample everything where it lands, so fissures and pits have real depth up
+// close instead of being painted on. depth: the relief's depth in metres. The texture's scale
+// comes from the screen-space derivatives (texels per metre), so one setting fits every mesh.
+// Fades out by ~10 m and with the quality setting (uPom). Call before addPackedNormal.
+export function addRelief(material, depth = 0.03) {
+  return patch(material, `relief:${depth}`, (shader) => {
+    shader.uniforms.uPom = globalUniforms.uPom;
+    shader.fragmentShader = 'uniform float uPom;\n' + shader.fragmentShader.replace('#include <map_fragment>', /* glsl */`
+      vec2 ogUv = vNormalMapUv;
+      {
+        float dist = length(vViewPosition);
+        float k = (1.0 - smoothstep(4.0, 10.0, dist)) * uPom;
+        if (k > 0.01) {
+          vec3 p = -vViewPosition;
+          vec3 dpx = dFdx(p), dpy = dFdy(p);
+          vec2 dux = dFdx(vNormalMapUv), duy = dFdy(vNormalMapUv);
+          vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+          // the texture's axes on screen (a cotangent frame from the derivatives)
+          vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+          vec3 T = r1 * dux.x + r2 * duy.x, B = r1 * dux.y + r2 * duy.y;
+          float tl = length(T), bl = length(B);
+          if (tl > 1e-8 && bl > 1e-8) {
+            vec3 V = normalize(vViewPosition);
+            // at grazing angles the march's steps show as fur along every ridge: fade it out
+            k *= smoothstep(0.12, 0.4, dot(V, N));
+            float vn = max(dot(V, N), 0.25);
+            // texels per metre along each axis
+            float upm = length(dux) / max(length(dpx), 1e-6) * 0.5 + length(duy) / max(length(dpy), 1e-6) * 0.5;
+            vec2 dir = -vec2(dot(V, T / tl), dot(V, B / bl)) / vn * ${f(depth)} * upm * k;
+            float n = floor(mix(16.0, 6.0, vn));
+            float stepH = 1.0 / n;
+            vec2 dP = dir * stepH, q = vNormalMapUv;
+            float ray = 1.0, h = textureGrad(normalMap, q, dux, duy).b, prevH = h, prevRay = 1.0;
+            for (int i = 0; i < 16; i++) {
+              if (float(i) >= n || h >= ray) break;
+              prevH = h; prevRay = ray;
+              q += dP; ray -= stepH;
+              h = textureGrad(normalMap, q, dux, duy).b;
+            }
+            float after = h - ray, before = prevRay - prevH;
+            float t = clamp(after / max(after + before, 1e-4), 0.0, 1.0);
+            ogUv = q - dP * t;
+          }
+        }
+      }
+      #define vMapUv ogUv
+      #define vNormalMapUv ogUv
+      #include <map_fragment>`);
   });
 }
 
@@ -294,10 +383,11 @@ export function makeTerrainMaterial(lib) {
   return patch(mat, 'terrain2', (shader) => {
     Object.assign(shader.uniforms, {
       tLitter: { value: S.litter.map }, nLitter: { value: S.litter.nmap },
-      tLitter2: { value: S.litter2.map }, nLitter2: { value: S.litter2.nmap },
+      tLitter2: { value: S.litter3.map }, nLitter2: { value: S.litter3.nmap },
       tMoss: { value: S.moss.map }, nMoss: { value: S.moss.nmap },
       tRock: { value: S.rock.map }, nRock: { value: S.rock.nmap },
-      tMud: { value: S.mud.map }, nMud: { value: S.mud.nmap },
+      // bare earth: the humus doubles as the riverbank mud (the wet band darkens it there)
+      tMud: { value: S.humus.map }, nMud: { value: S.humus.nmap },
       tGravel: { value: S.gravel.map }, nGravel: { value: S.gravel.nmap },
       uDay: globalUniforms.uDay, uSunDir: { value: fogSun.dir }, uPom: globalUniforms.uPom, uWet: globalUniforms.uWet,
     });
@@ -444,7 +534,7 @@ export function makeTerrainMaterial(lib) {
         Layer Ll; Ll.col = vec3(0.0); Ll.n = vec2(0.0); Ll.h = 0.0;
         Layer Lm = Ll; Layer Ld = Ll;
         // the two litters' scales (repeats per metre): leaves of 10-40 cm
-        const float LS1 = 0.62, LS2 = 0.54;
+        const float LS1 = 0.62, LS2 = 0.66;
         // a pixel's worth of litter height, for the switches between samples (see ogPick)
         float ogWk = ogPickW(dpx * LS1, dpy * LS1);
         // relief near the eye: the litter is a few centimetres of leaves lying on each other
@@ -467,7 +557,8 @@ export function makeTerrainMaterial(lib) {
         // wax), two mips down from ~9 m
         float pb = mix(0.25, 1.0, smoothstep(3.0, 9.0, dist));
         if (w.x > 0.002) {
-          // two litters in drifts tens of metres across: wet dark leaves and dry pale ones
+          // two litters in drifts tens of metres across: wet dark leaves, and a looser mix of
+          // many species' leaves (brown, russet, olive, a few still green) over dark earth
           float lm = ogNoise(p * 0.028 + 11.0) * 0.75 + ogNoise(p * 0.11 + 3.0) * 0.25;
           float s1 = 1.0, s2 = 1.0, hit = 0.0;
           if (lm < 0.62) {
@@ -494,6 +585,17 @@ export function makeTerrainMaterial(lib) {
             s1 = mix(s1, s2, k);
           }
           ogSelf = s1;
+          // bare humus in patches a few metres across: dark crumbly earth and roots, with only
+          // the leaves lying highest still on it (the floor was one unbroken carpet of leaves)
+          float hm = ogNoise(p * 0.06 + 23.0) * 0.65 + ogNoise(p * 0.23 + 7.0) * 0.35;
+          float hk = smoothstep(0.44, 0.7, hm) * (1.0 - w.y);
+          if (hk > 0.01) {
+            Layer Lh = ogLayer(tMud, nMud, p, 0.42, 0.4, vec2(0.71, 0.13), sw, dpx, dpy);
+            float hs = mix(-0.4, 0.9, hk) + Lh.h * 0.2;
+            float kh = clamp((hs - Ll.h) / max(ogWk * 2.0, 0.04) + 0.5, 0.0, 1.0);
+            Ll.col = mix(Ll.col, Lh.col, kh); Ll.n = mix(Ll.n, Lh.n, kh); Ll.h = mix(Ll.h, Lh.h * 0.5, kh);
+            ogSelf = mix(ogSelf, 1.0, kh);
+          }
         }
         if (w.y > 0.002) Lm = ogLayer(tMoss, nMoss, p, 0.36, 2.3, vec2(0.13, 0.57), sw, dpx, dpy);
         if (w.w > 0.002) {
@@ -554,7 +656,7 @@ export function makeTerrainMaterial(lib) {
         }
         // macro tint: dry warm patches and damp dark ones
         float dry = smoothstep(0.3, 0.75, macro);
-        Ll.col *= mix(vec3(0.84, 0.77, 0.66), vec3(1.12, 1.05, 0.95), dry);
+        Ll.col *= mix(vec3(0.86, 0.8, 0.72), vec3(1.06, 1.02, 0.94), dry);
         Lm.col *= mix(vec3(0.85, 0.95, 0.88), vec3(1.15, 1.08, 0.82), smoothstep(0.3, 0.8, ogNoise(p * 0.045 + 7.0)));
         // moss in shade and moss in light differ a lot: break big patches into tones
         Lm.col *= mix(0.6, 1.0, ogNoise(p * 0.3 + 2.0));

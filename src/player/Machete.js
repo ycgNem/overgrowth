@@ -3,63 +3,13 @@
 // Machete swings alternate forehand / backhand and bite (a short hold) when they connect.
 // Switching belt slots drops one tool out of view and raises the next.
 import * as THREE from 'three';
-import { bladeTexture, handleWoodTexture } from '../art/textures.js';
+import { handleWoodTexture } from '../art/textures.js';
+import { buildMachete, loadHand } from './MacheteModel.js';
 import { clamp } from '../utils/math.js';
 import { getItemModel } from '../items/ItemModels.js';
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const easeIn = (t) => t * t * t;
-
-function buildModel() {
-  const g = new THREE.Group();
-  // Blade outline along +x (spine on top, edge below), clipped point.
-  const s = new THREE.Shape();
-  s.moveTo(0, 0.021);
-  s.lineTo(0.34, 0.03);
-  s.quadraticCurveTo(0.43, 0.034, 0.48, 0.012);
-  s.quadraticCurveTo(0.49, -0.032, 0.42, -0.06);
-  s.quadraticCurveTo(0.22, -0.058, 0.0, -0.027);
-  s.lineTo(0, 0.021);
-  const geo = new THREE.ExtrudeGeometry(s, {
-    depth: 0.003, bevelEnabled: true, bevelThickness: 0.0016, bevelSize: 0.003, bevelSegments: 2, curveSegments: 16,
-  });
-  geo.translate(0, 0, -0.0015);
-  const uv = geo.attributes.uv, p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / 0.49, (p.getY(i) + 0.062) / 0.098);
-  const blade = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: bladeTexture(), metalness: 0.75, roughness: 0.55, envMapIntensity: 0.45, color: 0xa8a6a0 }));
-  g.add(blade);
-
-  const wood = new THREE.MeshStandardMaterial({ map: handleWoodTexture(), roughness: 0.55 });
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc8a050, metalness: 1, roughness: 0.3 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x5a5e62, metalness: 0.9, roughness: 0.45 });
-  const cord = new THREE.MeshStandardMaterial({ color: 0x8a2a1a, roughness: 0.9 });
-
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.015, 0.135, 14), wood);
-  handle.rotation.z = Math.PI / 2;
-  handle.scale.set(1, 1, 0.72);
-  handle.position.set(-0.07, -0.002, 0);
-  g.add(handle);
-  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 8), wood);
-  pommel.scale.set(0.8, 1.05, 0.7);
-  pommel.position.set(-0.14, -0.006, 0);
-  g.add(pommel);
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.06, 0.02), steel);
-  guard.position.set(0.0, -0.002, 0);
-  g.add(guard);
-  for (const x of [-0.03, -0.075, -0.12]) {
-    for (const z of [-0.0125, 0.0125]) {
-      const rv = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.003, 10), brass);
-      rv.rotation.x = Math.PI / 2;
-      rv.position.set(x, 0, z);
-      g.add(rv);
-    }
-  }
-  const loop = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.0035, 6, 18), cord);
-  loop.position.set(-0.165, -0.022, 0);
-  loop.rotation.set(0.3, 0.2, 0.8);
-  g.add(loop);
-  return g;
-}
 
 // ------------------------------------------------------------------ slingshot
 function slingModel() {
@@ -102,7 +52,10 @@ class SlingView {
       this.root.add(m);
       return m;
     });
-    this.pouch = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.022, 0.03), new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.9 }));
+    // a leather pouch: a squashed, cupped ball (a box read as a cardboard block)
+    const pg = new THREE.SphereGeometry(0.022, 14, 8);
+    pg.scale(1.1, 0.45, 0.85);
+    this.pouch = new THREE.Mesh(pg, new THREE.MeshStandardMaterial({ color: 0x5a3c22, roughness: 0.85 }));
     this.root.add(this.pouch);
     this.stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.016, 0), new THREE.MeshStandardMaterial({ color: 0x8e8a7e, roughness: 0.9 }));
     this.pouch.add(this.stone);
@@ -116,9 +69,9 @@ class SlingView {
 
   // draw: 0..1 how far back the pouch is pulled; aimK: 0..1 fork raised to the centre
   update(dt, draw, loaded, aimK) {
-    const rest = new THREE.Vector3(0.2, -0.27, -0.46);
+    const rest = new THREE.Vector3(0.2, -0.12, -0.5);
     // low enough that the pouch, drawn back, sits under the crosshair instead of on it
-    const aim = new THREE.Vector3(0.0, -0.19, -0.5);
+    const aim = new THREE.Vector3(0.0, -0.1, -0.52);
     this.fork.position.lerpVectors(rest, aim, aimK);
     this.fork.rotation.set(0.15 - aimK * 0.12, 0.25 * (1 - aimK), -0.25 * (1 - aimK));
     this.fork.updateMatrix();
@@ -150,6 +103,58 @@ class SlingView {
   }
 }
 
+// A faint smear of disturbed air behind the blade during a slash: a ribbon between the
+// blade's middle and its tip over the last few frames, fading with age.
+class SwingTrail {
+  constructor(n = 14) {
+    this.n = n;
+    this.pts = []; // { a, b, age }
+    const geo = new THREE.BufferGeometry();
+    this.pos = new Float32Array(n * 2 * 3);
+    this.alpha = new Float32Array(n * 2);
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    geo.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
+    const idx = [];
+    for (let i = 0; i < n - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    geo.setIndex(idx);
+    this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      vertexShader: 'attribute float alpha; varying float vA; void main() { vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'varying float vA; void main() { gl_FragColor = vec4(vec3(0.55, 0.58, 0.6) * vA, 1.0); }',
+    }));
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    this._a = new THREE.Vector3();
+    this._b = new THREE.Vector3();
+  }
+
+  update(dt, on, model) {
+    for (const p of this.pts) p.age += dt;
+    this.pts = this.pts.filter((p) => p.age < 0.12);
+    if (on) {
+      const a = this._a.set(0.2, 0.0, 0).applyMatrix4(model.matrixWorld);
+      const b = this._b.set(0.45, 0.0, 0).applyMatrix4(model.matrixWorld);
+      this.pts.unshift({ a: a.clone(), b: b.clone(), age: 0 });
+      if (this.pts.length > this.n) this.pts.length = this.n;
+    }
+    this.mesh.visible = this.pts.length > 1;
+    if (!this.mesh.visible) return;
+    for (let i = 0; i < this.n; i++) {
+      const p = this.pts[Math.min(i, this.pts.length - 1)];
+      p.a.toArray(this.pos, i * 6);
+      p.b.toArray(this.pos, i * 6 + 3);
+      const k = i < this.pts.length ? (1 - p.age / 0.12) * (1 - i / this.n) : 0;
+      this.alpha[i * 2] = k * 0.05;
+      this.alpha[i * 2 + 1] = k * 0.22;
+    }
+    this.mesh.geometry.attributes.position.needsUpdate = true;
+    this.mesh.geometry.attributes.alpha.needsUpdate = true;
+  }
+}
+
 export class Machete {
   constructor(fov) {
     this.scene = new THREE.Scene();
@@ -160,11 +165,25 @@ export class Machete {
 
     this.root = new THREE.Group(); // follows bob/sway
     this.pivot = new THREE.Group(); // swings, pivot at the grip
-    this.model = buildModel();
-    this.model.position.set(0.07, 0, 0); // grip at pivot
+    this.model = buildMachete();
+    this.model.position.set(0.06, 0, 0); // grip at pivot
     this.pivot.add(this.model);
+    loadHand().then((h) => {
+      if (!h) return;
+      this.hand = h;
+      this.model.add(h);
+      // the same fist round the slingshot's grip: the hand's handle axis (x) runs up the
+      // grip, the forearm (its y) comes back toward the camera
+      const sh = h.clone();
+      sh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -0.15, 1).normalize(), new THREE.Vector3(1, 0, 0.15).normalize()));
+      sh.position.set(0, -0.045, 0.008);
+      this.sling.fork.add(sh);
+    });
     this.root.add(this.pivot);
     this.scene.add(this.root);
+    this.trail = new SwingTrail();
+    this.scene.add(this.trail.mesh);
     // the other things you can hold
     this.sling = new SlingView();
     this.sling.root.visible = false;
@@ -182,23 +201,20 @@ export class Machete {
     this.onUse = null;
     this.impact = 0;
     this.hold = 0; // hit-stop: the blade bites and hangs for a moment
+    this.biteKind = 'flesh';
+    this._back = new THREE.Vector3();
 
-    // Poses in camera space (x right, y up, -z forward): grip position,
-    // blade direction, and the direction the flat of the blade faces.
-    const pose = (p, dir, face) => {
-      const x = new THREE.Vector3(...dir).normalize();
-      const z = new THREE.Vector3(...face);
-      z.addScaledVector(x, -z.dot(x)).normalize();
-      const y = new THREE.Vector3().crossVectors(z, x);
-      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-      return { p: new THREE.Vector3(...p), q };
-    };
+    // Poses in camera space (x right, y up, -z forward): grip position, the blade's
+    // direction, and roughly where the forearm runs from the grip (the hand's +y; the back
+    // of the hand, +z, follows).
     this.poses = {
-      idle: pose([0.3, -0.34, -0.48], [-0.28, 0.5, -0.82], [0.6, 0.3, 0.75]),
-      windA: pose([0.36, -0.08, -0.34], [0.35, 0.75, 0.55], [-0.2, 0.3, 0.9]),
-      slashA: pose([-0.24, -0.36, -0.5], [-0.85, -0.25, -0.45], [0.1, 0.95, 0.3]),
-      windB: pose([-0.18, -0.1, -0.38], [-0.5, 0.7, 0.45], [0.3, 0.2, 0.9]),
-      slashB: pose([0.4, -0.34, -0.46], [0.85, -0.2, -0.5], [-0.1, 0.95, 0.3]),
+      idle: this.makePose([0.255, -0.215, -0.44], [-0.2, 0.76, -0.62], [0.8, -0.5, 0.3]),
+      // forehand: cocked over the right shoulder, cut down and across to the lower left
+      windA: this.makePose([0.27, -0.02, -0.34], [0.15, 0.75, 0.6], [0.25, -0.9, 0.3]),
+      slashA: this.makePose([-0.15, -0.3, -0.5], [-0.8, -0.3, -0.5], [0.6, -0.3, 0.75]),
+      // backhand: from high on the left, back across to the lower right
+      windB: this.makePose([-0.12, -0.05, -0.36], [-0.6, 0.7, 0.35], [0.5, -0.7, 0.5]),
+      slashB: this.makePose([0.36, -0.3, -0.46], [0.85, -0.2, -0.5], [-0.2, -0.6, 0.75]),
     };
     this.debugPose = null;
     this.state = 'idle';
@@ -210,6 +226,17 @@ export class Machete {
     this.sway = new THREE.Vector2();
     this.from = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
     this.setPose(this.poses.idle, 1);
+  }
+
+  // face: the third vector is the flat of the blade's normal (the hand's +z) instead of the arm
+  makePose(p, dir, arm, face = false) {
+    const x = new THREE.Vector3(...dir).normalize();
+    const v = new THREE.Vector3(...arm);
+    v.addScaledVector(x, -v.dot(x)).normalize();
+    let y, z;
+    if (face) { z = v; y = new THREE.Vector3().crossVectors(z, x); } else { y = v; z = new THREE.Vector3().crossVectors(x, y); }
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    return { p: new THREE.Vector3(...p), q };
   }
 
   setPose(pose, w, fromP, fromQ) {
@@ -239,9 +266,12 @@ export class Machete {
   }
 
   // the blade connected: hang on the impact for a moment
-  bite(strength = 1) {
-    this.hold = 0.06 * strength;
-    this.impact = strength;
+  // kind: 'flesh' (Blight, thick stems), 'wood' (the blade sinks in and sticks for a moment,
+  // then is wrenched free) or 'stone' (it rings off and bounces back)
+  bite(strength = 1, kind = 'flesh') {
+    this.biteKind = kind;
+    this.hold = (kind === 'wood' ? 0.12 : kind === 'stone' ? 0.025 : 0.06) * strength;
+    this.impact = strength * (kind === 'stone' ? 1.7 : kind === 'wood' ? 0.7 : 1);
   }
 
   // what's in hand: 'machete', 'sling', 'none' or an item id for a consumable
@@ -382,7 +412,15 @@ export class Machete {
       this.pivot.position.y += b;
     }
     // the blade bounces back off whatever it bit
-    if (this.impact > 0) this.pivot.rotateZ(this.impact * 0.12 * (this.combo ? -1 : 1));
+    if (this.impact > 0) {
+      this.pivot.rotateZ(this.impact * 0.12 * (this.combo ? -1 : 1));
+      // stone throws the blade back at you; wood tugs it as it comes free
+      if (this.biteKind === 'stone') this.pivot.position.z += this.impact * 0.035;
+      else if (this.biteKind === 'wood') this.pivot.position.addScaledVector(this._back.set(0.3, 0.2, 1), this.impact * 0.02);
+    }
+    // the smear behind the blade, sampled where the blade is now (in the viewmodel's space)
+    this.root.updateMatrixWorld(true);
+    this.trail.update(dt, this.state === 'slash' && this.mode === 'machete' && this.pivot.visible, this.model);
 
     // Weapon sway lags behind camera motion; bob with footsteps.
     this.sway.x = THREE.MathUtils.damp(this.sway.x, 0, 8, dt);
@@ -398,7 +436,8 @@ export class Machete {
 
     // Light the viewmodel with the world's sun, expressed in camera space.
     this.camera.aspect = mainCamera.aspect;
-    this.camera.fov = mainCamera.fov;
+    // narrower than the world camera: at 72 degrees the blade stretched into a long thin sword
+    this.camera.fov = mainCamera.fov - 14;
     this.camera.updateProjectionMatrix();
     const inv = mainCamera.quaternion.clone().invert();
     this.sun.position.copy(lighting.dir).applyQuaternion(inv).multiplyScalar(5);

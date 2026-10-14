@@ -91,6 +91,9 @@ src/
   player/Player.js     movement, jump buffering, stamina, swimming, health, head-bob
   player/Machete.js    viewmodel: machete, slingshot, held items and their animations
                        (rendered in a second pass)
+  player/MacheteModel.js the machete (blade, scales, rivets) and the gloved hand (hand.glb)
+  fx/Marks.js          gashes the machete cuts in bark, scrapes it leaves on stone
+  world/Stubs.js       the cut stalks a machete leaves standing
   items/ItemDB.js      items (materials, salvage, relics, buildables, consumables) + loot tables
   items/Recipes.js     crafting recipes
   items/Inventory.js   8-slot belt + 24-slot pack of stacks
@@ -152,8 +155,14 @@ is +Z in three.js.
 - **Walkable structures without a physics engine.** Colliders are circles and rotated boxes
   with a `top` height. Anything at most `STEP_HEIGHT` above your feet is ground, anything
   taller is a wall. That's how the temple stairs work.
-- **Viewmodel pass.** The machete is drawn in its own scene after clearing depth, so it
-  never clips into plants.
+- **Viewmodel pass.** The machete and the gloved hand holding it are drawn in their own scene
+  after clearing depth, with a narrower field of view than the world, so they never clip into
+  plants or stretch at the screen edge.
+- **A blade that touches things.** A swing finds the exact point it strikes on the tree or
+  rock model (a ray against that one instance), throws chips off the surface there and leaves
+  a gash in the bark or a scrape on the stone. Wood holds the blade for a moment; stone throws
+  it back. Every plant in reach whips along with the swing, plants lean away as you walk
+  through them, and a cut plant falls, lies on the ground and leaves its stalks standing.
 
 - **A ground that holds up at your feet.** Each terrain layer (litter, moss, rock, mud) is
   painted with its own height field. The terrain shader blends layers by height, so moss settles
