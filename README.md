@@ -7,7 +7,7 @@ barricades and traps, and build them around the **Heartwood**, the glowing shrin
 At dusk the Blight crawls out of rifts in the forest and follows the terrain to the Heart. Hold it
 until dawn. Each night is harder than the last, every fifth night brings a boss, and holding
 through **night 10** wins the run (you can carry on in endless mode). The run saves itself every
-morning. See [PLAN.md](PLAN.md) for the design and roadmap.
+morning. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
 The world is procedural: textures are painted with the canvas API, plants and props are built from
 code, and the soundscape is synthesised with Web Audio. The hero models are the exception: the

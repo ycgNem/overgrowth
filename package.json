@@ -1,7 +1,7 @@
 {
   "name": "overgrowth",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "A Three.js open-world jungle scavenging demo: hack through the undergrowth with a machete and collect scrap and relics.",
   "type": "module",
   "scripts": {

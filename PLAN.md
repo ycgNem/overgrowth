@@ -161,7 +161,14 @@ snare grabs, wings, legs, jaw).
 
 ## Handoff: state at the end of milestones 2–4 (2026-10-13)
 
-**Not committed yet.** All of milestones 2–4 sits in the working tree on `main`.
+**Live:** milestones 2–4 are commit `ec98dca` on `main`, pushed. `.github/workflows/deploy.yml`
+publishes to GitHub Pages on every push. Player-facing patch notes are in
+[CHANGELOG.md](CHANGELOG.md) (0.3); add a section there with each release.
+
+**Starting a new session:** read this file and `README.md`, start `npm run dev`, and run
+`node e2e/loop.mjs` to check the build. The critics are `.claude/agents/indie-critic.md` (a real
+agent type) and `.claude/agents/design-critic.md` (run through a general-purpose agent told to
+adopt that file). Point them at `http://localhost:5188` and a scratch folder for their output.
 
 **Verify a change:** with `npm run dev` running:
 - `node e2e/loop.mjs`: ten PASS lines (forage, craft, place, dusk, night → day 2, upgrade,
