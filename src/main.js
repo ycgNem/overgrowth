@@ -2,6 +2,7 @@
 import { installFog } from './art/shaders.js';
 import { Game } from './core/Game.js';
 import { loadSensitivity } from './player/Player.js';
+import { loadSave, clearSave, loadBest } from './core/Save.js';
 
 installFog();
 
@@ -12,11 +13,14 @@ const time = params.has('t') ? parseFloat(params.get('t')) : null;
 const $ = (s) => document.querySelector(s);
 const menu = $('#menu');
 const play = $('#play');
+const newRun = $('#newrun');
 const bar = $('#loading-bar');
 const text = $('#loading-text');
 
 const game = new Game($('#game'), { debug, time });
 window.game = game; // handy for poking at things from the console
+
+const save = debug ? null : loadSave();
 
 function enter() {
   play.blur(); // a focused button would turn the next Space press into a click
@@ -24,12 +28,14 @@ function enter() {
   menu.classList.add('hidden');
   game.hud.show(true);
   game.setPaused(false);
+  newRun.classList.add('hidden');
+  game.begin();
   if (!debug) game.input.lock();
 }
 
 game.input.onLockChange = (locked) => {
   if (debug) return;
-  if (!locked && !game.hud.inventoryOpen && game.waves?.phase !== 'over') {
+  if (!locked && !game.hud.inventoryOpen && !game.modal && game.waves?.phase !== 'over') {
     game.setPaused(true);
     menu.classList.remove('hidden');
     menu.classList.add('ingame');
@@ -40,8 +46,23 @@ game.input.onLockChange = (locked) => {
   }
 };
 
-play.addEventListener('click', enter);
-$('#again').addEventListener('click', () => location.reload());
+play.addEventListener('click', () => {
+  // the first click on a saved run continues it
+  if (save && !game.begun && !game.loaded) game.loadFrom(save);
+  enter();
+});
+newRun.addEventListener('click', () => {
+  clearSave();
+  enter();
+});
+// a new run starts from a clean world; reloading is the simplest honest reset
+const restart = () => {
+  clearSave();
+  location.reload();
+};
+$('#again').addEventListener('click', restart);
+$('#victory-new').addEventListener('click', restart);
+$('#endless').addEventListener('click', () => game.continueEndless());
 
 // mouse sensitivity, remembered between visits
 const sens = $('#sens input');
@@ -60,12 +81,37 @@ sens.addEventListener('input', () => {
 });
 sens.addEventListener('change', () => sens.blur());
 
+// glow (bloom) costs a little GPU; let slower machines turn it off
+const bloom = $('#bloom-opt input');
+try {
+  bloom.checked = localStorage.getItem('og.bloom') !== '0';
+} catch {
+  // default on
+}
+game.bloom = bloom.checked;
+bloom.addEventListener('change', () => {
+  game.bloom = bloom.checked;
+  bloom.blur();
+  try {
+    localStorage.setItem('og.bloom', bloom.checked ? '1' : '0');
+  } catch {
+    // storage blocked
+  }
+});
+
+const best = loadBest();
+if (best.nights > 0) $('#best').innerHTML = `Best run: <b>${best.nights}</b> night${best.nights === 1 ? '' : 's'} held`;
+
 game.init((p, msg) => {
   bar.style.width = `${Math.round(p * 100)}%`;
   text.textContent = msg;
 }).then(() => {
   play.disabled = false;
   $('#loading').style.opacity = '0.5';
+  if (save) {
+    play.textContent = `Continue · Day ${save.night}`;
+    newRun.classList.remove('hidden');
+  }
   if (debug) enter();
 }).catch((err) => {
   console.error(err);

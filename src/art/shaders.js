@@ -224,12 +224,20 @@ export function makeTerrainMaterial(tex) {
         float streak = ogNoise(vec2((vTP.x + vTP.z) * 0.35, vTP.y * 0.25));
         rock *= 0.8 + 0.4 * ogNoise(vTP.xz * 0.05 + vTP.y * 0.05);
         rock *= vec3(0.66, 0.67, 0.6) * (0.6 + 0.8 * streak);
-        // blocky planes: project onto the face's dominant plane, ~2 m cells
-        float fEdge;
-        vec2 fq = (an.y > 0.5 ? p : (an.x > an.z ? vTP.zy : vTP.xy)) * vec2(0.36, 0.28);
+        // two octaves of cells, wider than tall like bedding planes, with seams that come and go
+        // (one octave of even cells with unbroken dark grout read as paving slabs)
+        float fEdge, fEdge2;
+        vec2 fq = (an.y > 0.5 ? p : (an.x > an.z ? vTP.zy : vTP.xy)) * vec2(0.42, 0.7);
         vec3 facet = ogFacet(fq, fEdge);
+        vec3 facet2 = ogFacet(fq * 2.4 + 5.1, fEdge2);
+        facet = normalize(facet + facet2 * 0.6 + 1e-4) * length(facet);
+        float seamOn = smoothstep(0.3, 0.7, ogNoise(fq * 1.7 + 3.3));
+        float seam = min(smoothstep(0.0, 0.045, fEdge), mix(1.0, smoothstep(0.0, 0.03, fEdge2), 0.5));
+        fEdge = mix(1.0, seam, seamOn) * 0.05;
+        // the seams become chipped bevels in the bump height, so light catches them
+        float chip = smoothstep(0.0, 0.12, fEdge * 20.0);
         float ledge = smoothstep(0.6, 0.85, vTN.y + (macro - 0.5) * 0.5 + (hR - 0.5) * 0.3);
-        vec3 rockFacet = rock * (0.88 + 0.2 * (facet.x * 0.5 + 0.5)) * mix(0.6, 1.0, smoothstep(0.0, 0.05, fEdge));
+        vec3 rockFacet = rock * (0.8 + 0.3 * (facet.x * 0.5 + 0.5)) * (0.85 + 0.3 * hR);
         rock = mix(rock, moss * 0.85, ledge * 0.8);
         hR = mix(hR, hM, ledge * 0.8);
         // macro tint: dry warm patches and damp dark ones
@@ -249,8 +257,8 @@ export function makeTerrainMaterial(tex) {
         float bare = smoothstep(0.55, 0.85, b.z) * (1.0 - ledge);
         rock = mix(rock, rockFacet, bare);
         vec3 col = litter * b.x + moss * 0.85 * b.y + rock * b.z + mud * b.w;
-        ogH = dot(b, hh);
-        ogFacetN = facet * 0.32 * bare * (1.0 - smoothstep(40.0, 90.0, dist));
+        ogH = dot(b, hh) + (chip - 1.0) * 0.5 * bare;
+        ogFacetN = facet * 0.12 * bare * (1.0 - smoothstep(40.0, 90.0, dist));
         ogRough = dot(b, vec4(0.9, 0.96, 0.82, 0.75));
         // a dark, glossy wet band at the water's edge
         float wet = 1.0 - smoothstep(0.1, 1.0, vTP.y + (ogNoise(p * 0.15) - 0.5) * 1.2);

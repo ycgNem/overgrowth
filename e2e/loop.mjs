@@ -1,5 +1,6 @@
 // Functional test of the gather -> craft -> defend loop: forage with E, craft by clicking in the
-// satchel, place a tower with LMB, survive night 1 to day 2, and lose when the Heartwood falls.
+// satchel, place a tower with LMB, survive night 1 to day 2, upgrade the tower, hit with the
+// slingshot, earn a boon, autosave, and lose when the Heartwood falls.
 // Prints PASS/FAIL per step. Needs `npm run dev` on :5188.
 //
 //   node e2e/loop.mjs
@@ -9,7 +10,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errs = [];
 page.on('pageerror', (e) => errs.push('PAGEERR ' + e.message + '\n' + e.stack));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.goto('http://127.0.0.1:5188/?debug&t=0.4');
+await page.goto('http://localhost:5188/?debug&t=0.4');
 await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
 const ev = (f, a) => page.evaluate(f, a);
 const ok = (name, v) => console.log((v ? 'PASS ' : 'FAIL ') + name);
@@ -33,12 +34,11 @@ await ev(() => { const g = window.game; for (const [id, n] of [['stick', 4], ['t
 await page.keyboard.press('Tab');
 await page.waitForTimeout(300);
 const before = await ev(() => window.game.inventory.count('barricade'));
-await page.click('.recipe:nth-child(1) button');
+await page.click('.recipe button');
 await page.waitForTimeout(200);
 const after = await ev(() => ({ b: window.game.inventory.count('barricade'), s: window.game.inventory.count('stick') }));
 ok(`craft barricade by click (${before}->${after.b}, sticks left ${after.s})`, after.b === before + 1);
 // drag-free move: click slot to pick, click another to drop
-const mv = await ev(() => { const g = window.game; return g.inventory.slots.findIndex((s) => s && s.id === 'barricade'); });
 await page.click(`#inv-belt .slot:nth-child(8)`).catch(()=>{});
 await page.keyboard.press('Tab');
 await page.waitForTimeout(200);
@@ -70,9 +70,70 @@ await page.waitForFunction(() => window.game.waves.phase === 'day', null, { time
 const d2 = await ev(() => ({ phase: window.game.waves.phase, night: window.game.waves.night, t: window.game.sky.time, kills: window.game.enemies.kills }));
 ok(`wave cleared -> day 2 (${JSON.stringify(d2)})`, d2.phase === 'day' && d2.night === 2);
 
-// 5. Heartwood falls -> game over
-await ev(() => { const g = window.game; g.base.damage(1e6); });
+// 5. upgrade the tower by holding E on it
+const up = await ev(() => {
+  const g = window.game, b = g.buildings.list[0];
+  for (const [id, n] of Object.entries(b.upgradeCost)) g.give(id, n);
+  g.player.spawn(b.x + 3, b.z); g.player.yaw = Math.atan2(-(b.x - (b.x + 3)), 0); g.player.pitch = 0;
+  g.inventory.select(7);
+  return { tier: b.tier };
+});
 await page.waitForTimeout(300);
+await page.keyboard.down('KeyE');
+await page.waitForTimeout(1800);
+await page.keyboard.up('KeyE');
+const up2 = await ev(() => ({ tier: window.game.buildings.list[0].tier, upgraded: window.game.buildings.stats.upgraded }));
+ok(`hold E upgrades the tower (tier ${up.tier}->${up2.tier})`, up2.tier === up.tier + 1);
+
+// 6. slingshot: draw, release, the stone hits a Blightling standing in front
+const sl = await ev(() => {
+  const g = window.game, p = g.player.pos;
+  g.give('slingshot', 1); g.give('stone', 5);
+  g.inventory.select(g.inventory.slots.findIndex((s) => s && s.id === 'slingshot'));
+  const fx = -Math.sin(g.player.yaw), fz = -Math.cos(g.player.yaw);
+  const e = g.enemies.spawn('blightling', p.x + fx * 7, p.z + fz * 7, 1);
+  e.rise = 0; e.slow = 0.0001; e.slowT = 99;
+  window.__t = e;
+  g.player.pitch = Math.atan2(e.pos.y + 0.8 - (p.y + 1.62), 7) + 0.03;
+  return { hp: e.hp, stones: g.inventory.count('stone') };
+});
+await page.waitForTimeout(700);
+await page.mouse.move(800, 450);
+await page.mouse.down();
+await page.waitForTimeout(800);
+await page.mouse.up();
+await page.waitForTimeout(800);
+const sl2 = await ev(() => ({ hp: window.__t.hp, dying: window.__t.dying, stones: window.game.inventory.count('stone') }));
+// (a spent stone sometimes drops where it lands and is picked straight back up)
+ok(`slingshot shot lands (hp ${sl.hp | 0}->${sl2.hp | 0}, stones ${sl.stones}->${sl2.stones})`, sl2.stones <= sl.stones && (sl2.hp < sl.hp || sl2.dying));
+
+// 7. relics offered at the Heartwood earn a boon
+const bo = await ev(() => {
+  const g = window.game, b = g.base;
+  g.give('golden_idol', 1);
+  const x = b.x + 6, z = b.z; g.player.spawn(x, z); g.player.yaw = Math.atan2(-(b.x - x), 0); g.player.pitch = 0.1;
+  g.inventory.select(7);
+  return g.perks.length;
+});
+await page.waitForTimeout(300);
+await page.keyboard.down('KeyE');
+await page.waitForTimeout(1600);
+await page.keyboard.up('KeyE');
+await page.waitForTimeout(400);
+const shown = await ev(() => !document.querySelector('#perks').classList.contains('hidden'));
+await page.click('.perk').catch(() => {});
+await page.waitForTimeout(300);
+const bo2 = await ev(() => window.game.perks.length);
+ok(`offering opens the boon picker and grants a boon (${bo}->${bo2})`, shown && bo2 === bo + 1);
+
+// 8. a save round-trips
+const sv = await ev(() => { const g = window.game; g.debug = false; g.autosave(); g.debug = true; const d = JSON.parse(localStorage.getItem('og.save.v1')); return { night: d.night, b: d.buildings.map((x) => x[0]), perks: d.perks.length }; });
+ok(`autosave writes the run (${JSON.stringify(sv)})`, sv.night === 2 && sv.b.includes('bow_tower') && sv.perks === 1);
+await ev(() => localStorage.removeItem('og.save.v1'));
+
+// 9. Heartwood falls -> game over (after the collapse)
+await ev(() => { const g = window.game; g.base.damage(1e6); });
+await page.waitForTimeout(3600);
 const over = await ev(() => ({ phase: window.game.waves.phase, shown: !document.querySelector('#gameover').classList.contains('hidden') }));
 ok(`heartwood destroyed -> game over`, over.phase === 'over' && over.shown);
 console.log(errs.slice(0, 10).join('\n'));

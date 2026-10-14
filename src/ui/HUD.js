@@ -1,15 +1,19 @@
-// DOM heads-up display: compass, minimap, prompts, toasts, vitals, hotbar, the
-// day/night banner, and the satchel (inventory + crafting).
+// DOM heads-up display: compass, minimap, prompts, toasts, vitals, hotbar, the day/night
+// strip, combat feedback (damage numbers, health bars, hit markers, the boss bar), the
+// journal, and the overlays (satchel + crafting, boons, victory, game over).
+import * as THREE from 'three';
 import { ITEMS, RARITY, KIND } from '../items/ItemDB.js';
 import { RECIPES } from '../items/Recipes.js';
 import { HOTBAR } from '../items/Inventory.js';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
+import { describeWave } from '../defense/Waves.js';
 
 const $ = (s) => document.querySelector(s);
 const DEG = Math.PI / 180;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const _p = new THREE.Vector3();
 
 export class HUD {
   constructor(inventory) {
@@ -17,17 +21,22 @@ export class HUD {
     this.icons = {};
     this.el = {
       hud: $('#hud'), strip: $('#compass-strip'), compass: $('#compass'), map: $('#minimap'),
-      clock: $('#clock'), prompt: $('#prompt'), promptLabel: $('#prompt .label'), promptFill: $('#prompt .fill'),
+      clock: $('#clock'), prompt: $('#prompt'), promptLabel: $('#prompt .label'), promptSub: $('#prompt .sub'), promptFill: $('#prompt .fill'),
       promptKey: $('#prompt .key'),
       cross: $('#crosshair'), toasts: $('#toasts'),
       stamina: $('#stamina'), staminaBar: $('#stamina div'), health: $('#health'), healthBar: $('#health div'), healthText: $('#health span'),
       discover: $('#discover'), fps: $('#fps'),
       inv: $('#inventory'), grid: $('#inv-grid'), belt: $('#inv-belt'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
       slots: $('#inv-slots'), relics: $('#inv-relics'),
-      underwater: $('#underwater'), hint: $('#hint'), hotbar: $('#hotbar'), held: $('#held'),
-      phase: $('#phase'), phaseTitle: $('#phase .title'), phaseSub: $('#phase .sub'), heartBar: $('#heart-bar div'), heartText: $('#heart-bar span'),
+      underwater: $('#underwater'), hint: $('#hint'), hotbar: $('#hotbar'), held: $('#held'), ammo: $('#ammo'),
+      phase: $('#phase'), phaseTitle: $('#phase .title'), phaseSub: $('#phase .sub'),
+      heartBar: $('#heart-bar .fill'), heartLag: $('#heart-bar .lag'), heartText: $('#heart-bar span'),
       banner: $('#banner'), buildHint: $('#build-hint'), hurt: $('#hurt'), dead: $('#dead'), deadT: $('#dead span'),
       over: $('#gameover'), overStats: $('#gameover .stats'),
+      victory: $('#victory'), victoryStats: $('#victory .stats'),
+      floaters: $('#floaters'), hitmark: $('#hitmark'), charge: $('#charge'), chargeArc: $('#charge circle'),
+      boss: $('#boss'), bossName: $('#boss .name'), bossFill: $('#boss .fill'), bossLag: $('#boss .lag'),
+      journal: $('#journal'), perks: $('#perks'), perkCards: $('#perks .cards'), boons: $('#boons'), flash: $('#flashfx'),
     };
     this.mapCtx = this.el.map.getContext('2d');
     this.mapBase = document.createElement('canvas');
@@ -44,6 +53,9 @@ export class HUD {
     this.onCraft = null;
     this.onUse = null;
     this.onDrop = null;
+    this.floats = []; // damage numbers
+    this.bars = []; // health bar elements (pooled)
+    this.journalKey = '';
     this.buildHotbar();
     this.buildSatchel();
     setTimeout(() => this.el.hint.classList.add('hidden'), 45000);
@@ -100,10 +112,11 @@ export class HUD {
       this.poiList = poisAround(cx, cz, 9);
     }
     const seen = new Set();
+    let focus = null, focusD = 8 * DEG; // only the marker nearest the centre gets a label
     const show = (key, x, z, icon, label, cls = '') => {
       const dx = x - player.x, dz = z - player.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 6) return;
+      if (dist < 6) return null;
       seen.add(key);
       let e = this.poiEls.get(key);
       if (!e) {
@@ -112,12 +125,19 @@ export class HUD {
         this.poiEls.set(key, e);
       }
       e.className = `poi ${cls}`;
-      e.innerHTML = `${icon}<small>${label} ${Math.round(dist)}m</small>`;
+      const html = `${icon}<small>${label} ${Math.round(dist)}m</small>`;
+      if (e.dataset.html !== html) {
+        e.innerHTML = html;
+        e.dataset.html = html;
+      }
       const d = place(e, Math.atan2(dx, -dz));
-      e.classList.toggle('side', Math.abs(d) > 0.3);
+      if (Math.abs(d) < focusD) {
+        focusD = Math.abs(d);
+        focus = e;
+      }
       return e;
     };
-    for (const m of this.markers) show(m.key, m.x, m.z, m.icon, m.label, m.cls);
+    for (const m of this.markers) show(m.key, m.x, m.z, m.icon, m.label, m.cls + (m.alert ? ' alert' : ''));
     for (const s of this.poiList) {
       const isTemple = s.type === 'temple';
       if (!isTemple && Math.hypot(s.x - player.x, s.z - player.z) > 220) continue;
@@ -129,7 +149,7 @@ export class HUD {
       if (!seen.has(k)) {
         e.remove();
         this.poiEls.delete(k);
-      }
+      } else e.classList.toggle('side', e !== focus);
     }
   }
 
@@ -214,16 +234,16 @@ export class HUD {
     for (const b of extra.buildings || []) {
       const [px, pz] = toMap(b.x, b.z);
       if (!inside(px, pz, 4)) continue;
-      c.fillStyle = b.def.kind === 'wall' ? '#c8a060' : '#f0d070';
+      c.fillStyle = b.def.kind === 'wall' ? '#c8a060' : b.def.range ? '#f0d070' : '#a08860';
       c.fillRect(px - 5, pz - 5, 10, 10);
     }
     for (const e of extra.enemies || []) {
       if (e.dying) continue;
       const [px, pz] = toMap(e.pos.x, e.pos.z);
       if (!inside(px, pz, 4)) continue;
-      c.fillStyle = '#d070ff';
+      c.fillStyle = e.def.boss ? '#ff5ab0' : e.def.flying ? '#f0a0ff' : '#d070ff';
       c.beginPath();
-      c.arc(px, pz, e.type === 'rotboar' ? 8 : 5, 0, Math.PI * 2);
+      c.arc(px, pz, e.def.boss ? 12 : e.type === 'rotboar' ? 8 : 5, 0, Math.PI * 2);
       c.fill();
     }
     // POIs and markers
@@ -248,7 +268,8 @@ export class HUD {
         px = S / 2 + Math.cos(a) * (S / 2 - 16);
         pz = S / 2 + Math.sin(a) * (S / 2 - 16);
       }
-      c.fillStyle = m.cls === 'rift' ? '#d070ff' : '#8affb0';
+      const blink = m.alert && Math.floor(performance.now() / 250) % 2;
+      c.fillStyle = m.cls === 'rift' ? '#d070ff' : blink ? '#ff6050' : '#8affb0';
       c.fillText(m.icon, px, pz);
     }
     // player arrow
@@ -268,7 +289,8 @@ export class HUD {
 
   // ------------------------------------------------------------- feedback
 
-  prompt(label, progress = 0, key = 'E') {
+  // label: main line; sub: a second, smaller line (costs, alternatives)
+  prompt(label, progress = 0, key = 'E', sub = '') {
     const p = this.el.prompt;
     if (!label) {
       p.classList.remove('show');
@@ -278,15 +300,39 @@ export class HUD {
     p.classList.add('show');
     this.el.cross.classList.add('hot');
     if (this.el.promptLabel.textContent !== label) this.el.promptLabel.textContent = label;
+    if (this.el.promptSub.innerHTML !== sub) this.el.promptSub.innerHTML = sub;
     if (this.el.promptKey.textContent !== key) this.el.promptKey.textContent = key;
     this.el.promptFill.style.strokeDashoffset = String(100.5 * (1 - progress));
+  }
+
+  // "2/3 [icon] 1/1 [icon]" for a recipe-like cost
+  costHtml(needs) {
+    return Object.entries(needs).map(([id, n]) => {
+      const have = this.inv.count(id);
+      return `<span class="${have >= n ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}">${Math.min(have, n)}/${n}</span>`;
+    }).join(' ');
   }
 
   toast(id, n = 1, note) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
+    // stack repeats of the same pickup into one toast
+    const last = this.el.toasts.lastElementChild;
+    if (!note && last && last.dataset.id === id && Date.now() - Number(last.dataset.t) < 2500) {
+      const total = Number(last.dataset.n) + n;
+      last.dataset.n = total;
+      last.dataset.t = Date.now();
+      last.querySelector('.n').textContent = `${def.name} ×${total}`;
+      last.style.animation = 'none';
+      void last.offsetWidth;
+      last.style.animation = '';
+      return;
+    }
     const t = document.createElement('div');
     t.className = 'toast';
+    t.dataset.id = id;
+    t.dataset.n = n;
+    t.dataset.t = Date.now();
     t.style.setProperty('--rc', r.color);
     const sub = note || `${r.name} · ${KIND[def.kind].name}`;
     t.innerHTML = `<img src="${this.icons[id] || ''}"><div><div class="n">${def.name}${n > 1 ? ` ×${n}` : ''}</div><div class="r">${sub}</div></div>`;
@@ -313,11 +359,11 @@ export class HUD {
     d.classList.add('show');
   }
 
-  banner(title, sub) {
+  banner(title, sub, cls = '') {
     const b = this.el.banner;
     b.querySelector('b').textContent = title;
     b.querySelector('span').textContent = sub;
-    b.classList.remove('show');
+    b.className = cls;
     void b.offsetWidth;
     b.classList.add('show');
   }
@@ -342,14 +388,172 @@ export class HUD {
     if (seconds > 0) this.el.deadT.textContent = Math.ceil(seconds);
   }
 
-  gameOver({ nights, kills }) {
-    this.el.overStats.innerHTML = `You held the Heartwood for <b>${nights}</b> night${nights === 1 ? '' : 's'} and felled <b>${kills}</b> Blight.`;
+  hitmarker(kill, crit) {
+    const h = this.el.hitmark;
+    h.className = '';
+    void h.offsetWidth;
+    h.className = `show${kill ? ' kill' : ''}${crit ? ' crit' : ''}`;
+  }
+
+  // a number that pops out of whatever was hit and floats up
+  damageNumber(pos, n, cls = '') {
+    if (this.floats.length > 40) this.floats.shift().el.remove();
+    const el = document.createElement('div');
+    el.className = `dmg ${cls}`;
+    el.textContent = typeof n === 'number' ? Math.max(1, Math.round(n)) : n;
+    this.el.floaters.appendChild(el);
+    // fan out a little so a burst of hits stays readable
+    const p = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, Math.random() * 0.4, (Math.random() - 0.5) * 0.8));
+    this.floats.push({ el, pos: p, vx: (Math.random() - 0.5) * 0.8, vy: 1.6 + Math.random() * 0.6, t: 0, life: cls.includes('crit') ? 1.1 : 0.85 });
+  }
+
+  // slingshot draw: 0 hides it
+  charge(k) {
+    const c = this.el.charge;
+    c.classList.toggle('show', k > 0.02);
+    c.classList.toggle('full', k >= 0.98);
+    this.el.chargeArc.style.strokeDashoffset = String(150.8 * (1 - k));
+  }
+
+  lightning(f) {
+    this.el.flash.style.opacity = String(f * 0.35);
+  }
+
+  boons(perks) {
+    this.el.boons.innerHTML = perks.map((p) => `<span title="${p.name}: ${p.desc}">${p.glyph}</span>`).join('');
+  }
+
+  // Three boon cards; resolves with the one clicked.
+  pickPerk(options, onPick) {
+    const el = this.el.perks;
+    this.el.perkCards.innerHTML = '';
+    options.forEach((p, i) => {
+      const c = document.createElement('div');
+      c.className = 'perk';
+      c.innerHTML = `<div class="glyph">${p.glyph}</div><h3>${p.name}</h3><p>${p.desc}</p><kbd>${i + 1}</kbd>`;
+      c.addEventListener('click', () => done(p));
+      this.el.perkCards.appendChild(c);
+    });
+    // captured before the game's input sees it, so the 1-3 that picks a boon doesn't also
+    // switch the belt slot
+    const key = (e) => {
+      const i = Number(e.key) - 1;
+      if (!options[i]) return;
+      e.stopImmediatePropagation();
+      done(options[i]);
+    };
+    const done = (p) => {
+      removeEventListener('keydown', key, true);
+      el.classList.add('hidden');
+      onPick(p);
+    };
+    addEventListener('keydown', key, true);
+    el.classList.remove('hidden');
+  }
+
+  get perksOpen() {
+    return !this.el.perks.classList.contains('hidden');
+  }
+
+  statsHtml(s) {
+    const lines = [
+      s.nights ? `You held the Heartwood for <b>${s.nights}</b> night${s.nights === 1 ? '' : 's'} and felled <b>${s.kills}</b> Blight.` : `The Blight took the Heartwood on the first night. You felled <b>${s.kills}</b> of them.`,
+      `<small>${s.built} built · ${s.upgraded} upgraded · ${s.boons} boon${s.boons === 1 ? '' : 's'}${s.bosses ? ` · ${s.bosses} Thornback${s.bosses === 1 ? '' : 's'} slain` : ''}</small>`,
+    ];
+    if (s.best) lines.push(`<small>Best: ${s.best.nights} night${s.best.nights === 1 ? '' : 's'}</small>`);
+    return lines.join('');
+  }
+
+  gameOver(s) {
+    this.el.overStats.innerHTML = this.statsHtml(s);
     this.el.over.classList.remove('hidden');
+  }
+
+  victory(s) {
+    this.el.victoryStats.innerHTML = this.statsHtml(s);
+    this.el.victory.classList.remove('hidden');
+  }
+
+  hideVictory() {
+    this.el.victory.classList.add('hidden');
   }
 
   stats() {
     this.renderHotbar();
     if (this.inventoryOpen) this.renderInventory();
+  }
+
+  // a cheap screen projection: returns false if behind the camera or off screen
+  project(pos, camera, out) {
+    _p.copy(pos).project(camera);
+    if (_p.z > 1) return false;
+    const w = innerWidth, h = innerHeight;
+    out.x = (_p.x * 0.5 + 0.5) * w;
+    out.y = (-_p.y * 0.5 + 0.5) * h;
+    return out.x > -60 && out.x < w + 60 && out.y > -60 && out.y < h + 60;
+  }
+
+  updateFloaters(dt, camera, enemies, buildings, player) {
+    const sp = { x: 0, y: 0 };
+    for (let i = this.floats.length - 1; i >= 0; i--) {
+      const f = this.floats[i];
+      f.t += dt;
+      f.pos.y += f.vy * dt;
+      f.pos.x += f.vx * dt;
+      f.vy *= Math.exp(-dt * 2);
+      const k = f.t / f.life;
+      if (k >= 1 || !this.project(f.pos, camera, sp)) {
+        if (k >= 1) {
+          f.el.remove();
+          this.floats.splice(i, 1);
+        } else f.el.style.opacity = '0';
+        continue;
+      }
+      const pop = f.t < 0.1 ? 1.5 - f.t * 5 : 1;
+      f.el.style.opacity = String(Math.min(1, (1 - k) * 2.5));
+      f.el.style.transform = `translate(${sp.x}px, ${sp.y}px) translate(-50%, -50%) scale(${pop})`;
+    }
+    // health bars over hurt enemies and damaged buildings nearby
+    let n = 0;
+    const bar = (pos, frac, cls) => {
+      if (!this.project(pos, camera, sp)) return;
+      let el = this.bars[n];
+      if (!el) {
+        el = document.createElement('div');
+        el.innerHTML = '<div></div>';
+        this.el.floaters.appendChild(el);
+        this.bars[n] = el;
+      }
+      n++;
+      el.className = `ebar ${cls}`;
+      el.style.display = '';
+      el.style.transform = `translate(${sp.x}px, ${sp.y}px)`;
+      el.firstChild.style.width = `${Math.max(0, frac) * 100}%`;
+    };
+    for (const e of enemies) {
+      if (n >= 28) break;
+      if (e.dying || e.barT <= 0 || e.def.boss) continue;
+      if (Math.hypot(e.pos.x - player.x, e.pos.z - player.z) > 45) continue;
+      _p.set(e.pos.x, e.pos.y + (e.def.chest * 2 + 0.35) * e.def.scale, e.pos.z);
+      bar(_p.clone(), e.hp / e.maxHp, '');
+    }
+    for (const b of buildings) {
+      if (n >= 36) break;
+      if (b.dead || (b.barT <= 0 && (b.hp >= b.maxHp || Math.hypot(b.x - player.x, b.z - player.z) > 12))) continue;
+      if (b.def.kind === 'trap' || b.def.kind === 'snare') {
+        if (b.barT <= 0) continue;
+      }
+      _p.set(b.x, b.y + (b.def.muzzle || 1.4) + 0.9, b.z);
+      bar(_p.clone(), b.hp / b.maxHp, 'build');
+    }
+    for (let i = n; i < this.bars.length; i++) this.bars[i].style.display = 'none';
+  }
+
+  journal(lines) {
+    const key = lines.map((l) => l.html + l.done + l.main).join('|');
+    if (key === this.journalKey) return;
+    this.journalKey = key;
+    this.el.journal.innerHTML = lines.length ? `<div class="head">Journal</div>${lines.map((l) => `<div class="j${l.main ? ' main' : ''}${l.done ? ' done' : ''}">${l.html}</div>`).join('')}` : '';
   }
 
   frame(dt, s) {
@@ -370,7 +574,7 @@ export class HUD {
     let title, sub;
     if (w.phase === 'day') {
       title = `Day ${w.night}`;
-      sub = w.skipping ? 'Night is falling…' : `Gather & build · dusk in ${fmtTime(w.dayLeft)}`;
+      sub = w.skipping ? 'Night is falling…' : `Dusk in ${fmtTime(w.dayLeft)} · tonight ${describeWave(w.preview.counts)}${w.rainTonight ? ' · rain' : ''}`;
     } else if (w.phase === 'night') {
       title = `Night ${w.night}`;
       sub = `${w.remaining} Blight left`;
@@ -384,9 +588,26 @@ export class HUD {
     this.el.phase.classList.toggle('night', w.phase === 'night');
     if (this.el.phaseTitle.textContent !== title) this.el.phaseTitle.textContent = title;
     if (this.el.phaseSub.textContent !== sub) this.el.phaseSub.textContent = sub;
-    this.el.heartBar.style.width = `${(s.base.hp / s.base.maxHp) * 100}%`;
+    const hf = `${(s.base.hp / s.base.maxHp) * 100}%`;
+    if (this.el.heartBar.style.width !== hf) {
+      this.el.heartBar.style.width = hf;
+      this.el.heartLag.style.width = hf;
+    }
     this.el.heartText.textContent = `${Math.ceil(s.base.hp)} / ${s.base.maxHp}`;
     this.el.phase.classList.toggle('hurt', s.base.flash > 0.2);
+
+    // boss
+    const boss = s.boss;
+    this.el.boss.classList.toggle('hidden', !boss);
+    if (boss) {
+      const f = `${Math.max(0, boss.hp / boss.maxHp) * 100}%`;
+      if (this.el.bossFill.style.width !== f) {
+        this.el.bossFill.style.width = f;
+        this.el.bossLag.style.width = f;
+      }
+    }
+    this.journal(s.journal);
+    this.updateFloaters(dt, s.camera, s.enemies, s.buildings, s.player);
 
     this.fpsAcc.t += dt;
     this.fpsAcc.n++;
@@ -422,13 +643,22 @@ export class HUD {
       el.style.setProperty('--rc', s ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
     }
     const h = this.inv.held;
-    const label = h ? ITEMS[h.id].name + (ITEMS[h.id].kind === 'build' ? ' · LMB to place' : ITEMS[h.id].kind === 'use' ? ' · RMB to use' : '') : 'Machete';
+    const kind = h && ITEMS[h.id].kind;
+    const hint = { build: ' · LMB to place', use: ITEMS[h?.id]?.throw ? ' · RMB to throw' : ' · RMB to use', tool: ' · hold LMB to draw' };
+    const label = h ? ITEMS[h.id].name + (hint[kind] || '') : 'Machete';
     if (this.el.held.textContent !== label) {
       this.el.held.textContent = label;
       this.el.held.classList.remove('flash');
       void this.el.held.offsetWidth;
       this.el.held.classList.add('flash');
     }
+    // ammo count under the slingshot
+    if (h?.id === 'slingshot') {
+      const st = this.inv.count('stone'), sc = this.inv.count('scrap_shot');
+      const html = sc ? `<b>${sc}</b> scrap shot · ${st} stones` : `<b>${st}</b> stones`;
+      if (this.el.ammo.innerHTML !== html) this.el.ammo.innerHTML = html;
+      this.el.ammo.classList.toggle('out', st + sc === 0);
+    } else if (this.el.ammo.innerHTML) this.el.ammo.innerHTML = '';
   }
 
   // ------------------------------------------------------------- satchel
@@ -476,16 +706,25 @@ export class HUD {
     };
     for (let i = 0; i < HOTBAR; i++) make(i, this.el.belt);
     for (let i = HOTBAR; i < this.inv.slots.length; i++) make(i, this.el.grid);
-    // recipes
-    this.recipeEls = RECIPES.map((r) => {
+    // recipes, in groups
+    let group = null;
+    this.recipeEls = [];
+    for (const r of RECIPES) {
+      if (r.group !== group) {
+        group = r.group;
+        const h = document.createElement('div');
+        h.className = 'recipe-group';
+        h.textContent = group;
+        this.el.recipes.appendChild(h);
+      }
       const card = document.createElement('div');
       card.className = 'recipe';
       card.innerHTML = `<img class="out" alt=""><div class="body"><div class="name"></div><div class="needs"></div></div><button>Craft</button>`;
       card.querySelector('button').addEventListener('click', () => this.onCraft?.(r));
       card.addEventListener('mouseenter', () => this.detail(r.out));
       this.el.recipes.appendChild(card);
-      return { r, card };
-    });
+      this.recipeEls.push({ r, card });
+    }
   }
 
   renderInventory() {
@@ -507,7 +746,7 @@ export class HUD {
       card.style.setProperty('--rc', RARITY[def.rarity].color);
       const img = card.querySelector('img.out');
       if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
-      card.querySelector('.name').textContent = def.name;
+      card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '');
       card.querySelector('.needs').innerHTML = Object.entries(r.needs).map(([id, n]) => {
         const have = this.inv.count(id);
         return `<span class="${have >= n ? 'have' : 'miss'}" title="${ITEMS[id].name}"><img src="${this.icons[id] || ''}">${Math.min(have, n)}/${n}</span>`;

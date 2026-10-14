@@ -18,8 +18,8 @@ glow = get_mat('BlightGlow', 0.3, emit=(0.7, 0.18, 1.0), strength=3.0)
 eyeg = get_mat('BlightEye', 0.2, emit=(1.0, 0.45, 0.95), strength=8.0)
 leafm = get_mat('LeafDS', 0.7, double=True)
 
-DARK = '#5e434b'
-MID = '#80646c'
+DARK = '#3c3836'
+MID = '#5c564a'
 BODY_Z = 0.56
 
 # ---------------------------------------------------------------- torso
@@ -61,8 +61,7 @@ for sx in (-1, 1):
     base = axis_point(m, torso, ln * 0.75) + Vector((sx * 0.17, 0, 0.08))
     for k in range(4):
         p = base + Vector((rnd.uniform(-0.05, 0.05), rnd.uniform(-0.06, 0.06), rnd.uniform(0, 0.05)))
-        B.add(sphere(rnd.uniform(0.03, 0.05), 8, 5), fung, rnd.choice(['#8a4aa0', '#a05ab8', '#6e3a88']), M(p, (0, sx * 0.6, 0), (1, 1, 0.55)), smooth=True)
-        B.add(sphere(0.012, 5, 3), glow, (1, 1, 1), M(p + Vector((0, 0, 0.022))))
+        B.add(sphere(rnd.uniform(0.03, 0.05), 8, 5), fung, rnd.choice(['#5a3a52', '#6a4058', '#4e3448']), M(p, (0, sx * 0.6, 0), (1, 1, 0.55)), smooth=True)
 # hanging moss/vine scraps under the belly
 for k in range(4):
     p = axis_point(m, torso, ln * (0.3 + k * 0.15)) + Vector((rnd.uniform(-0.08, 0.08), 0, -0.14))

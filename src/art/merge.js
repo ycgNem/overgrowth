@@ -18,18 +18,64 @@ export function bakedMaterial({ side = THREE.FrontSide } = {}) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, side });
   mat.userData.flash = { value: new THREE.Color(0, 0, 0) };
   mat.userData.tint = { value: new THREE.Vector4(1, 1, 1, 0) };
+  // rim: a fresnel glow (rgb, strength) so dark creatures read against dark ground
+  mat.userData.rim = { value: new THREE.Vector4(0.75, 0.3, 1, 0) };
+  // dissolve: 0 = solid, 1 = gone; burns away along noise with a glowing edge
+  mat.userData.dissolve = { value: 0 };
+  // scales the baked emissive (the placement ghost turns it off so it doesn't bloom)
+  mat.userData.emit = { value: 1 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uFlash = mat.userData.flash;
     shader.uniforms.uTint = mat.userData.tint;
+    shader.uniforms.uRim = mat.userData.rim;
+    shader.uniforms.uDissolve = mat.userData.dissolve;
+    shader.uniforms.uEmit = mat.userData.emit;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 aEmit;\nattribute vec2 aPbr;\nvarying vec3 vEmit;\nvarying vec2 vPbr;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEmit = aEmit;\nvPbr = aPbr;');
+      .replace('#include <common>', `#include <common>
+attribute vec3 aEmit;
+attribute vec2 aPbr;
+varying vec3 vEmit;
+varying vec2 vPbr;
+varying vec3 vObj;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vEmit = aEmit;
+vPbr = aPbr;
+vObj = position;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vEmit;\nvarying vec2 vPbr;\nuniform vec3 uFlash;\nuniform vec4 uTint;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uTint.rgb, uTint.a);')
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor *= vPbr.x;')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor *= vPbr.y;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vEmit + uFlash + uTint.rgb * uTint.a * 0.35;');
+      .replace('#include <common>', `#include <common>
+varying vec3 vEmit;
+varying vec2 vPbr;
+varying vec3 vObj;
+uniform vec3 uFlash;
+uniform vec4 uTint;
+uniform vec4 uRim;
+uniform float uDissolve;
+uniform float uEmit;
+float dHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float dNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(dHash(i), dHash(i + vec3(1,0,0)), f.x), mix(dHash(i + vec3(0,1,0)), dHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(dHash(i + vec3(0,0,1)), dHash(i + vec3(1,0,1)), f.x), mix(dHash(i + vec3(0,1,1)), dHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+}`)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+float dEdge = 0.0;
+if (uDissolve > 0.0) {
+  float dn = dNoise(vObj * 7.0) * 0.65 + dNoise(vObj * 19.0) * 0.35;
+  float de = dn - uDissolve * 1.08;
+  if (de < 0.0) discard;
+  dEdge = 1.0 - smoothstep(0.0, 0.09, de);
+}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+diffuseColor.rgb = mix(diffuseColor.rgb, uTint.rgb, uTint.a);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+roughnessFactor *= vPbr.x;`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+metalnessFactor *= vPbr.y;`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+totalEmissiveRadiance += vEmit * uEmit + uFlash + uTint.rgb * uTint.a * 0.35;
+float rimF = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0);
+totalEmissiveRadiance += uRim.rgb * rimF * uRim.a + vec3(1.0, 0.45, 1.6) * dEdge * 2.5;`);
   };
   mat.customProgramCacheKey = () => 'baked';
   return mat;
@@ -173,6 +219,30 @@ export function ownMaterials(obj) {
 export function setFlash(obj, r, g, b) {
   obj.traverse((o) => {
     if (o.isMesh && o.material.userData.flash) o.material.userData.flash.value.setRGB(r, g, b);
+  });
+}
+
+export function setRim(obj, strength, color) {
+  obj.traverse((o) => {
+    if (o.isMesh && o.material.userData.rim) {
+      const r = o.material.userData.rim.value;
+      if (color) {
+        _c.set(color);
+        r.set(_c.r, _c.g, _c.b, strength);
+      } else r.w = strength;
+    }
+  });
+}
+
+export function setDissolve(obj, d) {
+  obj.traverse((o) => {
+    if (o.isMesh && o.material.userData.dissolve) o.material.userData.dissolve.value = d;
+  });
+}
+
+export function setEmit(obj, k) {
+  obj.traverse((o) => {
+    if (o.isMesh && o.material.userData.emit) o.material.userData.emit.value = k;
   });
 }
 

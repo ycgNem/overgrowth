@@ -1,9 +1,10 @@
-# Rebuild and export every Overgrowth model. Run inside Blender:
+# Rebuild and export every Overgrowth model. Run inside Blender (or headless: see export_new.py):
 #   exec(open(r"<repo>/art/blender/export_all.py").read())
 import os
 ROOT = r"C:/Users/jacks/Documents/overgrowth"
 JOBS = [('heartwood', 'Heartwood'), ('bow_tower', 'BowTower'), ('spore_mortar', 'SporeMortar'), ('tesla_totem', 'TeslaTotem'),
-        ('barricade', 'Barricade'), ('blightling', 'Blightling'), ('rotboar', 'Rotboar')]
+        ('barricade', 'Barricade'), ('blightling', 'Blightling'), ('rotboar', 'Rotboar'), ('wisp', 'Wisp'),
+        ('thornback', 'Thornback'), ('ember_brazier', 'EmberBrazier'), ('vine_snare', 'VineSnare')]
 report = {}
 for script, coll_name in JOBS:
     exec(open(f"{ROOT}/art/blender/{script}.py").read())

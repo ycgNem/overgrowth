@@ -107,14 +107,24 @@ export class World {
   }
 
   // Plans are cached, so clearings must be registered before the first update.
-  addClearing(x, z, r) {
-    this.clearings.push({ x, z, r });
+  // Inside r nothing grows; over the next `soft` metres the jungle thins out gradually so
+  // the clearing has a ragged, natural edge instead of a cut circle.
+  addClearing(x, z, r, soft = 0) {
+    this.clearings.push({ x, z, r, soft });
     this.plans.clear();
     this.bigPlans.clear();
   }
 
   cleared(x, z, pad = 0) {
-    return this.clearings.some((c) => (x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + pad) ** 2);
+    for (const c of this.clearings) {
+      const d = Math.hypot(x - c.x, z - c.z) - (c.r + pad);
+      if (d < 0) return true;
+      if (d < c.soft) {
+        const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
+        if (h < 1 - d / c.soft) return true;
+      }
+    }
+    return false;
   }
 
   // A new day: forage grows back and cut plants regrow in chunks you haven't kept loaded.

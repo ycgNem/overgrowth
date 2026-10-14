@@ -57,7 +57,9 @@ export class FlowField {
     this.z0 = cz - (N * CELL) / 2;
     this.base = new Float32Array(N * N); // terrain + static obstacles
     this.cost = new Float32Array(N * N);
-    this.dist = new Float32Array(N * N);
+    // float64 to match the queue's keys: with float32, rounding made `nd < dist[k]` pass again
+    // and again and Dijkstra relaxed cells ~80x over (400 ms per rebuild instead of 7)
+    this.dist = new Float64Array(N * N);
     this.owner = new Array(N * N).fill(null); // building occupying a cell
     this.buildBase();
     this.dirty = true;

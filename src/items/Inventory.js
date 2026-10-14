@@ -30,8 +30,8 @@ export class Inventory {
         n -= k;
       }
     }
-    // new stacks: buildables and consumables prefer the hotbar, materials the pack
-    const preferHotbar = ['build', 'use'].includes(ITEMS[id].kind);
+    // new stacks: buildables, consumables and weapons prefer the hotbar, materials the pack
+    const preferHotbar = ['build', 'use', 'tool'].includes(ITEMS[id].kind);
     const order = preferHotbar
       ? [...this.slots.keys()]
       : [...this.slots.keys()].slice(HOTBAR).concat([...this.slots.keys()].slice(0, HOTBAR));

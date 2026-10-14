@@ -97,6 +97,27 @@ export class AudioSys {
     this.waterGain = ctx.createGain();
     this.waterGain.gain.value = 0;
     wat.connect(whp).connect(wlp).connect(this.waterGain).connect(this.master);
+
+    // Rain: a hiss of bandpassed noise plus a low patter
+    const rn = this.loopNoise();
+    const rbp = ctx.createBiquadFilter();
+    rbp.type = 'bandpass';
+    rbp.frequency.value = 2600;
+    rbp.Q.value = 0.5;
+    const rlo = this.loopNoise();
+    const rlp = ctx.createBiquadFilter();
+    rlp.type = 'lowpass';
+    rlp.frequency.value = 380;
+    this.rainGain = ctx.createGain();
+    this.rainGain.gain.value = 0;
+    rn.connect(rbp).connect(this.rainGain);
+    rlo.connect(rlp).connect(this.rainGain);
+    this.rainGain.connect(this.master);
+  }
+
+  setRain(a) {
+    if (!this.ctx) return;
+    this.rainGain.gain.setTargetAtTime(a * 0.16, this.now, 0.8);
   }
 
   loopNoise() {
@@ -283,6 +304,102 @@ export class AudioSys {
   heartHurt() {
     this.tone({ type: 'sine', f0: 330, f1: 160, a: 0.01, dec: 0.5, vol: 0.12 });
     this.tone({ type: 'sine', f0: 495, f1: 240, a: 0.01, dec: 0.5, vol: 0.06 });
+  }
+
+  flame() {
+    this.noiseShot({ type: 'lowpass', f0: 900, f1: 300, a: 0.03, dec: 0.4, vol: 0.18 });
+    this.noiseShot({ f0: 2400, f1: 1200, q: 0.8, a: 0.02, dec: 0.25, vol: 0.05 });
+  }
+
+  snare() {
+    for (let i = 0; i < 3; i++) this.noiseShot({ f0: 1500 - i * 300, f1: 400, q: 2, a: 0.004, dec: 0.12, vol: 0.18, delay: i * 0.05 });
+    this.tone({ type: 'triangle', f0: 160, f1: 90, dec: 0.2, vol: 0.18 });
+  }
+
+  // a deep, grinding bellow for the Thornback
+  roar() {
+    if (!this.ctx) return;
+    for (const [f, v] of [[55, 0.22], [82, 0.12], [110, 0.06]]) this.tone({ type: 'sawtooth', f0: f * 1.3, f1: f * 0.8, a: 0.15, dec: 1.4, vol: v });
+    this.noiseShot({ type: 'lowpass', f0: 700, f1: 160, a: 0.1, dec: 1.3, vol: 0.4 });
+  }
+
+  slam() {
+    this.tone({ type: 'sine', f0: 70, f1: 28, a: 0.005, dec: 0.7, vol: 0.7 });
+    this.noiseShot({ type: 'lowpass', f0: 500, f1: 80, a: 0.005, dec: 0.9, vol: 0.6 });
+    for (let i = 0; i < 6; i++) this.noiseShot({ f0: 600 + Math.random() * 1200, q: 3, dec: 0.1, vol: 0.12, delay: 0.05 + i * 0.06 });
+  }
+
+  // a creature drawing back to bite: a short rising hiss, louder the closer it is
+  windup(vol = 1) {
+    this.noiseShot({ f0: 900, f1: 2600, q: 2.5, a: 0.12, dec: 0.12, vol: 0.12 * vol });
+  }
+
+  spawn() {
+    this.noiseShot({ type: 'lowpass', f0: 600, f1: 140, a: 0.08, dec: 0.5, vol: 0.12 });
+  }
+
+  wispCry() {
+    this.tone({ type: 'sine', f0: 1400, f1: 900, a: 0.05, dec: 0.5, vol: 0.05 });
+    this.tone({ type: 'sine', f0: 1460, f1: 940, a: 0.05, dec: 0.5, vol: 0.04, delay: 0.03 });
+  }
+
+  slingDraw() {
+    this.noiseShot({ f0: 300, f1: 900, q: 4, a: 0.25, dec: 0.1, vol: 0.06 });
+  }
+
+  slingRelease(power = 1) {
+    this.noiseShot({ f0: 900, f1: 3200, q: 1.5, a: 0.004, dec: 0.12, vol: 0.12 + power * 0.1 });
+    this.tone({ type: 'triangle', f0: 240, f1: 120, dec: 0.08, vol: 0.12 });
+  }
+
+  stoneHit(crit) {
+    this.noiseShot({ f0: 1100, f1: 400, q: 2, a: 0.002, dec: 0.09, vol: 0.32 });
+    if (crit) this.tone({ type: 'triangle', f0: 1320, f1: 1500, dec: 0.12, vol: 0.08 });
+  }
+
+  firepot() {
+    this.noiseShot({ f0: 3200, q: 1.2, dec: 0.12, vol: 0.25 });
+    this.noiseShot({ type: 'lowpass', f0: 1200, f1: 150, a: 0.02, dec: 0.8, vol: 0.4, delay: 0.03 });
+  }
+
+  upgrade() {
+    this.wood();
+    [1, 1.26, 1.5, 2].forEach((m, i) => this.tone({ type: 'triangle', f0: 392 * m, dec: 0.3, vol: 0.1, delay: 0.1 + i * 0.07 }));
+  }
+
+  repair() {
+    for (let i = 0; i < 3; i++) this.tone({ type: 'triangle', f0: 200 - i * 20, f1: 120, dec: 0.1, vol: 0.2, delay: i * 0.09 });
+  }
+
+  boon() {
+    [1, 1.5, 2, 2.5, 3].forEach((m, i) => this.tone({ type: 'sine', f0: 330 * m, dec: 0.8, vol: 0.07, delay: i * 0.09 }));
+  }
+
+  dawn() {
+    [1, 1.26, 1.5, 2].forEach((m, i) => this.tone({ type: 'triangle', f0: 523 * m, dec: 0.6, vol: 0.08, delay: i * 0.12 }));
+  }
+
+  victory() {
+    if (!this.ctx) return;
+    const notes = [1, 1.26, 1.5, 2, 1.5, 2, 2.52, 3];
+    notes.forEach((m, i) => this.tone({ type: 'triangle', f0: 392 * m, a: 0.02, dec: 0.7, vol: 0.1, delay: i * 0.16 }));
+    this.tone({ type: 'sine', f0: 196, a: 0.3, dec: 2.4, vol: 0.12, delay: 0.2 });
+  }
+
+  defeat() {
+    if (!this.ctx) return;
+    [1, 0.94, 0.84, 0.75].forEach((m, i) => this.tone({ type: 'sawtooth', f0: 196 * m, f1: 190 * m, a: 0.1, dec: 0.9, vol: 0.06, delay: i * 0.35 }));
+    this.noiseShot({ type: 'lowpass', f0: 600, f1: 60, a: 0.5, dec: 2.5, vol: 0.3 });
+  }
+
+  thunder() {
+    if (!this.ctx) return;
+    this.noiseShot({ type: 'lowpass', f0: 300, f1: 40, a: 0.02, dec: 2.6, vol: 0.55 });
+    for (let i = 0; i < 4; i++) this.noiseShot({ type: 'lowpass', f0: 180, f1: 50, a: 0.05, dec: 0.6, vol: 0.3, delay: 0.15 + i * 0.25 + Math.random() * 0.2 });
+  }
+
+  heartAlarm() {
+    [0, 0.18].forEach((d) => this.tone({ type: 'square', f0: 330, f1: 300, a: 0.005, dec: 0.12, vol: 0.05, delay: d }));
   }
 
   // the dusk horn: a long, low, slightly sour call

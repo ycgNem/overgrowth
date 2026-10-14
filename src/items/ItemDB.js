@@ -19,6 +19,7 @@ export const KIND = {
   relic: { name: 'Relic', stack: 10 },
   build: { name: 'Defence', stack: 5 },
   use: { name: 'Consumable', stack: 10 },
+  tool: { name: 'Weapon', stack: 1 },
 };
 
 export const ITEMS = {
@@ -67,7 +68,13 @@ export const ITEMS = {
   bow_tower: { name: 'Bramble Bow Tower', kind: 'build', rarity: 'uncommon', value: 0, model: 'bow_tower', desc: 'A lashed watchtower with a heavy crossbow. Long range, picks off single targets.' },
   spore_mortar: { name: 'Spore Mortar', kind: 'build', rarity: 'rare', value: 0, model: 'spore_mortar', desc: 'Lobs bursting spore pods in a high arc. Splash damage, and the spores slow whatever they touch.' },
   tesla_totem: { name: 'Tesla Totem', kind: 'build', rarity: 'epic', value: 0, model: 'tesla_totem', desc: 'Salvaged wire and a vacuum tube on a carved pole. Lightning that jumps between enemies.' },
+  ember_brazier: { name: 'Ember Brazier', kind: 'build', rarity: 'rare', value: 0, model: 'ember_brazier', desc: 'A clay fire bowl on lashed legs. Sets nearby Blight alight, wisps included, and lights the clearing. Rain dampens it.' },
+  vine_snare: { name: 'Vine Snare', kind: 'build', rarity: 'uncommon', value: 0, model: 'vine_snare', desc: 'Coiled lianas under a mat of leaves. Whips up and binds whatever walks in, a few times over. Too weak to hold a Thornback, but it slows one.' },
   poultice: { name: 'Berry Poultice', kind: 'use', rarity: 'common', value: 0, heal: 45, desc: 'Mashed berries and moss bound in a leaf. Right-click to heal 45.' },
+  firepot: { name: 'Firepot', kind: 'use', rarity: 'uncommon', value: 0, throw: true, desc: 'An old bottle of resin with a fibre wick. Right-click to throw: it bursts into flame and sets the Blight alight.' },
+  orchid_salve: { name: 'Orchid Salve', kind: 'use', rarity: 'rare', value: 0, salve: true, desc: 'Ghost orchid nectar worked into moss. Right-click near your defences: mends every building within 20 m and the Heartwood.' },
+  slingshot: { name: 'Slingshot', kind: 'tool', rarity: 'uncommon', value: 0, desc: 'A forked branch and a vine sling. Hold LMB to draw, release to fire. Shoots stones, or scrap shot for a harder hit. Reaches wisps.' },
+  scrap_shot: { name: 'Scrap Shot', kind: 'material', rarity: 'uncommon', value: 2, ammo: 1.6, desc: 'Jagged slugs hammered from tin and bolts. Slingshot ammo that hits much harder than stone.' },
 };
 
 export const ITEM_IDS = Object.keys(ITEMS);
@@ -92,8 +99,10 @@ export const LOOT = {
   temple: { chance: 1, rolls: 3, table: [['doubloon', 50], ['jade_figurine', 25]], guaranteed: ['golden_idol'] },
   templeChest: { chance: 1, rolls: 2, table: [['doubloon', 40], ['jade_figurine', 15], ['sun_mask', 3]] },
   // what the Blight leaves behind
-  blightling: { chance: 0.45, rolls: 1, table: [['bone', 35], ['thorns', 30], ['strange_seeds', 15], ['glowcap', 4]] },
-  rotboar: { chance: 1, rolls: 2, table: [['bone', 30], ['moss', 20], ['mushroom', 25], ['log', 15], ['glowcap', 6]] },
+  blightling: { chance: 0.55, rolls: 1, table: [['bone', 28], ['thorns', 24], ['stone', 18], ['strange_seeds', 14], ['fiber', 12], ['glowcap', 4]] },
+  rotboar: { chance: 1, rolls: 2, table: [['bone', 30], ['moss', 20], ['mushroom', 25], ['log', 15], ['resin', 10], ['glowcap', 6]] },
+  wisp: { chance: 0.7, rolls: 1, table: [['feather', 30], ['strange_seeds', 30], ['resin', 20], ['glowcap', 14], ['ghost_orchid', 3]] },
+  thornback: { chance: 1, rolls: 6, table: [['glowcap', 20], ['bone', 20], ['strange_seeds', 15], ['brass_gear', 10], ['vacuum_tube', 8], ['ghost_orchid', 8], ['log', 10]], guaranteed: ['jade_figurine', 'glowcap'] },
 };
 
 export function rollLoot(tableName, rand) {

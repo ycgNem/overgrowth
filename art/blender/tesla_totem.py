@@ -19,8 +19,8 @@ paint = get_mat('Paint', 0.7)
 rope = get_mat('Rope', 0.95)
 moss = get_mat('Moss', 1.0)
 rubber = get_mat('Rubber', 0.6)
-glow = get_mat('ArcGlow', 0.2, emit=(0.45, 0.85, 1.0), strength=6.0)
-filament = get_mat('Filament', 0.3, emit=(1.0, 0.6, 0.25), strength=5.0)
+glow = get_mat('ArcGlow', 0.2, emit=(0.3, 0.75, 1.0), strength=1.6)
+filament = get_mat('Filament', 0.3, emit=(1.0, 0.5, 0.15), strength=1.6)
 glass = get_mat('GlassTint', 0.08, 0.0)
 
 B = Part('Body', 2)
@@ -28,7 +28,7 @@ B = Part('Body', 2)
 for i in range(10):
     a = i / 10 * TAU + rnd.uniform(-0.2, 0.2)
     r = rnd.uniform(0.55, 0.8)
-    B.add(ico(rnd.uniform(0.14, 0.22), 1), stone, rnd.choice(['#8f8b7f', '#9c988b', '#7f7a6f']), M((math.cos(a) * r, math.sin(a) * r, 0.04), (rnd.random(), rnd.random(), 0), (1, 1, 0.65)), deform=jitter(0.03, i))
+    B.add(ico(rnd.uniform(0.14, 0.22), 2), stone, rnd.choice(['#6e6a60', '#5e5a52', '#66625a']), smooth=True, m=M((math.cos(a) * r, math.sin(a) * r, 0.04), (rnd.random(), rnd.random(), 0), (1, 1, 0.65)), deform=jitter(0.03, i))
 B.add(sphere(0.62, 14, 6), moss, '#4a6f28', M((0, 0, -0.18), (0, 0, 0), (1, 1, 0.4)), deform=jitter(0.04, 30), var=0.2)
 
 # scrap skirt: rusted sheets leaning against the pole, bolted, edges ragged
@@ -50,7 +50,7 @@ for i in range(7):
 # the pole: three carved, painted faces stacked up
 PH = 2.6
 B.add(ringed_cyl(0.25, 0.21, PH, 14, 8), bark, '#93704e', M((0, 0, 0)), deform=gnarl(0.012, 3, 0.1, (0, 0), PH, 2), smooth=True, streak=0.3)
-faces = [(0.85, '#2f8a8a', '#b8402e'), (1.45, '#c8a040', '#2f6a8a'), (2.05, '#b8402e', '#2f8a8a')]
+faces = [(0.85, '#55806f', '#8a4a36'), (1.45, '#a88a4a', '#4f6e72'), (2.05, '#8a4a36', '#55806f')]
 for fi, (z, c1, c2) in enumerate(faces):
     fwd = M((0, -0.215, z), (0, 0, 0))
     # painted bands above and below the face
@@ -58,10 +58,10 @@ for fi, (z, c1, c2) in enumerate(faces):
     B.add(torus(0.23, 0.025, 16, 4), paint, c2, M((0, 0, z + 0.26)))
     # brow ridge
     B.add(box(0.4, 0.1, 0.08), wood, '#a07a52', fwd @ M((0, 0, 0.12)), deform=jitter(0.005, fi, 9))
-    # eyes: painted rings with dark sockets
+    # eyes: deep carved slits, angled down to a scowl, a spark of filament glow inside
     for sx in (-1, 1):
-        B.add(cyl(0.065, 0.065, 0.03, 10), paint, '#e8e0c8', fwd @ M((sx * 0.09, -0.01, 0.05), (math.pi / 2, 0, 0)))
-        B.add(cyl(0.035, 0.035, 0.035, 8), paint, '#141414', fwd @ M((sx * 0.09, -0.02, 0.05), (math.pi / 2, 0, 0)))
+        B.add(box(0.12, 0.03, 0.03), paint, '#120e0c', fwd @ M((sx * 0.09, -0.008, 0.05), (0, sx * 0.32, 0)))
+        B.add(box(0.05, 0.03, 0.012), filament, (1, 1, 1), fwd @ M((sx * 0.09, -0.012, 0.05), (0, sx * 0.32, 0)))
     # nose wedge
     def nose(bm):
         v = [bm.verts.new(p) for p in [(-0.04, 0, 0.05), (0.04, 0, 0.05), (0, -0.09, -0.07), (-0.05, 0, -0.08), (0.05, 0, -0.08)]]
@@ -87,9 +87,9 @@ for sx in (-1, 1):
         for i in range(n):
             q = (top[i], top[(i + 1) % n], bot[(i + 1) % n], bot[i])
             bm.faces.new(q if sx < 0 else tuple(reversed(q)))
-    B.add(wing, paint, '#2f8a8a', M((sx * 0.2, 0, 2.25)), streak=0.15)
+    B.add(wing, paint, '#5c7f6e', M((sx * 0.2, 0, 2.25)), streak=0.25)
     for k in range(3):
-        B.add(box(0.12, 0.07, 0.04), paint, '#c8a040', M((sx * (0.32 + k * 0.12), 0, 2.36 + k * 0.03)))
+        B.add(box(0.12, 0.07, 0.04), paint, '#a88a4a', M((sx * (0.32 + k * 0.12), 0, 2.36 + k * 0.03)))
 
 # copper coil wound around the upper pole (helix of short segments)
 pts = []

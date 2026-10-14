@@ -15,8 +15,10 @@
     <div id="underwater"></div>
     <div id="vignette"></div>
     <div id="hurt"></div>
+    <div id="flashfx"></div>
 
     <div id="hud" class="hidden">
+      <div id="floaters"></div>
       <div id="compass">
         <div id="compass-strip"></div>
         <div id="compass-tick"></div>
@@ -24,27 +26,36 @@
       <div id="phase">
         <div class="title">Day 1</div>
         <div class="sub"></div>
-        <div id="heart-bar" title="Heartwood"><div></div><span></span></div>
+        <div id="heart-bar" title="Heartwood"><div class="lag"></div><div class="fill"></div><span></span></div>
       </div>
+      <div id="boss" class="hidden">
+        <div class="name">The Thornback</div>
+        <div class="bar"><div class="lag"></div><div class="fill"></div></div>
+      </div>
+      <div id="journal"></div>
       <div id="map-wrap">
         <canvas id="minimap" width="360" height="360"></canvas>
         <div id="map-n">N</div>
         <div id="clock">07:12</div>
       </div>
       <div id="crosshair"></div>
+      <svg id="charge" viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" /></svg>
+      <div id="hitmark"><i></i><i></i><i></i><i></i></div>
       <div id="prompt">
         <svg viewBox="0 0 40 40"><circle class="track" cx="20" cy="20" r="16" /><circle class="fill" cx="20" cy="20" r="16" /></svg>
         <div class="key">E</div>
-        <span class="label"></span>
+        <div class="text"><span class="label"></span><small class="sub"></small></div>
       </div>
       <div id="build-hint"></div>
       <div id="toasts"></div>
       <div id="bottom-left">
+        <div id="boons"></div>
         <div id="health"><div></div><span>100</span></div>
         <div id="stamina"><div></div></div>
       </div>
       <div id="bottom-center">
         <div id="held">Machete</div>
+        <div id="ammo"></div>
         <div id="hotbar"></div>
       </div>
       <div id="hint">LMB swing · E gather · Tab satchel · 1–8 belt</div>
@@ -58,7 +69,7 @@
       <div class="inv-panel">
         <header>
           <h2>Satchel</h2>
-          <div class="inv-summary"><span id="inv-slots">0/32</span> slots · relics worth <span id="inv-relics">0</span></div>
+          <div class="inv-summary"><span id="inv-slots">0/32</span> slots · relics worth <span id="inv-relics">0</span> favour</div>
         </header>
         <div class="inv-body">
           <section class="inv-left">
@@ -77,12 +88,29 @@
       </div>
     </div>
 
+    <div id="perks" class="hidden">
+      <div class="menu-inner">
+        <div class="eyebrow">The Heartwood stirs</div>
+        <h2>Choose a boon</h2>
+        <div class="cards"></div>
+      </div>
+    </div>
+
+    <div id="victory" class="hidden">
+      <div class="menu-inner">
+        <div class="eyebrow">Ten nights held</div>
+        <h1>The Heartwood Blooms</h1>
+        <p class="stats"></p>
+        <div class="buttons"><button id="endless" class="primary">Keep going</button><button id="victory-new">New run</button></div>
+      </div>
+    </div>
+
     <div id="gameover" class="hidden">
       <div class="menu-inner">
         <div class="eyebrow">The Blight takes the clearing</div>
         <h1>Overgrown</h1>
         <p class="stats"></p>
-        <button id="again">Try again</button>
+        <div class="buttons"><button id="again" class="primary">Try again</button></div>
       </div>
     </div>
 
@@ -92,15 +120,22 @@
         <h1>Overgrowth</h1>
         <p class="tag">Strip the jungle by day. Hold the Heartwood by night.</p>
         <div id="loading"><div id="loading-bar"></div><span id="loading-text">Growing the jungle…</span></div>
-        <button id="play" disabled>Enter the jungle</button>
-        <label id="sens">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.05" value="1" /><output>1.00</output></label>
+        <div class="buttons">
+          <button id="play" class="primary" disabled>Enter the jungle</button>
+          <button id="newrun" class="hidden">New run</button>
+        </div>
+        <div id="best"></div>
+        <div id="settings">
+          <label id="sens">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.05" value="1" /><output>1.00</output></label>
+          <label id="bloom-opt"><input type="checkbox" checked /> Glow</label>
+        </div>
         <div class="controls">
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> sprint</div>
           <div><kbd>Space</kbd> jump</div>
-          <div><kbd>LMB</kbd> swing machete / place</div>
-          <div><kbd>E</kbd> gather · search · offer</div>
+          <div><kbd>LMB</kbd> swing · draw the sling · place</div>
+          <div><kbd>E</kbd> gather · search · upgrade · offer</div>
           <div><kbd>1</kbd>–<kbd>8</kbd> / wheel belt slot</div>
-          <div><kbd>R</kbd> rotate build · <kbd>RMB</kbd> use</div>
+          <div><kbd>RMB</kbd> use · <kbd>R</kbd> rotate · <kbd>F</kbd> pack up</div>
           <div><kbd>Tab</kbd> satchel &amp; crafting</div>
           <div><kbd>T</kbd> hold to skip daylight</div>
         </div>

@@ -21,8 +21,8 @@ leafm = get_mat('LeafDS', 0.7, double=True)
 plant = get_mat('Plant', 0.8)
 shroom = get_mat('Shroom', 0.6)
 
-WOOD = '#7a5644'
-DARKW = '#634a3e'
+WOOD = '#8a6650'
+DARKW = '#735848'
 BZ = 0.82  # body centre height
 
 # ---------------------------------------------------------------- body

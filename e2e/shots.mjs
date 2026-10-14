@@ -4,12 +4,12 @@
 //
 //   node e2e/shots.mjs [outDir] [viewName ...]
 //
-// BASE defaults to http://127.0.0.1:5188/ (start `npm run dev` first).
+// BASE defaults to http://localhost:5188/ (start `npm run dev` first).
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE = process.env.BASE ?? 'http://127.0.0.1:5188/';
+const BASE = process.env.BASE ?? 'http://localhost:5188/';
 const out = process.argv[2] ?? 'e2e/out/shots';
 const only = process.argv.slice(3);
 fs.mkdirSync(out, { recursive: true });
@@ -99,7 +99,7 @@ for (const v of VIEWS) {
     g.player.spawn(spot.x, spot.z);
     g.player.vel.set(0, 0, 0);
     if (spot.yaw !== undefined) g.player.yaw = spot.yaw;
-    else if (v.find === 'spawn') g.faceNearestTemple();
+    else if (v.find === 'spawn') g.player.yaw = Math.atan2(-(g.base.x - spot.x), -(g.base.z - spot.z));
     g.player.yaw += v.yawOff ?? 0;
     g.player.pitch = v.pitch;
     g.sky.time = v.time;

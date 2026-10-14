@@ -5,6 +5,7 @@ import bpy, bmesh, math, random
 from mathutils import Vector, Matrix, Euler, noise
 
 TAU = math.pi * 2
+SHARP_ANGLE = math.radians(42)
 
 
 def get_mat(name, rough=0.8, metal=0.0, emit=None, strength=3.0, double=False):
@@ -59,8 +60,10 @@ class Part:
             self.mats.append(mat)
         return self.mats.index(mat)
 
-    def add(self, build, mat, color, m=Matrix(), deform=None, var=0.12, smooth=False,
+    def add(self, build, mat, color, m=Matrix(), deform=None, var=0.12, smooth=None,
             ao=0.0, ao_h=1.0, ao_base=0.0, streak=0.0):
+        # smooth: None = smooth shading with hard edges over SHARP_ANGLE (organic parts);
+        # False = faceted (cut stone, flint); True = smooth everywhere.
         tmp = bmesh.new()
         build(tmp)
         if deform:
@@ -76,11 +79,15 @@ class Part:
         self.bm.faces.ensure_lookup_table()
         mi = self._mi(mat)
         base = Vector(color if not isinstance(color, str) else hexc(color))
+        # colour variation is a smooth noise over the surface (plus a little per face) so
+        # parts read as weathered material, not a mosaic of differently tinted facets
+        off = Vector((self.rand.uniform(0, 50), self.rand.uniform(0, 50), self.rand.uniform(0, 50)))
         for f in self.bm.faces[n0:]:
             f.material_index = mi
-            f.smooth = smooth
-            k = 1 + self.rand.uniform(-var, var)
+            f.smooth = smooth is not False
+            kf = self.rand.uniform(-var, var) * 0.25
             for l in f.loops:
+                k = 1 + kf + var * 1.4 * noise.noise(l.vert.co * 3.3 + off)
                 z = l.vert.co.z
                 occ = 1.0
                 if ao > 0:
@@ -97,6 +104,10 @@ class Part:
         self.bm.normal_update()
         self.bm.to_mesh(me)
         self.bm.free()
+        try:  # hard edges where faces meet at more than SHARP_ANGLE, smooth elsewhere
+            me.set_sharp_from_angle(angle=SHARP_ANGLE)
+        except Exception:
+            pass
         for mat in self.mats:
             me.materials.append(mat)
         try:  # make 'Col' the colour attribute the glTF exporter writes as COLOR_0
@@ -143,10 +154,17 @@ def ringed_cyl(r1, r2, h, seg=10, rings=6):
     return b
 
 
-def box(sx=1, sy=1, sz=1, base=True):
+def box(sx=1, sy=1, sz=1, base=True, cuts=0, chamfer=0.0):
+    """cuts: grid-subdivide each face so a deformer can carve it.
+    chamfer: bevel the corner edges (in metres) so they catch light like worked stone."""
     def b(bm):
         bmesh.ops.create_cube(bm, size=1.0)
         bmesh.ops.scale(bm, vec=(sx, sy, sz), verts=bm.verts)
+        if cuts:
+            bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=cuts, use_grid_fill=True)
+        if chamfer:
+            sharp = [e for e in bm.edges if len(e.link_faces) == 2 and e.link_faces[0].normal.angle(e.link_faces[1].normal) > 1.0]
+            bmesh.ops.bevel(bm, geom=sharp, offset=chamfer, segments=1, affect='EDGES', clamp_overlap=True)
         if base:
             bmesh.ops.translate(bm, vec=(0, 0, sz / 2), verts=bm.verts)
     return b

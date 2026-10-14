@@ -11,15 +11,15 @@ function beamMaterial(color) {
     beamMat.set(color, new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(color) } },
       vertexShader: 'varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: 'uniform vec3 uColor; varying float vY; void main(){ float a = pow(1.0 - vY, 2.5) * smoothstep(0.0, 0.05, vY) * 0.28; gl_FragColor = vec4(uColor * a, 1.0); }',
+      fragmentShader: 'uniform vec3 uColor; varying float vY; void main(){ float a = pow(clamp(1.0 - vY, 0.0, 1.0), 2.5) * smoothstep(0.0, 0.05, vY) * 0.14; gl_FragColor = vec4(uColor * a, 1.0); }',
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     }));
   }
   return beamMat.get(color);
 }
 
-const beamGeo = new THREE.CylinderGeometry(0.025, 0.07, 7, 8, 1, true);
-beamGeo.translate(0, 3.5, 0);
+const beamGeo = new THREE.CylinderGeometry(0.025, 0.07, 3.5, 8, 1, true);
+beamGeo.translate(0, 1.75, 0);
 
 export class Pickups {
   constructor(scene, world) {

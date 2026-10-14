@@ -45,7 +45,7 @@ for sx in (-1, 1):
         for k in range(6):
             a = k / 6 * TAU + rnd.uniform(-0.3, 0.3)
             p = c + Vector((math.cos(a) * 0.22, math.sin(a) * 0.22, rnd.uniform(0.02, 0.08)))
-            B.add(ico(rnd.uniform(0.11, 0.17), 1), stone, rnd.choice(['#8e8a7e', '#9d998c', '#7f7c71']), M(p, (rnd.random(), rnd.random(), rnd.random()), (1, 1, 0.7)), deform=jitter(0.025, k + sx * 10 + sy * 20))
+            B.add(ico(rnd.uniform(0.11, 0.17), 2), stone, rnd.choice(['#6e6a60', '#5e5a52', '#66625a']), smooth=True, m=M(p, (rnd.random(), rnd.random(), rnd.random()), (1, 1, 0.7)), deform=jitter(0.025, k + sx * 10 + sy * 20))
         B.add(ico(0.16, 1), moss, '#4f7a2a', M(c + Vector((0.12 * sx, 0.1 * sy, 0.12)), (0, 0, 0), (1.2, 1.2, 0.35)), deform=jitter(0.04, 50 + sx + sy * 3))
 
 # legs (slightly splayed), running a little above the deck as rail posts

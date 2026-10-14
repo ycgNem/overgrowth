@@ -393,6 +393,47 @@ const forestBuilders = {
   spike_trap(m) {
     return spikeTrapModel(m);
   },
+  slingshot(m) {
+    const g = new THREE.Group();
+    const fork = (a, b, r) => {
+      const d = new THREE.Vector3().subVectors(b, a);
+      const c = mesh(new THREE.CylinderGeometry(r * 0.85, r, d.length(), 8), m.wood, { p: a.clone().addScaledVector(d, 0.5).toArray() });
+      c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+      g.add(c);
+    };
+    const base = new THREE.Vector3(0, -0.2, 0), crotch = new THREE.Vector3(0, 0.02, 0);
+    fork(base, crotch, 0.026);
+    for (const sx of [-1, 1]) fork(crotch, new THREE.Vector3(sx * 0.1, 0.17, 0), 0.02);
+    g.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 8), m.rope, { p: [0, -0.12, 0] }));
+    g.add(mesh(new THREE.TorusGeometry(0.1, 0.008, 5, 16, Math.PI), m.vine, { p: [0, 0.17, 0.0], r: [0, 0, 0] }));
+    g.add(mesh(new THREE.BoxGeometry(0.07, 0.03, 0.035), m.label, { p: [0, 0.07, 0] }));
+    return g;
+  },
+  scrap_shot(m) {
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.26;
+      g.add(mesh(lumpy(new THREE.IcosahedronGeometry(0.045, 0), 0.35, i + 3), m.rust, { p: [Math.cos(a) * 0.06, (i % 2) * 0.03, Math.sin(a) * 0.06] }));
+    }
+    return g;
+  },
+  firepot(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.SphereGeometry(0.09, 14, 10), m.glass, { p: [0, 0, 0], s: [1, 1.15, 1] }));
+    g.add(mesh(new THREE.SphereGeometry(0.075, 12, 8), m.resin, { p: [0, -0.015, 0] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.08, 10), m.glass, { p: [0, 0.12, 0] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.1, 6), m.rope, { p: [0.01, 0.19, 0], r: [0, 0, 0.3] }));
+    g.add(mesh(new THREE.SphereGeometry(0.018, 6, 5), m.filament, { p: [0.025, 0.24, 0] }));
+    return g;
+  },
+  orchid_salve(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.1, 0.085, 0.07, 14), m.woodDark, { p: [0, 0, 0] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.02, 14), m.moss, { p: [0, 0.04, 0] }));
+    for (let i = 0; i < 5; i++) g.add(mesh(leafGeo(0.09, 0.05), m.orchid, { p: [0, 0.06, 0], r: [-0.9, (i / 5) * TAU, 0] }));
+    g.add(mesh(new THREE.SphereGeometry(0.02, 8, 6), m.resin, { p: [0, 0.07, 0] }));
+    return g;
+  },
 };
 
 // Spike trap: also placed in the world, so it's exported.

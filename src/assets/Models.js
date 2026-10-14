@@ -7,12 +7,15 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { flatten, ownMaterials } from '../art/merge.js';
 
-export const MODEL_NAMES = ['heartwood', 'bow_tower', 'spore_mortar', 'tesla_totem', 'barricade', 'blightling', 'rotboar'];
+export const MODEL_NAMES = [
+  'heartwood', 'bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'vine_snare', 'barricade',
+  'blightling', 'rotboar', 'wisp', 'thornback',
+];
 
 // Part names that stay separate so code can animate them.
-const KEEP = /^(Heart|Orbit|Turret|Aim|Bolt|Bellows|Orb|Rings|Head|Jaw|Leg|Tail)/;
+const KEEP = /^(Heart|Orbit|Turret|Aim|Bolt|Bellows|Orb|Rings|Head|Jaw|Leg|Tail|Wing|Core|Sac|Flame|Coals|Grab)/;
 // Small creatures don't need to cast shadows; buildings do.
-const NO_SHADOW = new Set(['blightling']);
+const NO_SHADOW = new Set(['blightling', 'wisp']);
 
 const templates = new Map();
 
@@ -51,7 +54,15 @@ export function cloneModel(name, { own = false } = {}) {
   return own ? ownMaterials(c) : c;
 }
 
-// First descendant whose (sanitised) name starts with `prefix`, e.g. part(tower, 'Turret').
+// Every descendant (parts) or the first one (part) whose (sanitised) name starts with `prefix`, e.g. part(tower, 'Turret').
+export function parts(root, prefix) {
+  const out = [];
+  root.traverse((o) => {
+    if (o.name.startsWith(prefix) && !o.isMesh) out.push(o);
+  });
+  return out;
+}
+
 export function part(root, prefix) {
   let found = null;
   root.traverse((o) => {

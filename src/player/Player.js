@@ -46,6 +46,9 @@ export class Player {
     this.hp = 100;
     this.maxHp = 100;
     this.hurtT = 0;
+    this.speedMul = 1; // boons
+    this.moveMul = 1; // this frame only (drawing the slingshot)
+    this.staminaRegen = 1;
     camera.rotation.order = 'YXZ';
   }
 
@@ -89,10 +92,10 @@ export class Player {
       this.staminaDelay = 0.9;
     } else {
       this.staminaDelay -= dt;
-      if (this.staminaDelay <= 0) this.stamina = Math.min(1, this.stamina + dt * 0.16);
+      if (this.staminaDelay <= 0) this.stamina = Math.min(1, this.stamina + dt * 0.16 * this.staminaRegen);
     }
 
-    let speed = this.sprinting ? 7.4 : 4.3;
+    let speed = (this.sprinting ? 7.4 : 4.3) * this.speedMul * this.moveMul;
     if (this.swimming) speed = 2.6;
     else speed *= 1 - this.wading * 0.45;
 

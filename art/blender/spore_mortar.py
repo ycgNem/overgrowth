@@ -45,8 +45,8 @@ for i in range(5):
     a = rnd.uniform(0, TAU)
     for k in range(rnd.randint(2, 3)):
         p = Vector((math.cos(a) * 1.08 + rnd.uniform(-0.08, 0.08), math.sin(a) * 1.08 + rnd.uniform(-0.08, 0.08), 0.0))
-        mushroom_parts(B, plant, shroom, M(p), h=rnd.uniform(0.08, 0.16), r=rnd.uniform(0.05, 0.09), cap=rnd.choice(['#7a3fa0', '#9a52b8']),
-                       rot=(rnd.uniform(-0.3, 0.3), rnd.uniform(-0.3, 0.3), 0), spots=spore, seed=i * 7 + k)
+        mushroom_parts(B, plant, shroom, M(p), h=rnd.uniform(0.08, 0.16), r=rnd.uniform(0.05, 0.09), cap=rnd.choice(['#8a5a3a', '#a8643a']),
+                       rot=(rnd.uniform(-0.3, 0.3), rnd.uniform(-0.3, 0.3), 0), spots=None, seed=i * 7 + k)
 
 # glowing spore sacs bulging out between the stones
 for i in range(7):
@@ -144,22 +144,23 @@ def funnel(scale, lip):
             for i in range(seg):
                 bm.faces.new((rows[j][i], rows[j][(i + 1) % seg], rows[j + 1][(i + 1) % seg], rows[j + 1][i]))
     return b
-A.add(funnel(1.0, 0.03), shroom, '#7a3a9e', M((0, MY + 0.02, 0)), smooth=True, var=0.06, streak=0.25)
+A.add(funnel(1.0, 0.03), shroom, '#6b4d3c', M((0, MY + 0.02, 0)), smooth=True, var=0.08, streak=0.35)
 # inner throat, facing the other way so it lights the inside of the funnel
 def flip(f):
     def b(bm):
         f(bm)
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
     return b
-A.add(flip(funnel(0.95, 0.0)), shroom, '#b07ad0', M((0, MY + 0.012, 0)), smooth=True, var=0.05)
+A.add(flip(funnel(0.95, 0.0)), shroom, '#8c6650', M((0, MY + 0.012, 0)), smooth=True, var=0.05)
 # glowing gill dots ringing the throat
 for i in range(18):
     a = i / 18 * TAU
     A.add(sphere(0.022, 6, 4), gill, (1, 1, 1), M((math.cos(a) * 0.3, MY - 0.135, math.sin(a) * 0.3)))
-# pale speckles on the rim
-for i in range(12):
-    a = rnd.uniform(0, TAU)
-    A.add(ico(0.03, 1), plant, '#efe6d0', M((math.cos(a) * 0.5, MY - 0.2, math.sin(a) * 0.5), (0, 0, 0), (1, 0.5, 1)))
+# gill ridges fanning under the bell
+for i in range(20):
+    a = i / 20 * TAU
+    mm, ll = look_m((math.cos(a) * 0.22, MY - 0.05, math.sin(a) * 0.22), (math.cos(a) * 0.48, MY - 0.22, math.sin(a) * 0.48))
+    A.add(box(0.012, 0.03, ll, base=True), shroom, '#c8a890', mm)
 # glowing spores waiting in the muzzle
 for k in range(4):
     A.add(sphere(0.06, 8, 6), spore, (1, 1, 1), M((rnd.uniform(-0.05, 0.05), MY + 0.12 + k * 0.05, rnd.uniform(-0.05, 0.05))), smooth=True)

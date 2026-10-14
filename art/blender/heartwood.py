@@ -14,9 +14,9 @@ stone = get_mat('Stone', 0.92)
 moss = get_mat('Moss', 1.0)
 leafm = get_mat('LeafDS', 0.7, double=True)
 plant = get_mat('Plant', 0.8)
-rune = get_mat('RuneGlow', 0.4, emit=(0.35, 1.0, 0.62), strength=4.0)
-heartm = get_mat('HeartGlow', 0.2, emit=(0.55, 1.0, 0.7), strength=6.0)
-vein = get_mat('VeinGlow', 0.4, emit=(0.3, 0.95, 0.55), strength=2.5)
+rune = get_mat('RuneGlow', 0.4, emit=(0.12, 0.85, 0.4), strength=1.3)
+heartm = get_mat('HeartGlow', 0.2, emit=(0.2, 1.0, 0.5), strength=1.1)
+vein = get_mat('VeinGlow', 0.4, emit=(0.1, 0.75, 0.35), strength=1.0)
 shroom = get_mat('Shroom', 0.6)
 
 BARK = '#5b4331'
@@ -33,9 +33,9 @@ for si, (R, z0, h) in enumerate(steps):
         depth = 0.62 if si < 2 else 0.5
         rc = R - depth / 2
         m = M((math.cos(mid) * rc, math.sin(mid) * rc, z0 + rnd.uniform(-0.015, 0.02)), (rnd.uniform(-0.02, 0.02), rnd.uniform(-0.02, 0.02), mid))
-        B.add(box(depth, w, h), stone, rnd.choice(['#7f7b70', '#76736a', '#878377']), m, deform=jitter(0.025, si * 50 + i, 3.0), ao=0.35, ao_h=0.35, ao_base=z0, streak=0.12)
+        B.add(box(depth, w, h, cuts=2, chamfer=0.035), stone, rnd.choice(['#6e6a60', '#66635a', '#757166']), m, deform=jitter(0.035, si * 50 + i, 3.0), ao=0.35, ao_h=0.35, ao_base=z0, streak=0.5, var=0.12)
 # central floor disc under the trunk
-B.add(cyl(1.5, 1.45, 0.2, 12), stone, '#6a675e', M((0, 0, 0.42)), deform=jitter(0.03, 5))
+B.add(cyl(1.5, 1.45, 0.2, 12), stone, '#5e5b53', M((0, 0, 0.42)), deform=jitter(0.03, 5), streak=0.4)
 # moss creeping over the steps
 for i in range(14):
     a = rnd.uniform(0, TAU); r = rnd.uniform(1.4, 2.9)
@@ -48,25 +48,28 @@ for i in range(8):
     h = rnd.uniform(1.25, 1.85)
     tilt = rnd.uniform(-0.07, 0.07)
     m = M((math.cos(a) * 3.45, math.sin(a) * 3.45, -0.2), (tilt, rnd.uniform(-0.05, 0.05), a))
-    sc = rnd.choice(['#858175', '#7b786d', '#8e8a7d'])
-    B.add(box(0.42, 0.66, h), stone, sc, m, deform=jitter(0.04, 10 + i, 2.0), ao=0.5, ao_h=1.1, streak=0.18)
+    sc = rnd.choice(['#727065', '#6a675d', '#7a776b'])
+    B.add(box(0.42, 0.66, h, cuts=3, chamfer=0.04), stone, sc, m, deform=jitter(0.07, 10 + i, 2.2), ao=0.5, ao_h=1.1, streak=0.5, var=0.12)
     # bevelled pyramid cap
-    B.add(cyl(0.48, 0.16, 0.32, 4), stone, sc, m @ M((0, 0, h), (0, 0, math.pi / 4), (0.62, 0.95, 1)), deform=jitter(0.03, 20 + i, 2.0))
+    B.add(cyl(0.48, 0.16, 0.32, 4), stone, sc, m @ M((0, 0, h), (0, 0, math.pi / 4), (0.62, 0.95, 1)), deform=jitter(0.03, 20 + i, 2.0), streak=0.5)
     # moss on the cap and a strip down the back
-    B.add(ico(0.26, 1), moss, '#56802e', m @ M((0.02, 0, h + 0.12), (0, 0, 0), (1.0, 1.4, 0.45)), deform=jitter(0.05, 30 + i), var=0.25)
+    B.add(ico(0.24, 2), moss, '#4f7529', m @ M((0.02, 0, h + 0.1), (0, 0, rnd.uniform(0, TAU)), (1.0, 1.3, 0.7)), deform=jitter(0.06, 30 + i, 4.0), smooth=True, var=0.25)
     for k in range(3):
-        B.add(ico(rnd.uniform(0.1, 0.17), 1), moss, '#4f7a2a', m @ M((0.2, rnd.uniform(-0.2, 0.2), h * rnd.uniform(0.15, 0.8)), (0, 0, 0), (0.35, 1.0, 1.4)), deform=jitter(0.04, 40 + i * 3 + k), var=0.25)
-    # glyph: a vertical bar with ticks and a ring, on the inward face
-    g = m @ M((-0.215, 0, h * 0.42))
-    B.add(box(0.03, 0.06, 0.5), rune, (1, 1, 1), g)
-    for k, (dz, dy) in enumerate([(0.12, 0.09), (-0.08, -0.09), (0.28, -0.07)]):
-        B.add(box(0.03, 0.12, 0.045), rune, (1, 1, 1), g @ M((0, dy, dz)))
-    B.add(torus(0.07, 0.015, 10, 4), rune, (1, 1, 1), g @ M((0, 0, 0.62), (0, math.pi / 2, 0)))
+        B.add(ico(rnd.uniform(0.1, 0.17), 2), moss, '#4a7027', m @ M((0.2, rnd.uniform(-0.2, 0.2), h * rnd.uniform(0.15, 0.8)), (0, 0, 0), (0.45, 1.0, 1.4)), deform=jitter(0.05, 40 + i * 3 + k, 4.0), smooth=True, var=0.25)
+    # glyph on the inward face: a sapling rune, a stem with branches swept up in chevrons
+    # and a seed above it, carved shallow so it glows from inside the stone
+    g = m @ M((-0.212, 0, h * 0.3))
+    B.add(box(0.025, 0.035, 0.62), rune, (1, 1, 1), g)
+    for k in range(3):
+        dz = 0.14 + k * 0.15
+        for sy in (-1, 1):
+            B.add(box(0.025, 0.03, 0.17 - k * 0.03), rune, (1, 1, 1), g @ M((0, sy * 0.05, dz), (sy * 0.85, 0, 0)))
+    B.add(sphere(0.045, 8, 6), rune, (1, 1, 1), g @ M((0, 0, 0.72), (0, 0, 0), (0.5, 1, 1)))
     # foot stones
     for k in range(2):
-        B.add(ico(rnd.uniform(0.1, 0.16), 1), stone, '#8a877b', m @ M((rnd.uniform(-0.35, 0.35), rnd.choice([-0.45, 0.45]), 0.25), (rnd.random(), rnd.random(), 0)), deform=jitter(0.02, 300 + i * 2 + k))
+        B.add(ico(rnd.uniform(0.1, 0.16), 2), stone, '#66635a', smooth=True, m=m @ M((rnd.uniform(-0.35, 0.35), rnd.choice([-0.45, 0.45]), 0.25), (rnd.random(), rnd.random(), 0)), deform=jitter(0.02, 300 + i * 2 + k))
 # one toppled stone
-B.add(box(0.4, 0.6, 1.4), stone, '#7d7a70', M((3.9, -1.9, 0.2), (math.pi / 2 - 0.15, 0, 2.6)), deform=jitter(0.05, 99, 2.0), ao=0.3, ao_h=0.5, streak=0.15)
+B.add(box(0.4, 0.6, 1.4, cuts=3, chamfer=0.04), stone, '#6c695f', M((3.9, -1.9, 0.2), (math.pi / 2 - 0.15, 0, 2.6)), deform=jitter(0.07, 99, 2.2), ao=0.3, ao_h=0.5, streak=0.5, var=0.12)
 
 # ---------------------------------------------------------------- trunk
 TH = 2.7

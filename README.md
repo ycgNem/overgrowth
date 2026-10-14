@@ -5,12 +5,14 @@ By day you hack through the jungle with a machete, forage the forest floor, harv
 and scavenge old camps, wrecks and temples. In the satchel you craft what you found into towers,
 barricades and traps, and build them around the **Heartwood**, the glowing shrine at your camp.
 At dusk the Blight crawls out of rifts in the forest and follows the terrain to the Heart. Hold it
-until dawn. Each night is harder than the last. See [PLAN.md](PLAN.md) for the design and roadmap.
+until dawn. Each night is harder than the last, every fifth night brings a boss, and holding
+through **night 10** wins the run (you can carry on in endless mode). The run saves itself every
+morning. See [PLAN.md](PLAN.md) for the design and roadmap.
 
 The world is procedural: textures are painted with the canvas API, plants and props are built from
 code, and the soundscape is synthesised with Web Audio. The hero models are the exception: the
-Heartwood, the three towers, the barricade and both enemies are made in **Blender** from Python
-scripts (`art/blender/`) and shipped as GLBs in `public/models/`.
+Heartwood, the five towers, the barricade, the vine snare and the four Blight are made in
+**Blender** from Python scripts (`art/blender/`) and shipped as GLBs in `public/models/`.
 
 ## Running
 
@@ -19,22 +21,24 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5188 and click **Enter the jungle**.
+Open http://localhost:5188 and click **Enter the jungle** (or **Continue** when a save exists).
+The Journal on the left walks you through the first day.
 
 | Key | Action |
 | --- | --- |
 | W A S D | Move |
 | Shift | Sprint (uses stamina) |
 | Space | Jump |
-| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, hits the Blight) / place the held build |
-| Right mouse | Use the held consumable (Berry Poultice) |
-| E | Pick up forage (tap). Search camps, wrecks and altars (hold). Offer relics or call the night at the Heartwood (hold). Pack up a building by day (hold) |
+| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, hits the Blight; every third hit in a row is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
+| Right mouse | Use the held consumable: eat a poultice, throw a firepot, raise orchid salve to mend nearby buildings and the Heartwood |
+| E | Pick up forage (tap). Search camps, wrecks and altars (hold). At a building: repair it if damaged, otherwise upgrade it (hold). At the Heartwood: offer relics for a boon, or call the night (hold) |
+| F (hold) | Pack up a building by day (you get it back) |
 | 1–8 / mouse wheel | Choose a belt slot. An empty slot means the machete |
 | R | Rotate a barricade before placing it |
 | Tab / I | Satchel: inventory and crafting |
 | T (hold) | Skip daylight |
 | M | Mute |
-| Esc | Pause (mouse sensitivity is on the pause menu) |
+| Esc | Pause (mouse sensitivity and the Glow toggle are on the pause menu) |
 
 ### Debug mode
 
@@ -46,15 +50,23 @@ exposed on `window`, for example:
 game.teleport('temple')   // also: 'ruins', 'wreck', 'camp', 'scrap', 'crates'
 game.give('log', 5)       // any item id from src/items/ItemDB.js
 game.skipToNight()        // jump the clock to dusk: the rifts open
-game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)
+game.waves.setNight(5)    // pretend it's night 5 (a boss night)
+game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)   // also 'blightling', 'wisp', 'thornback'
 ```
+
+Debug runs never autosave. The save lives in `localStorage` under `og.save.v1`, and the best run
+under `og.best`.
 
 ## How it's put together
 
 ```
 src/
-  main.js              boot, menu, pointer-lock pause, sensitivity slider
-  core/Game.js         owns every system; the frame loop; combat, harvesting, foraging, building
+  main.js              boot, menu (continue / new run), pointer-lock pause, settings
+  core/Game.js         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
+                       building, boss slams, endings, autosave
+  core/Save.js         localStorage save/load of a run, best-run record
+  core/Perks.js        boons offered at the Heartwood and the stat modifiers they change
+  core/Journal.js      first-day tutorial steps, then rolling optional goals
   core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering
   assets/Models.js     loads the Blender GLBs, clones them, finds animated parts
   art/merge.js         flattens models to one draw call per moving part (baked colour/emissive)
@@ -67,18 +79,23 @@ src/
   world/Sky.js         sky dome shader, sun/moon, day-night palette, environment map
   world/Water.js       river/lake surface
   player/Player.js     movement, jump buffering, stamina, swimming, health, head-bob
-  player/Machete.js    viewmodel + swing animation (rendered in a second pass)
+  player/Machete.js    viewmodel: machete, slingshot, held items and their animations
+                       (rendered in a second pass)
   items/ItemDB.js      items (materials, salvage, relics, buildables, consumables) + loot tables
   items/Recipes.js     crafting recipes
   items/Inventory.js   8-slot belt + 24-slot pack of stacks
   items/ItemModels.js  3D item models + inventory icon renderer
   items/Pickups.js     items in the world (pop, bob, glow, magnet)
-  defense/Base.js      the Heartwood, base-site search, Blight rifts
+  defense/Base.js      the Heartwood (light, beam, hit reactions), base-site search, Blight rifts
   defense/FlowField.js enemy path-finding: one Dijkstra field around the base
-  defense/Enemies.js   Blightling and Rotboar: steering, attacks, procedural animation
-  defense/Towers.js    buildings, targeting, projectiles, placement ghost
-  defense/Waves.js     the day/night director and wave composition
-  fx/Particles.js      leaf bursts, wood chips, sparks, spores
+  defense/Enemies.js   Blightling, Rotboar, Wisp, Thornback: steering, wind-ups, pounces,
+                       statuses (burn/root/slow), boss slam, spawn and death animations
+  defense/Towers.js    buildings, tiers, repair, targeting, projectiles, placement ghost
+  defense/Waves.js     the day/night director, wave composition, boss and rain nights
+  combat/Projectiles.js  slingshot stones and thrown firepots
+  fx/Particles.js      leaf bursts, wood chips, sparks, spores, smoke, embers, ash, rings
+  fx/LightPool.js      six shared point lights handed out by priority (no shader recompiles)
+  fx/Weather.js        rain streaks, lightning, fog and light dimming
   fx/Ambient.js        pollen, fireflies, butterflies, birds, light shafts
   audio/AudioSys.js    synthesised ambience + sound effects
   ui/HUD.js, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
@@ -88,14 +105,21 @@ public/models/         the exported GLBs
 
 ## Blender models
 
-Each model is a Python script run inside Blender (through the Blender MCP add-on, or pasted into
-Blender's script editor). `art/blender/oglib.py` is a small library: primitives, noise deformers,
-leaves, lashings, per-face vertex colours with baked ground occlusion, and a GLB exporter.
-`exec(open(r"<repo>/art/blender/export_all.py").read())` rebuilds and re-exports all seven models.
+Each model is a Python script run inside Blender. `art/blender/oglib.py` is a small library:
+primitives, noise deformers, leaves, lashings, per-face vertex colours with baked ground occlusion,
+auto-smoothing by angle, and a GLB exporter. The quickest route is headless Blender:
+
+```bash
+blender -b --factory-startup -P art/blender/export_new.py -- wisp thornback
+```
+
+With no names after `--` it rebuilds and exports all of them. Inside a running Blender,
+`exec(open(r"<repo>/art/blender/export_all.py").read())` does the same.
 Parts that move in game are separate nodes: `Turret`/`Aim`/`Bolt` on the bow tower,
-`Turret`/`Aim`/`Bellows` on the mortar, `Orb`/`Rings` on the totem, `Heart`/`Orbit` on the
-Heartwood, and `Head`/`Jaw`/`Leg*`/`Tail` on the creatures. Forward is -Y in Blender, which is +Z
-in three.js.
+`Turret`/`Aim`/`Bellows` on the mortar, `Orb`/`Rings` on the totem, `Flame`/`Coals` on the
+brazier, `Grab0`–`Grab4` on the vine snare, `Heart`/`Orbit` on the Heartwood, and
+`Head`/`Jaw`/`Leg*`/`Tail`/`Wing*`/`Core`/`Sac` on the creatures. Forward is -Y in Blender, which
+is +Z in three.js.
 
 ### Key ideas worth studying
 
@@ -134,7 +158,7 @@ views and prints the main scene's draw calls and triangles for each. Spawn, floo
 riverbank, cliffs, clearing, temple, dusk and hillside are covered.
 `python e2e/sheet.py <outDir> sheet.png` lays them out on one contact sheet.
 `node e2e/loop.mjs` checks the gather → craft → defend loop end to end, and
-`node e2e/balance.mjs <night> <starter|mid>` simulates one night against a fixed defence. Two review agents
+`node e2e/balance.mjs <night> <starter|mid|late>` simulates one night against a fixed defence. Two review agents
 live in `.claude/agents/`:
 
 - `indie-critic` reviews look, feel and play as a whole.
@@ -158,5 +182,7 @@ live in `.claude/agents/`:
 - **Bigger world view:** raise `VIEW_RADIUS` in `World.js` (cost grows quadratically) and
   lower the fog density in `Sky.js`.
 
-Next steps are in [PLAN.md](PLAN.md): a slingshot, tower upgrades and repair, Wisps,
-saves, boss nights and weather.
+- **New boon:** add an entry to `PERKS` in `core/Perks.js`. If it needs a new stat, give it a
+  default in `baseMods()` and read `game.mods.<name>` where it applies.
+
+Next steps are in [PLAN.md](PLAN.md).

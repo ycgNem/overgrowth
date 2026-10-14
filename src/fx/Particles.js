@@ -48,12 +48,20 @@ class Pool {
       p.rot.y += p.spin.y * dt;
       p.rot.z += p.spin.z * dt;
       const fade = Math.min(1, p.life / 0.4);
-      const size = p.size * (p.shrink ? fade : 1);
+      let size = p.size * (p.shrink ? fade : 1);
+      // glows and puffs right in your face wash the screen out: fade them out up close
+      let near = 1;
+      if (p.billboard) {
+        const d = p.pos.distanceTo(camera.position);
+        near = Math.min(1, Math.max(0, (d - 0.8) / 2.7));
+        near = near * near * (3 - 2 * near);
+        if (!p.additive) size *= 0.25 + 0.75 * near;
+      }
       if (p.billboard) _q.copy(camera.quaternion);
       else _q.setFromEuler(_e.set(p.rot.x, p.rot.y, p.rot.z));
       _m.compose(p.pos, _q, _s.set(size, size, size));
       this.mesh.setMatrixAt(n, _m);
-      this.mesh.setColorAt(n, _c.copy(p.color).multiplyScalar(p.additive ? fade : 1));
+      this.mesh.setColorAt(n, _c.copy(p.color).multiplyScalar(p.additive ? fade * near : 1));
       n++;
     }
     this.items = alive;
@@ -72,6 +80,15 @@ export class Particles {
     this.glow = new Pool(scene, new THREE.MeshBasicMaterial({
       map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
     }), 300);
+    this.smoke = new Pool(scene, new THREE.MeshBasicMaterial({
+      map: glowTexture(), transparent: true, opacity: 0.45, depthWrite: false, fog: true,
+    }), 160);
+    this.scene = scene;
+    this.rings = [];
+    this.ringGeo = new THREE.RingGeometry(0.82, 1, 48);
+    this.ringGeo.rotateX(-Math.PI / 2);
+    this.warnGeo = new THREE.RingGeometry(0.955, 1, 72);
+    this.warnGeo.rotateX(-Math.PI / 2);
     this.rand = Math.random;
   }
 
@@ -125,9 +142,9 @@ export class Particles {
   }
 
   // a soft cloud of glowing spores (mortar hits, Blight deaths)
-  sporeBurst(pos, color, count = 30) {
+  sporeBurst(pos, color, count = 30, sizeMul = 1) {
     for (let i = 0; i < count; i++) {
-      const p = this.base(pos, { spread: 0.8, speed: 5, up: 3, life: 1.4, size: 0.45, gravity: -0.6, drag: 3, color });
+      const p = this.base(pos, { spread: 0.8, speed: 5, up: 3, life: 1.4, size: 0.45 * sizeMul, gravity: -0.6, drag: 3, color });
       p.billboard = true;
       p.additive = true;
       p.shrink = true;
@@ -135,7 +152,95 @@ export class Particles {
     }
   }
 
+  // fire: hot sparks that rise and wink out (burning Blight, the brazier)
+  embers(pos, count = 4, spread = 0.3, color = 0xff8a30) {
+    for (let i = 0; i < count; i++) {
+      const p = this.base(pos, { spread, speed: 1.2, up: 2.5, life: 0.8, size: 0.13, gravity: -3, drag: 1.5, flutter: 6, color });
+      p.billboard = true;
+      p.additive = true;
+      p.shrink = true;
+      this.glow.spawn(p);
+    }
+  }
+
+  // motes of blight-ash drifting up from dissolving creatures and open rifts
+  ash(pos, count = 2, spread = 0.4, color = 0xa050e0) {
+    for (let i = 0; i < count; i++) {
+      const p = this.base(pos, { spread: spread * 2, speed: 0.8, up: 1.6, life: 1.5, size: 0.11, gravity: -1.2, drag: 1, flutter: 3, color });
+      p.billboard = true;
+      p.additive = true;
+      p.shrink = true;
+      this.glow.spawn(p);
+    }
+  }
+
+  // a puff of dust kicked out along the ground (placing a building, slams, collapses)
+  dust(pos, count = 16, radius = 1, color = 0x8a7a5a) {
+    for (let i = 0; i < count; i++) {
+      const a = this.rand() * Math.PI * 2;
+      const p = this.base(pos, { spread: 0.2, speed: 0, up: 0.8, life: 1.1, size: 0.9 * radius, gravity: -0.3, drag: 2.5, color });
+      p.vel.x = Math.cos(a) * 3.2 * radius;
+      p.vel.z = Math.sin(a) * 3.2 * radius;
+      p.pos.x += Math.cos(a) * radius * 0.6;
+      p.pos.z += Math.sin(a) * radius * 0.6;
+      p.billboard = true;
+      p.shrink = true;
+      this.smoke.spawn(p);
+    }
+  }
+
+  // an expanding ring on the ground (boss slam, spore pod impact)
+  ring(pos, radius = 4, color = 0xc070ff, life = 0.6) {
+    const m = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
+      color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    }));
+    m.position.copy(pos);
+    m.position.y += 0.12;
+    this.scene.add(m);
+    this.rings.push({ m, t: 0, life, radius });
+  }
+
+  // A warning circle on the ground: a boss attack lands inside it when it closes.
+  warn(pos, radius = 6, life = 0.75, color = 0xff4060) {
+    const m = new THREE.Mesh(this.warnGeo, new THREE.MeshBasicMaterial({
+      color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    }));
+    m.position.copy(pos);
+    m.position.y += 0.15;
+    m.scale.setScalar(radius);
+    this.scene.add(m);
+    // the inner ring shrinks onto the edge as the hit gets close
+    const inner = new THREE.Mesh(this.warnGeo, m.material.clone());
+    m.add(inner);
+    this.rings.push({ m, inner, t: 0, life, radius, warn: true });
+  }
+
   update(dt, camera) {
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i];
+      r.t += dt;
+      const k = r.t / r.life;
+      if (r.warn) {
+        r.m.material.opacity = 0.35 + 0.35 * Math.sin(r.t * 30) ** 2;
+        r.inner.scale.setScalar(0.15 + 0.85 * k);
+        r.inner.material.opacity = 0.25 + 0.6 * k;
+        if (k >= 1) {
+          this.scene.remove(r.m);
+          r.m.material.dispose();
+          r.inner.material.dispose();
+          this.rings.splice(i, 1);
+        }
+        continue;
+      }
+      r.m.scale.setScalar(0.2 + r.radius * (1 - (1 - k) ** 3));
+      r.m.material.opacity = Math.max(0, 1 - k) * 0.9;
+      if (k >= 1) {
+        this.scene.remove(r.m);
+        r.m.material.dispose();
+        this.rings.splice(i, 1);
+      }
+    }
+    this.smoke.update(dt, camera);
     this.leaves.update(dt, camera);
     this.chips.update(dt, camera);
     this.glow.update(dt, camera);
