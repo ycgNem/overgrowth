@@ -294,5 +294,13 @@
   "batch": 3,
   "seed": 1301,
   "prompt": "flat frontal close-up photograph of a dry weathered grey limestone cliff face in a tropical rainforest, solid rough stone broken by angular fractures, sharp-edged small ledges and long shallow cracks, no holes, no pits, no pores, medium grey with warm beige and brown weathering stains and a few small pale lichen spots, matte dry surface, flat even overcast lighting, no cast shadows, sharp focus, highly detailed, the rock fills the whole frame"
+ },
+ {
+  "name": "turf",
+  "w": 1024,
+  "h": 1024,
+  "batch": 4,
+  "seed": 1401,
+  "prompt": "top-down photograph of one square metre of short wild tropical grass in a sunny forest clearing seen from 1.5 m above, dense fine grass blades in fresh yellow-green and mid green with a few dry straw-coloured blades, small clover and tiny broadleaf weeds mixed in, a few fallen brown leaves lying on top, glimpses of dark soil between tufts, evenly spread with no large features, flat even overcast light, no cast shadows, sharp focus, highly detailed, fills the whole frame"
  }
 ]

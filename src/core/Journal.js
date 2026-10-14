@@ -12,6 +12,7 @@ const TUTORIAL = [
 ];
 
 const GOALS = [
+  { id: 'bloom', text: 'Cut down a <b>Blight Bloom</b> <span class="rift">✺</span> before dusk, or the Blight comes through it' },
   { id: 'sling', text: 'Craft a <b>Slingshot</b> (sticks, a vine, fibre): stones are its ammo' },
   { id: 'upgrade', text: 'Upgrade a tower: hold <kbd>E</kbd> on it' },
   { id: 'offer', text: 'Offer a relic at the Heartwood to earn a <b>boon</b>' },
@@ -50,7 +51,7 @@ export class Journal {
 
   event(name, detail) {
     // optional goals tick off whenever they happen
-    const map = { craft: detail === 'slingshot' ? 'sling' : null, upgrade: 'upgrade', offer: 'offer', place: detail === 'ember_brazier' ? 'brazier' : detail === 'spore_mortar' ? 'mortar' : null };
+    const map = { craft: detail === 'slingshot' ? 'sling' : null, upgrade: 'upgrade', offer: 'offer', bloom: 'bloom', place: detail === 'ember_brazier' ? 'brazier' : detail === 'spore_mortar' ? 'mortar' : null };
     const g = map[name];
     if (g && !this.goals.has(g)) {
       this.goals.add(g);

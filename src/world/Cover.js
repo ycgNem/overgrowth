@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../utils/rng.js';
 import { smoothstep } from '../utils/math.js';
+import { CHUNK_SIZE as CS } from './WorldGen.js';
 
 const CELL = 4;
 const RADIUS = 25;
@@ -58,6 +59,10 @@ export class Cover {
     const world = this.world, r = mulberry32(((i * 92837111) ^ (j * 689287499)) >>> 0);
     const out = this.slots.map(() => []);
     const pois = world.poisNear(i * CELL + CELL / 2, j * CELL + CELL / 2, CELL + 30);
+    // loose things on the floor stay in sight: nothing grows right on top of one
+    const x0 = i * CELL, z0 = j * CELL;
+    const plan = world.plans.get(`${Math.floor((x0 + 1) / CS)},${Math.floor((z0 + 1) / CS)}`);
+    const loose = plan ? plan.forage.filter((f) => f.x > x0 - 0.6 && f.x < x0 + CELL + 0.6 && f.z > z0 - 0.6 && f.z < z0 + CELL + 0.6) : [];
     for (let k = 0; k < PER_CELL; k++) {
       // every random draw up front, so a skipped plant doesn't shift the ones after it
       const x = (i + r()) * CELL, z = (j + r()) * CELL;
@@ -65,8 +70,10 @@ export class Cover {
       const g = world.groundAt(x, z, _g);
       if (!g) return null;
       if (g.h < 0.5 || g.ny < 0.8 || g.rock > 0.3 || g.mud > 0.5) continue;
-      if (roll > smoothstep(0.35, 0.7, g.litter) * (1 - g.moss * 0.5)) continue;
+      // (turf grows its own blades: see Grass.js)
+      if (roll > smoothstep(0.35, 0.7, g.litter) * (1 - g.moss * 0.5) * (1 - 0.85 * smoothstep(0.3, 0.7, g.grass))) continue;
       if (world.cleared(x, z, 2)) continue;
+      if (loose.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < 0.3)) continue;
       if (pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius * 0.9) ** 2)) continue;
       let ki = 0, acc = KINDS[0].share;
       while (ki < KINDS.length - 1 && kindRoll >= acc) acc += KINDS[++ki].share;

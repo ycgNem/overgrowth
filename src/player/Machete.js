@@ -215,7 +215,13 @@ export class Machete {
       // backhand: from high on the left, back across to the lower right
       windB: this.makePose([-0.12, -0.05, -0.36], [-0.6, 0.7, 0.35], [0.5, -0.7, 0.5]),
       slashB: this.makePose([0.36, -0.3, -0.46], [0.85, -0.2, -0.5], [-0.2, -0.6, 0.75]),
+      // sprinting: carried low at your side, out of the middle of the view, pumping with the arm
+      run: this.makePose([0.29, -0.25, -0.42], [0.3, 0.35, -0.89], [0.8, -0.5, 0.3]),
     };
+    this._runQ = new THREE.Quaternion();
+    this._pumpQ = new THREE.Quaternion();
+    this._xAxis = new THREE.Vector3(1, 0, 0);
+    this._zAxis = new THREE.Vector3(0, 0, 1);
     this.debugPose = null;
     this.state = 'idle';
     this.t = 0;
@@ -410,6 +416,20 @@ export class Machete {
       const b = Math.sin(performance.now() * 0.0016) * 0.004;
       this.setPose(P.idle, 1);
       this.pivot.position.y += b;
+      // a sprint lowers the blade across the body and pumps it with the arm: forward and up
+      // on one step, back and down on the next (one bob unit is one step)
+      const r = player.runK || 0;
+      if (r > 0.001) {
+        const k = r * r * (3 - 2 * r);
+        this.pivot.position.lerp(P.run.p, k);
+        this.pivot.quaternion.slerp(P.run.q, k);
+        const ph = player.bob * Math.PI, sw = Math.sin(ph), up = Math.abs(Math.cos(ph));
+        this.pivot.position.x += sw * 0.018 * k;
+        this.pivot.position.y += (up - 0.5) * 0.045 * k;
+        this.pivot.position.z -= sw * 0.03 * k;
+        this.pivot.quaternion.premultiply(this._pumpQ.setFromAxisAngle(this._xAxis, -sw * 0.05 * k));
+        this.pivot.quaternion.premultiply(this._pumpQ.setFromAxisAngle(this._zAxis, sw * 0.03 * k));
+      }
     }
     // the blade bounces back off whatever it bit
     if (this.impact > 0) {
@@ -426,13 +446,18 @@ export class Machete {
     this.sway.x = THREE.MathUtils.damp(this.sway.x, 0, 8, dt);
     this.sway.y = THREE.MathUtils.damp(this.sway.y, 0, 8, dt);
     const bob = player.bob * Math.PI;
+    const run = player.runK || 0;
     const steady = this.mode === 'sling' ? 1 - (sling.aim || 0) * 0.8 : 1;
+    // the hand rides the stride: it settles as each foot lands
+    const ax = (0.01 + 0.008 * run) * player.bobAmt, ay = (0.01 + 0.012 * run) * player.bobAmt;
     this.root.position.set(
-      (this.sway.x * 0.02 + Math.sin(bob) * 0.012 * player.bobAmt) * steady,
-      (this.sway.y * 0.02 - Math.abs(Math.cos(bob)) * 0.012 * player.bobAmt) * steady - player.landDip * 0.3 - lower * 0.45,
+      (this.sway.x * 0.02 + Math.sin(bob) * ax) * steady,
+      (this.sway.y * 0.02 + (Math.abs(Math.sin(bob)) - 0.5) * ay) * steady - player.landDip * 0.3 - lower * 0.45
+        - (this.mode === 'machete' ? 0 : run * 0.05),
       0,
     );
-    this.root.rotation.x = -lower * 0.6;
+    this.root.rotation.x = -lower * 0.6 - (this.mode === 'machete' ? 0 : run * 0.25);
+    this.root.rotation.z = this.mode === 'machete' ? 0 : run * 0.2;
 
     // Light the viewmodel with the world's sun, expressed in camera space.
     this.camera.aspect = mainCamera.aspect;

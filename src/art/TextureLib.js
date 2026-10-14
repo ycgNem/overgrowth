@@ -4,7 +4,7 @@
 // Atlases carry a UV rectangle per cell in atlas.json.
 import * as THREE from 'three';
 
-export const SURFACES = ['litter', 'litter3', 'humus', 'moss', 'cushion', 'rock', 'bark', 'palmbark', 'deadwood', 'stone', 'gravel', 'block'];
+export const SURFACES = ['turf', 'litter3', 'humus', 'moss', 'cushion', 'rock', 'bark', 'palmbark', 'deadwood', 'stone', 'gravel', 'block'];
 export const ATLASES = ['canopy', 'broad', 'fronds', 'under', 'debris'];
 
 const BASE = `${import.meta.env.BASE_URL}textures/`;

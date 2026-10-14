@@ -17,6 +17,7 @@ const potMat = new THREE.MeshStandardMaterial({ color: 0x3f8f4a, roughness: 0.1,
 
 const _seg = new THREE.Vector3();
 const _to = new THREE.Vector3();
+const _bc = new THREE.Vector3();
 
 // distance from point p to segment ab
 function segDist(a, b, p) {
@@ -79,8 +80,28 @@ export class Projectiles {
           break;
         }
       }
+      // a Blight Bloom: a squat target round its pods
+      let bloom = null;
+      if (!hit && ctx.blooms) {
+        for (const b of ctx.blooms.list) {
+          if (b.dead) continue;
+          _bc.set(b.x, b.cy, b.z);
+          if (segDist(prev, s.pos, _bc) < 1.15) {
+            bloom = b;
+            break;
+          }
+        }
+      }
       const ground = terrainHeight(s.pos.x, s.pos.z);
       const landed = s.pos.y <= ground + 0.03;
+      if (bloom) {
+        if (s.kind === 'stone') ctx.onBloomHit?.(bloom, s.dmg, s.pos.clone(), s.crit);
+        else this.burst(s.pos.clone(), ctx);
+        this.scene.remove(s.mesh);
+        if (s.trail) this.scene.remove(s.trail);
+        this.list.splice(i, 1);
+        continue;
+      }
       if (!hit && !landed && s.age < 6) continue;
       if (s.kind === 'stone') {
         if (hit) {
@@ -129,6 +150,10 @@ export class Projectiles {
     for (const e of enemies.inRadius(pos.x, pos.z, R)) {
       enemies.ignite(e, 12, 4);
       enemies.damage(e, 18, ctx.damageCtx, null, { source: 'fire' });
+    }
+    // fire is the surest cure for a Bloom
+    for (const b of ctx.blooms?.list || []) {
+      if (!b.dead && Math.hypot(b.x - pos.x, b.z - pos.z) < R + 1.2) ctx.onBloomHit?.(b, 55, new THREE.Vector3(b.x, b.cy, b.z), false);
     }
     particles.embers(pos.clone().add(new THREE.Vector3(0, 0.3, 0)), 40, 1.2, 0xffa040);
     particles.sporeBurst(pos.clone().add(new THREE.Vector3(0, 0.4, 0)), 0xff7020, 24, 1.2);

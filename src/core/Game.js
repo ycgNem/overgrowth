@@ -15,6 +15,7 @@ import { Flora } from '../world/flora/Flora.js';
 import { World } from '../world/World.js';
 import { Litter } from '../world/Litter.js';
 import { Cover } from '../world/Cover.js';
+import { Grass } from '../world/Grass.js';
 import { Sky } from '../world/Sky.js';
 import { Water } from '../world/Water.js';
 import { findSpawn, terrainHeight, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
@@ -40,6 +41,7 @@ import { FlowField } from '../defense/FlowField.js';
 import { Enemies } from '../defense/Enemies.js';
 import { Buildings, BuildGhost, BUILD_DEFS, TIER_NAMES } from '../defense/Towers.js';
 import { Waves, DUSK, DAWN } from '../defense/Waves.js';
+import { Blooms, BLOOM_RADIUS } from '../defense/Blooms.js';
 import { Projectiles } from '../combat/Projectiles.js';
 import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
 import { Journal } from './Journal.js';
@@ -59,6 +61,7 @@ const RESPAWN = 5;
 const FOV = 72;
 const STARTER = [['bow_tower', 1], ['spike_trap', 2], ['poultice', 2]];
 const ease = (t) => 1 - (1 - t) ** 3;
+const _white = new THREE.Color();
 
 export class Game {
   constructor(canvas, { debug = false, time = null } = {}) {
@@ -115,7 +118,7 @@ export class Game {
     this.favour = 0;
     this.boonsTaken = 0;
     this.pendingBoons = 0;
-    this.stats = { built: 0, upgraded: 0, bosses: 0 };
+    this.stats = { built: 0, upgraded: 0, bosses: 0, blooms: 0 };
     this.bloom = true;
     this.rand = Math.random;
     this.resize();
@@ -132,7 +135,7 @@ export class Game {
     globalUniforms.uPom.value = q === 'low' ? 0 : 1;
     // billboard light shafts only where the ray-marched ones are off
     this.ambient.shaftScale = q === 'high' ? 0 : 1;
-    for (const m of [...this.litter.meshes, ...this.groundCover.meshes]) m.visible = q !== 'low';
+    for (const m of [...this.litter.meshes, ...this.groundCover.meshes, ...this.grass.meshes]) m.visible = q !== 'low';
     const sh = this.sky.sun.shadow, size = q === 'low' ? 1024 : 2048;
     // soft contact-hardening shadows above Low (see installSoftShadows); Low keeps plain PCF
     sh.radius = q === 'low' ? 1 : 2.5;
@@ -185,6 +188,8 @@ export class Game {
     this.litter.update(this.player.pos.x, this.player.pos.z);
     this.groundCover = new Cover(this.scene, this.world);
     this.groundCover.update(this.player.pos.x, this.player.pos.z);
+    this.grass = new Grass(this.scene, this.world);
+    this.grass.update(this.player.pos.x, this.player.pos.z);
 
     progress(0.62, 'Mapping the Blight’s paths…');
     await nextFrame();
@@ -197,6 +202,7 @@ export class Game {
     this.lights = new LightPool(this.scene, 6);
     this.weather = new Weather(this.scene);
     this.projectiles = new Projectiles(this.scene);
+    this.blooms = new Blooms(this.scene);
     this.hud.markers = [
       { key: 'heartwood', x: this.base.x, z: this.base.z, icon: '❦', label: 'Heartwood', cls: 'base' },
     ];
@@ -205,10 +211,12 @@ export class Game {
     this.waves = new Waves({ sky: this.sky, enemies: this.enemies, rifts: this.rifts, hud: this.hud, audio: this.audio, world: this.world, base: this.base });
     this.waves.onDay = () => {
       this.weather.target = 0;
+      this.sproutBlooms();
       this.autosave();
     };
     this.waves.onNight = (n) => {
       this.showRifts(n);
+      this.hatchBlooms();
       this.journal.event('night');
       this.bloomUsed = false;
       this.rootT = 6;
@@ -272,6 +280,8 @@ export class Game {
       warmGroups.push(res.group);
     }
     warmGroups.push(this.world.warmFlora(this.player.pos.x, gy, this.player.pos.z));
+    const warmBloom = this.blooms.add(this.player.pos.x + 3, this.player.pos.z);
+    warmBloom.group.position.y = gy;
     // compile for the target play renders into: PostFX's linear half-float scene buffer. Bound
     // to the canvas (sRGB, tone mapped) every program came out a different variant and was
     // compiled again mid-game, a 0.5-1.5 s freeze the first time each kit streamed in
@@ -286,6 +296,7 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
     for (const g of warmGroups) this.scene.remove(g);
+    this.blooms.clear();
     for (const e of warm) this.scene.remove(e.obj);
     this.enemies.list = [];
     this.buildings.remove(wb);
@@ -306,6 +317,7 @@ export class Game {
     const w = this.waves;
     if (this.loaded) this.hud.banner(`Day ${w.night}`, 'The Heartwood remembers you.');
     else this.hud.banner('Day 1', 'Gather from the forest, craft defences, guard the Heartwood.');
+    if (w.phase === 'day') setTimeout(() => { if (!this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(); }, 2500);
   }
 
   // Put the player beside the Heartwood, facing it.
@@ -458,6 +470,19 @@ export class Game {
       this.hud.hitmarker(killed, crit);
       struck++;
     }
+    // a Blight Bloom in the arc
+    const bloom = this.blooms.near(p.x, p.z, REACH);
+    if (bloom) {
+      const dx = bloom.x - p.x, dz = bloom.z - p.z, l = Math.hypot(dx, dz) || 1;
+      if (l < BLOOM_RADIUS + 0.6 || (dx * fwd.x + dz * fwd.y) / l > 0.3) {
+        const crit = !!finisher || (this.chain >= 3 && !foes.length);
+        const at = new THREE.Vector3(bloom.x - (dx / l) * BLOOM_RADIUS * 0.7, Math.min(bloom.cy, this.camera.position.y - 0.4), bloom.z - (dz / l) * BLOOM_RADIUS * 0.7);
+        this.hitBloom(bloom, MACHETE_DMG * this.mods.macheteDmg * (crit ? 1.8 : 1) * (combo ? 1.1 : 1), at, crit);
+        this.hud.hitmarker(bloom.dead, crit);
+        struck++;
+        if (crit) this.chain = 0;
+      }
+    }
     if (struck) {
       this.lastStrike = now;
       if (finisher) this.chain = 0;
@@ -514,6 +539,7 @@ export class Game {
     }
     if (best) {
       broke = true;
+      best.maxHp ??= best.hp;
       best.hp -= 1;
       const at = new THREE.Vector3(best.x, best.y, best.z);
       this.particles.chipBurst(at, best.debris, 10, best.y - 0.5);
@@ -812,6 +838,94 @@ export class Game {
     if (pk) pk.age = -2; // don't fly straight back
   }
 
+  // ------------------------------------------------------------- Blight Blooms
+
+  // Dawn: the day's blooms push up out in the forest, each with its guards.
+  sproutBlooms() {
+    const n = this.waves.night;
+    this.hud.markers = this.hud.markers.filter((m) => !m.key.startsWith('bloom'));
+    // never through a trunk or a boulder
+    // never through a trunk or a boulder, and only where the Blight can walk to the Heart from
+    const blocked = (x, z) => {
+      const k = this.field.idx(x, z);
+      if (k < 0 || !Number.isFinite(this.field.dist[k])) return true;
+      return this.world.staticCircles(x - 4, z - 4, x + 4, z + 4).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2.6);
+    };
+    const list = this.blooms.sprout(n, this.base, this.rand, blocked);
+    const guards = Blooms.guardsFor(n);
+    list.forEach((b, i) => {
+      for (let k = 0; k < guards; k++) {
+        const a = (k / guards) * Math.PI * 2 + this.rand();
+        const e = this.enemies.spawn('blightling', b.x + Math.cos(a) * 3, b.z + Math.sin(a) * 3, this.waves.hpScale * 0.85);
+        e.guard = { x: b.x, z: b.z, r: 6, leash: 24 };
+        b.guards.push(e);
+      }
+      this.world.clearAround(b.x, b.z, 3.2);
+      b.key = `bloom${i}`;
+      this.hud.markers.push({ key: b.key, x: b.x, z: b.z, icon: '✺', label: 'Blight Bloom', cls: 'rift' });
+    });
+    if (list.length) {
+      this.hud.message(`${list.length} Blight Bloom${list.length > 1 ? 's have' : ' has'} sprouted ✺ Cut ${list.length > 1 ? 'them' : 'it'} down before dusk, or the Blight comes through ${list.length > 1 ? 'them' : 'it'} tonight`, '#d9a0ff');
+      this.audio.windup?.(0.4);
+    }
+  }
+
+  // Dusk: every bloom still standing opens. All night it is one more mouth the wave pours out
+  // of (a lane onto the Heart from where it stands) and its guards march with the rest. Cut it
+  // down in the dark and the lane closes.
+  hatchBlooms() {
+    const live = this.blooms.alive;
+    for (const e of this.enemies.list) e.guard = null;
+    for (const b of live) {
+      b.lane = true;
+      this.waves.open = [...(this.waves.open || []), { x: b.x, z: b.z, bloom: b }];
+      const at = new THREE.Vector3(b.x, b.cy, b.z);
+      this.particles.sporeBurst(at, 0xb050ff, 50, 1.6);
+      this.particles.ring(new THREE.Vector3(b.x, b.y + 0.1, b.z), 6, 0xb050ff, 0.8);
+      const m = this.hud.markers.find((q) => q.key === b.key);
+      if (m) m.label = 'Bloom lane';
+    }
+    if (live.length) setTimeout(() => this.hud.message(`${live.length} Blight Bloom${live.length > 1 ? 's' : ''} opened: the Blight is coming through ${live.length > 1 ? 'them' : 'it'} too ✺`, '#d9a0ff'), 3500);
+  }
+
+  hitBloom(b, dmg, at, crit = false) {
+    const killed = this.blooms.damage(b, dmg);
+    this.particles.chipBurst(at.clone(), 0x7a3a9a, crit ? 16 : 10, b.y);
+    this.particles.sporeBurst(at.clone(), 0xb050ff, 8, 0.6);
+    this.hud.damageNumber(at.clone().add(new THREE.Vector3(0, 0.5, 0)), Math.round(dmg), crit ? 'crit' : '');
+    this.audio.enemyHit();
+    if (killed) this.onBloomCleansed(b);
+    return killed;
+  }
+
+  onBloomCleansed(b) {
+    const at = new THREE.Vector3(b.x, b.cy, b.z);
+    this.particles.sporeBurst(at, 0xc070ff, 60, 1.8);
+    this.particles.sparkle(at, 0x9affb0, 30);
+    this.particles.ring(new THREE.Vector3(b.x, b.y + 0.1, b.z), 6, 0x9affb0, 0.9);
+    this.lights.flash(at, 0xc080ff, 90, 0.5, 24);
+    this.player.shake = Math.max(this.player.shake, 0.7);
+    this.audio.enemyDie(true);
+    this.audio.boon?.();
+    this.loot('bloom', at, 1.2, true);
+    this.stats.blooms++;
+    this.journal.event('bloom');
+    this.hud.markers = this.hud.markers.filter((m) => m.key !== b.key);
+    // its guards wither with it; an open lane closes
+    for (const e of b.guards) if (!e.dying && e.guard) this.enemies.damage(e, 1e6, this.combatCtx, null, { source: 'tower' });
+    if (b.lane) {
+      this.waves.open = (this.waves.open || []).filter((o) => o.bloom !== b);
+      if (!this.waves.open.length) this.waves.open = this.rifts.filter((r) => r.night <= this.waves.night);
+      this.hud.message('A bloom lane closes', '#9affb0');
+    }
+    const favour = 10 + 2 * this.waves.night;
+    this.favour += favour;
+    const left = this.blooms.alive.length;
+    this.hud.banner('Bloom cleansed', `+${favour} favour with the Heartwood${left ? ` · ${left} still growing` : ' · the forest is clean'}`, 'win');
+    while (this.favour >= thresholds(this.boonsTaken + this.pendingBoons)) this.pendingBoons++;
+    if (this.pendingBoons) setTimeout(() => { if (!this.modal) this.offerBoon(); }, 1200);
+  }
+
   // ------------------------------------------------------------- slingshot
 
   updateSling(dt, input) {
@@ -856,7 +970,8 @@ export class Game {
   interact(dt, input) {
     const it = this.findInteractable();
     const holdAction = (label, time, done, sub = '', key = 'KeyE') => {
-      if (input.down(key)) {
+      // (an E held to rake up forage never also calls the night or packs a tower)
+      if (input.down(key) && !(this.gathering && key === 'KeyE')) {
         if (this.search !== it || this.searchKey !== key) {
           this.search = it;
           this.searchT = 0;
@@ -876,22 +991,36 @@ export class Game {
       const prog = this.search === it && this.searchKey === key ? this.searchT : 0;
       this.hud.prompt(label, prog, key === 'KeyF' ? 'F' : 'E', sub);
     };
+    // keep holding E after a pick-up and you rake up everything loose around you
+    if (this.gathering) {
+      if (!input.down('KeyE') || !this.playerAlive) this.gathering = false;
+      else {
+        this.gatherT += dt;
+        if (this.gatherT > 0.35) {
+          this.gatherTick = (this.gatherTick || 0) - dt;
+          if (this.gatherTick <= 0) {
+            this.gatherTick = 0.07;
+            const near = this.nearestForage(3);
+            if (near) this.takeForage(near);
+          }
+        }
+      }
+    }
+    if (it?.kind !== 'forage') this.highlightForage(null);
     if (!it) {
       this.search = null;
-      this.hud.prompt(null);
+      const b = this.blooms.near(this.player.pos.x, this.player.pos.z, REACH + 1.5);
+      if (b) this.hud.prompt('Blight Bloom', 1 - b.hp / b.maxHp, 'LMB', 'Cut it down before dusk');
+      else this.hud.prompt(null);
       return;
     }
     if (it.kind === 'forage') {
-      this.hud.prompt(it.label, 0);
+      this.hud.prompt(it.label, 0, 'E', 'Hold to gather everything nearby');
+      this.highlightForage(it);
       if (input.hit('KeyE')) {
-        if (!this.inventory.fits(it.id, 1)) {
-          this.hud.message('Satchel full', '#ff9a7a');
-          return;
-        }
-        this.world.takeForage(it);
-        this.collect(it.id);
-        this.journal.event('forage');
-        this.particles.sparkle(new THREE.Vector3(it.x, it.y, it.z), RARITY[ITEMS[it.id].rarity].color, 8);
+        this.takeForage(it);
+        this.gathering = true;
+        this.gatherT = 0;
       }
     } else if (it.kind === 'search') {
       holdAction(it.label, it.time || 1.5, () => {
@@ -902,12 +1031,61 @@ export class Game {
         for (const id of rollLoot(it.loot, this.rand)) this.pickups.spawn(id, at.clone(), 0.8, true);
       });
     } else if (it.kind === 'break') {
-      this.hud.prompt(`${it.label} — swing`, 0);
+      // smashed with the machete, not a key: the ring fills with each blow
+      it.maxHp ??= it.hp;
+      const left = Math.max(0, it.hp);
+      this.hud.prompt(it.label, 1 - left / it.maxHp, 'LMB', `Swing to smash · ${left} blow${left === 1 ? '' : 's'}`);
     } else if (it.kind === 'base') {
       this.interactBase(holdAction);
     } else if (it.kind === 'building') {
       this.interactBuilding(it.building, holdAction, input);
     }
+  }
+
+  // the item the prompt means lights up, with a glint now and then, so you can find it among
+  // the leaves
+  highlightForage(it) {
+    const prev = this.hiForage;
+    if (prev !== it) {
+      if (prev && !prev.done) {
+        prev.mesh.setColorAt(prev.instance, _white.setRGB(1, 1, 1));
+        prev.mesh.instanceColor.needsUpdate = true;
+      }
+      this.hiForage = it;
+      this.glintT = 0;
+      if (it) {
+        it.mesh.setColorAt(it.instance, _white.setRGB(1.8, 1.75, 1.5));
+        it.mesh.instanceColor.needsUpdate = true;
+      }
+    }
+    if (it && (this.glintT = (this.glintT ?? 0) - 0.016) <= 0) {
+      this.glintT = 0.7;
+      this.particles.sparkle(new THREE.Vector3(it.x, it.y + 0.05, it.z), 0xfff4d0, 3);
+    }
+  }
+
+  takeForage(it) {
+    if (!this.inventory.fits(it.id, 1)) {
+      this.hud.message('Satchel full', '#ff9a7a');
+      this.gathering = false;
+      return false;
+    }
+    this.world.takeForage(it);
+    this.collect(it.id);
+    this.journal.event('forage');
+    this.particles.sparkle(new THREE.Vector3(it.x, it.y, it.z), RARITY[ITEMS[it.id].rarity].color, 8);
+    return true;
+  }
+
+  nearestForage(r) {
+    const p = this.player.pos;
+    let best = null, bd = r;
+    for (const it of this.world.near(p.x, p.z, 'interactables')) {
+      if (it.done || it.kind !== 'forage' || Math.abs(it.y - p.y) > 1.6) continue;
+      const d = Math.hypot(it.x - p.x, it.z - p.z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best;
   }
 
   interactBase(holdAction) {
@@ -1399,7 +1577,8 @@ export class Game {
       this.hud.charge(0);
     }
     // the slingshot draw narrows the view a touch
-    const fov = FOV - this.aimK * 4 - this.draw * 6;
+    // (and opens a little at a sprint)
+    const fov = FOV - this.aimK * 4 - this.draw * 6 + (this.player.runK || 0) * 5;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -1434,6 +1613,14 @@ export class Game {
     this.world.update(pos.x, pos.z, dt);
     this.litter.update(pos.x, pos.z);
     this.groundCover.update(pos.x, pos.z);
+    // blades clear out from under anything built since
+    const bl = this.buildings.list, bloomsUp = this.blooms.alive;
+    const sig = bl.reduce((a, b) => a + b.x * 1.7 + b.z, bl.length) + bloomsUp.reduce((a, b) => a + b.x * 3.1 + b.z * 0.7, 0);
+    if (sig !== this.grassSig) {
+      this.grassSig = sig;
+      this.grass.setBlockers([...bl.flatMap((b) => b.footprint), ...bloomsUp.map((b) => ({ x: b.x, z: b.z, r: 2.4 }))]);
+    }
+    this.grass.update(pos.x, pos.z);
     this.canopy.update(this.world, this.flora, pos.x, pos.z, this.renderer);
     this.water.update(pos, this.world);
 
@@ -1474,6 +1661,11 @@ export class Game {
       this.buildings.update(dt, t, ctx);
       this.projectiles.update(dt, {
         ...ctx,
+        blooms: this.blooms,
+        onBloomHit: (b, dmg, at, crit) => {
+          this.hitBloom(b, dmg, at, crit);
+          this.hud.hitmarker(b.dead, crit);
+        },
         onHitmark: (kill, crit) => this.hud.hitmarker(kill, crit),
         onStoneLand: (p, scrap) => {
           if (!scrap && Math.random() < 0.45) {
@@ -1490,6 +1682,12 @@ export class Game {
     this.alertHold -= realDt;
     if (this.alertHold <= 0) this.heartMarker.alert = false;
     this.base.update(dt, t, this.sky.state.night, this.particles);
+    this.blooms.update(dt, t);
+    for (const b of this.blooms.list) {
+      if (!b.dead && Math.random() < dt * (b.lane ? 10 : 4) && Math.hypot(b.x - pos.x, b.z - pos.z) < 70) {
+        this.particles.ash(new THREE.Vector3(b.x, b.cy + 0.6, b.z), 1, 0.8, 0xc070ff);
+      }
+    }
     for (const r of this.rifts) r.update(dt, t, this.particles, this.lights);
 
     // canopy cover dims ambient light under big trees

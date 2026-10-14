@@ -58,7 +58,6 @@ const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 // Forage: loose materials lying on the forest floor, picked up with E. They come back
 // every dawn. Geometry is the item model, merged into one instanced draw per item.
-const FORAGE = ['stick', 'stone', 'flint', 'mushroom', 'glowcap', 'clay', 'feather', 'bone'];
 const forageGeo = new Map();
 let forageMat = null;
 function forageGeometry(id) {
@@ -194,6 +193,8 @@ export class World {
     const sp = (k) => S[a * 4 + k] * w00 + S[(a + 1) * 4 + k] * w10 + S[(a + N) * 4 + k] * w01 + S[(a + N + 1) * 4 + k] * w11;
     out.litter = sp(0); out.moss = sp(1); out.rock = sp(2); out.mud = sp(3);
     out.shade = C[a * 3 + 1] * w00 + C[(a + 1) * 3 + 1] * w10 + C[(a + N) * 3 + 1] * w01 + C[(a + N + 1) * 3 + 1] * w11;
+    const G = ch.grass;
+    out.grass = G ? G[a] * w00 + G[a + 1] * w10 + G[a + N] * w01 + G[a + N + 1] * w11 : 0;
     return out;
   }
 
@@ -489,7 +490,9 @@ export class World {
       }
       const reed = t.h < 1.1;
       const open = 1 - jungleDensity(x, z);
-      if (!reed && roll > (0.05 + open * 0.75) * (nearBig(x, z, 8) ? 0.3 : 1)) return;
+      if (!reed && roll > (0.05 + open * 0.75) * (nearBig(x, z, 8) ? 0.3 : 1) * smoothstep(0.35, 0.7, clump(5, x, z, 0.08))) return;
+      // the meadows grow their own blades (Grass.js): these tall tufts gather at their edges
+      if (!reed && this.grassAt(x, z, 1 - open, 0, 0, 0, 1 - terrainNormal(x, z).y) > 0.5) return;
       if (blocked(x, z, -2, 0.5) || terrainNormal(x, z).y < 0.75) return;
       place('grass', x, t.h - 0.05, z, range(rand, 0.7, 1.3), reed ? 1 : (rand() < 0.5 ? 0 : 2));
     });
@@ -567,18 +570,52 @@ export class World {
       if (blocked(x, z, 0.5)) return;
       const n = terrainNormal(x, z);
       if (n.y < 0.8) return;
-      forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.25, 1.6), nx: n.x, ny: n.y, nz: n.z });
+      forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.5, 1.9), nx: n.x, ny: n.y, nz: n.z });
     };
-    scatter('forage', 26, (x, z, t, roll) => {
+    scatter('forage', 170, (x, z, t, roll) => {
       if (t.h < 0.2) return;
       const d = jungleDensity(x, z);
       const r2 = rand();
       if (t.h < 1.3 && t.h > 0.2 && r2 < 0.35) addForage('clay', x, z);
-      else if (roll < 0.35 + d * 0.2) addForage('stick', x, z);
-      else if (roll < 0.55 + t.mountain * 0.3) addForage(r2 < 0.75 ? 'stone' : 'flint', x, z);
-      else if (roll < 0.72 && d > 0.45) addForage(d > 0.8 && r2 < 0.12 ? 'glowcap' : 'mushroom', x, z);
-      else if (roll < 0.8) addForage(r2 < 0.6 ? 'feather' : 'bone', x, z);
+      else if (roll < 0.22 + d * 0.1) addForage('stick', x, z);
+      else if (roll < 0.48 + t.mountain * 0.3) addForage(r2 < 0.75 ? 'stone' : 'flint', x, z);
+      else if (roll < 0.62 && d > 0.45) addForage(d > 0.8 && r2 < 0.12 ? 'glowcap' : 'mushroom', x, z);
+      else if (roll < 0.7) addForage(r2 < 0.6 ? 'feather' : 'bone', x, z);
+      else if (roll < 0.8) addForage(r2 < 0.5 ? 'bark' : 'fiber', x, z);
+      else if (roll < 0.88) addForage(d > 0.5 ? 'moss' : 'berries', x, z);
+      else if (roll < 0.94) addForage('vine', x, z);
     });
+    // the floor is never tidy: things lie together where they fell. Each find is a little
+    // cluster around a spot
+    const around = (x, z, n, spread, pick) => {
+      for (let k = 0; k < n; k++) {
+        const a = rand() * TAU, r = spread * Math.sqrt(rand());
+        const id = pick(k);
+        addForage(id, x + Math.cos(a) * r, z + Math.sin(a) * r);
+      }
+    };
+    scatter('forage', 48, (x, z, t, roll) => {
+      if (t.h < 0.3 || blocked(x, z, 1)) return;
+      const d = jungleDensity(x, z);
+      const n = 3 + Math.floor(rand() * 4);
+      if (roll < 0.18) around(x, z, n, 1.6, () => 'stick'); // a fallen bundle of dead wood
+      else if (roll < 0.42) around(x, z, n, 1.3, () => (rand() < 0.22 + t.mountain * 0.3 ? 'flint' : 'stone'));
+      else if (roll < 0.58 && d > 0.35) around(x, z, n + 1, 0.9, () => (d > 0.75 && rand() < 0.1 ? 'glowcap' : 'mushroom')); // a fairy ring
+      else if (roll < 0.68) around(x, z, 3, 1.0, (k) => (k === 0 ? 'feather' : rand() < 0.6 ? 'bone' : 'feather')); // something's last meal
+      else if (roll < 0.8) around(x, z, n, 1.2, () => (rand() < 0.5 ? 'berries' : 'fiber'));
+      else if (roll < 0.9) around(x, z, n, 1.4, () => (rand() < 0.5 ? 'moss' : 'stick'));
+      else if (t.h < 1.6) around(x, z, n, 1.2, () => (rand() < 0.6 ? 'clay' : 'stone'));
+    });
+    // bark curls, resin drips and vines fallen at the feet of the giants
+    for (const b of big) {
+      if (Math.floor(b.x / CS) !== cx || Math.floor(b.z / CS) !== cz) continue;
+      const n = 2 + Math.floor(rand() * 4);
+      for (let k = 0; k < n; k++) {
+        const a = rand() * TAU, r = 2.6 + rand() * 3;
+        const roll = rand();
+        addForage(roll < 0.4 ? 'bark' : roll < 0.62 ? 'stick' : roll < 0.84 ? 'vine' : roll < 0.94 ? 'moss' : 'resin', b.x + Math.cos(a) * r, b.z + Math.sin(a) * r);
+      }
+    }
     // a few sticks and stones on the bare ground round the Heartwood, 8-20 m out, so the first
     // thing the journal asks for (look down, tap E) lies near where a run starts. One fixed
     // set, drawn whole for every chunk, of which each chunk keeps the ones inside it.
@@ -594,6 +631,23 @@ export class World {
         forage.push({ id: i % 3 === 2 ? 'stone' : 'stick', x, y: terrainHeight(x, z), z, ry, s: sc, nx: n.x, ny: n.y, nz: n.z });
       }
     }
+
+    // ---- thickets: the understory in clumps of 4-8 (tree ferns, bananas, aroids, saplings,
+    // big shrubs), 2-6 m tall, so sightlines close at 20-40 m into walls and corridors instead
+    // of running 100 m through clean trunks. Placed last, so nothing else in the plan moves.
+    const THICKET = [['treeFern', 0.8, 1.2], ['banana', 0.9, 1.3], ['monstera', 1.2, 1.7], ['smallTree', 0.75, 1.05], ['bush', 1.3, 2.0], ['taro', 1.2, 1.6]];
+    scatter('thicket', 22, (x, z, t, roll) => {
+      const d = jungleDensity(x, z);
+      if (t.h < 0.6 || roll > d * 0.9 * smoothstep(0.3, 0.6, clump(3, x, z, 0.03)) || blocked(x, z, 4) || nearBig(x, z, 3.5)) return;
+      const n = 4 + Math.floor(rand() * 5);
+      for (let k = 0; k < n; k++) {
+        const a = rand() * TAU, r = 1 + Math.sqrt(rand()) * 4;
+        const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        const [type, s0, s1] = THICKET[Math.floor(rand() * THICKET.length)];
+        if (blocked(px, pz, 1.5) || nearBig(px, pz, 3) || terrainNormal(px, pz).y < 0.8) continue;
+        place(type, px, terrainHeight(px, pz) - 0.08, pz, range(rand, s0, s1));
+      }
+    });
 
     const plan = { items, forage };
     this.plans.set(k, plan);
@@ -806,6 +860,21 @@ export class World {
   }
 
   // the terrain mesh, yielding every band of rows
+  // Grass: where light reaches the floor. Meadows in the open gaps of the jungle (in patches,
+  // never under a giant's crown), a ring of turf round the camp, and none on rock, mud or
+  // slopes too steep to hold soil. 0-1; the terrain shader breaks its edge up per pixel.
+  grassAt(x, z, dens, canopy, rock, mud, slope) {
+    const gn = groundPatch(x * 0.55 + 311, z * 0.55 - 173);
+    const light = 1 - smoothstep(0.04, 0.3, canopy);
+    let g = smoothstep(0.5, 0.82, gn * 0.8 + (1 - dens) * 0.75 + 0.12) * light;
+    const home = this.clearings[0];
+    if (home) {
+      const d = Math.hypot(x - home.x, z - home.z) / home.r;
+      g = Math.max(g, smoothstep(0.32, 0.62, d + gn * 0.25) * (1 - smoothstep(1.15, 1.6, d - gn * 0.3)));
+    }
+    return clamp(g * (1 - rock) * (1 - mud * 0.9) * (1 - smoothstep(0.2, 0.4, slope)), 0, 1);
+  }
+
   *terrainSteps(cx, cz, chunk = null) {
     const N = SEG + 1, W = N + 2, step = CS / SEG;
     const x0 = cx * CS, z0 = cz * CS;
@@ -816,7 +885,7 @@ export class World {
     const campEarth = (x, z, n) => {
       if (!home) return 0;
       const d = Math.hypot(x - home.x, z - home.z) / home.r;
-      return (1 - smoothstep(0.25 + n * 0.25, 0.6 + n * 0.3, d)) * 0.75;
+      return (1 - smoothstep(0.2 + n * 0.4, 0.75 + n * 0.45, d)) * 0.75;
     };
     for (let j = 0; j < W; j++) {
       if (j % 17 === 16) yield;
@@ -849,7 +918,7 @@ export class World {
     }
 
     const pos = new Float32Array(N * N * 3), nrm = new Float32Array(N * N * 3);
-    const col = new Float32Array(N * N * 3), spl = new Float32Array(N * N * 4);
+    const col = new Float32Array(N * N * 3), spl = new Float32Array(N * N * 4), grs = new Float32Array(N * N);
     const n = new THREE.Vector3();
     for (let j = 0; j < N; j++) {
       if (j % 17 === 16) yield;
@@ -882,6 +951,8 @@ export class World {
           }
         }
         ao *= Math.max(0.45, contact);
+        // canopy and contact together could reach 0.22: a black floor by the water
+        ao = Math.max(ao, 0.42);
 
         const slope = 1 - n.y;
         const patch = groundPatch(wx, wz);
@@ -894,11 +965,14 @@ export class World {
         const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h))
           + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland + campEarth(wx, wz, mn), 0, 1) * (1 - rock * 0.7);
         // moss: in patches, on damp banks and in clearings; litter piles up under trees
+        // (moss stays off the turf: its dark speckled cushions cut hard holes in a lawn)
+        const gAt = this.grassAt(wx, wz, dens, canopy, rock, mud, slope);
         const moss = clamp(
           smoothstep(0.2, 0.65, patch) * 0.55 + (1 - dens) * 0.15 + (1 - RV[gi]) * 0.4 - canopy * 0.8,
-          0, 1) * (1 - rock) * (1 - mud);
+          0, 1) * (1 - rock) * (1 - mud) * (1 - 0.8 * gAt);
         const litter = clamp(0.5 + dens * 0.25 + canopy * 1.2 - moss * 0.5, 0.05, 1) * (1 - rock) * (1 - mud * 0.8);
         spl[v * 4] = litter; spl[v * 4 + 1] = moss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = mud;
+        grs[v] = gAt;
 
         const tint = 0.92 + patch * 0.08;
         col[v * 3] = ao * tint * 0.98;
@@ -920,8 +994,9 @@ export class World {
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('splat', new THREE.BufferAttribute(spl, 4));
+    geo.setAttribute('grass', new THREE.BufferAttribute(grs, 1));
     // kept for groundAt (fallen leaves lie only where litter covers the ground)
-    if (chunk) { chunk.splat = spl; chunk.shade = col; }
+    if (chunk) { chunk.splat = spl; chunk.shade = col; chunk.grass = grs; }
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.terrainMat);
@@ -1021,6 +1096,28 @@ export class World {
 
   // A cut plant doesn't blink out: a copy of it keels over away from the blade, then sinks and
   // shrinks away. fall: horizontal direction to topple toward (optional).
+  // Wither the undergrowth in a circle (a Blight Bloom kills what grows round it). Plants with
+  // a trunk stay: the bloom is placed clear of those.
+  clearAround(x, z, r) {
+    const T = this.flora.types;
+    for (let cx = Math.floor((x - r) / CS); cx <= Math.floor((x + r) / CS); cx++) {
+      for (let cz = Math.floor((z - r) / CS); cz <= Math.floor((z + r) / CS); cz++) {
+        const k = World.key(cx, cz), ch = this.chunks.get(k);
+        this.plan(cx, cz).items.forEach((it, idx) => {
+          if ((it.x - x) ** 2 + (it.z - z) ** 2 > r * r || T[it.type]?.variants[it.v]?.colliders.length) return;
+          const key = `${k}:${idx}`;
+          if (this.cut.has(key)) return;
+          this.cut.add(key);
+          const c = ch?.cuttables.find((q) => q.key === key && q.alive);
+          if (!c) return;
+          c.alive = false;
+          c.mesh.setMatrixAt(c.instance, ZERO);
+          c.mesh.instanceMatrix.needsUpdate = true;
+        });
+      }
+    }
+  }
+
   cutPlant(c, fall = null) {
     c.alive = false;
     const m0 = new THREE.Matrix4();

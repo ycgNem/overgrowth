@@ -36,6 +36,7 @@ export class Player {
     this.eyeY = 0;
     this.bob = 0;
     this.bobAmt = 0;
+    this.runK = 0; // 0 walking, 1 at a full sprint (eased)
     this.landDip = 0;
     this.stepDist = 0;
     this.sensitivity = loadSensitivity();
@@ -87,12 +88,13 @@ export class Player {
 
     const wantSprint = input.down('ShiftLeft') && f > 0 && !this.swimming;
     this.sprinting = wantSprint && this.stamina > 0.02 && (this.sprinting || this.stamina > 0.15);
-    if (this.sprinting) {
-      this.stamina = Math.max(0, this.stamina - dt * 0.2);
+    // a full bar is ~8 s (~60 m) of sprinting; it drains only while you actually cover ground
+    if (this.sprinting && (this.groundSpeed ?? 0) > 3) {
+      this.stamina = Math.max(0, this.stamina - dt * 0.12);
       this.staminaDelay = 0.9;
     } else {
       this.staminaDelay -= dt;
-      if (this.staminaDelay <= 0) this.stamina = Math.min(1, this.stamina + dt * 0.16 * this.staminaRegen);
+      if (this.staminaDelay <= 0) this.stamina = Math.min(1, this.stamina + dt * 0.2 * this.staminaRegen);
     }
 
     let speed = (this.sprinting ? 7.4 : 4.3) * this.speedMul * this.moveMul;
@@ -129,9 +131,17 @@ export class Player {
       this.vel.z += n.z * 9 * dt;
     }
 
+    const px = this.pos.x, pz = this.pos.z;
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
     this.world.collide(this.pos, RADIUS, this.pos.y, this.pos.y + 1.7);
+    // pinned against a wall you go nowhere: keep only the motion that happened (else you
+    // bobbed, stepped and burned stamina running on the spot)
+    if (dt > 0) {
+      this.vel.x = (this.pos.x - px) / dt;
+      this.vel.z = (this.pos.z - pz) / dt;
+    }
+    this.groundSpeed = Math.hypot(this.vel.x, this.vel.z);
 
     const g = this.world.groundHeight(this.pos.x, this.pos.z, this.pos.y);
     const wasGround = this.onGround;
@@ -164,13 +174,18 @@ export class Player {
 
     // Footsteps and head-bob.
     const hs = Math.hypot(this.vel.x, this.vel.z);
+    // One unit of bob is one step, so the head, the arms and the footfalls keep the same beat
+    // (the bob used to run four times faster than the feet: a frantic jitter at a sprint).
+    this.runK = damp(this.runK || 0, this.sprinting && this.onGround && hs > 3 ? 1 : 0, 7, dt);
     if ((this.onGround || this.swimming) && hs > 0.5) {
-      this.bob += hs * dt * (this.swimming ? 1.2 : 2.1);
+      const stride = this.swimming ? 1.6 : 2.0 + 0.6 * this.runK;
+      const prev = this.bob;
+      this.bob += (hs * dt) / stride;
+      if (Math.floor(this.bob) !== Math.floor(prev) && !this.swimming) audio?.footstep(this.wading > 0.1, this.sprinting);
       this.stepDist += hs * dt;
-      const stride = this.sprinting ? 2.6 : 2.0;
-      if (this.stepDist > stride) {
+      if (this.swimming && this.stepDist > 2) {
         this.stepDist = 0;
-        audio?.footstep(this.wading > 0.1 || this.swimming, this.sprinting);
+        audio?.footstep(true, false);
       }
     }
     this.bobAmt = damp(this.bobAmt, this.onGround && hs > 0.5 ? clamp(hs / 7, 0.3, 1) : 0, 8, dt);
@@ -183,15 +198,16 @@ export class Player {
     if (!this.onGround && !this.swimming) this.eyeY = eyeTarget;
     else this.eyeY = Math.abs(eyeTarget - this.eyeY) > 2 ? eyeTarget : damp(this.eyeY, eyeTarget, 18, dt);
 
-    const bobY = Math.abs(Math.sin(this.bob * Math.PI)) * 0.06 * this.bobAmt;
-    const bobX = Math.sin(this.bob * Math.PI) * 0.035 * this.bobAmt;
+    // the head dips at each footfall and rides over the stride; it sways toward the planted foot
+    const bobY = (Math.abs(Math.sin(this.bob * Math.PI)) - 0.5) * (0.045 + 0.03 * this.runK) * this.bobAmt;
+    const bobX = Math.sin(this.bob * Math.PI) * (0.03 + 0.012 * this.runK) * this.bobAmt;
     const cam = this.camera;
     cam.position.set(this.pos.x + Math.cos(this.yaw) * bobX, this.eyeY + bobY, this.pos.z - Math.sin(this.yaw) * bobX);
     const sh = this.shake;
     cam.rotation.set(
       this.pitch + (Math.random() - 0.5) * sh * 0.02,
       this.yaw + (Math.random() - 0.5) * sh * 0.02,
-      Math.sin(this.bob * Math.PI) * 0.006 * this.bobAmt,
+      Math.sin(this.bob * Math.PI) * (0.005 + 0.004 * this.runK) * this.bobAmt,
     );
   }
 }

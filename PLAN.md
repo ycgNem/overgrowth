@@ -126,6 +126,11 @@ snare grabs, wings, legs, jaw).
    that fall and leave stalks, a mixed forest floor with bare earth, parallax relief on bark,
    rock and stone, a new rock surface, and fuller tree crowns. See the handoff below.
 
+7. **Blight Blooms: done (2026-10-14, release 0.6).** Turf meadows and 3D grass, thickets,
+   about seven times more forage (hold E to rake it up), a sprint that keeps time with your feet,
+   a mouse prompt for smashables, and Blight Blooms: the day's guarded pods that open new lanes
+   at dusk if left standing. See the handoff below.
+
 ## Balance
 
 - Day 1 is generous: you start with one Bramble Bow Tower, two spike traps and two poultices.
@@ -184,6 +189,64 @@ snare grabs, wings, legs, jaw).
   gives the exact terrain height, normal and splat under a point.
 - Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
   filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
+
+## Handoff: 0.6 "Blight Blooms" (2026-10-14)
+
+**Live:** 0.6 is on `main`, pushed (GitHub Pages deploys on push). `node e2e/loop.mjs` passes
+all ten checks and `vite build` is clean. **Starting a new session:** read this file and
+`README.md`, `npm run dev`, then `node e2e/loop.mjs` (the 0.4 handoff below has the critic setup
+and the hard-learned rules). CHANGELOG has the 0.6
+notes; the version is 0.6.0. Both critics ran against a frozen copy; their findings are applied
+except where noted below.
+
+**What changed and where**
+- Ground: the dark wet `litter` tile is gone (files removed, `TILES` entry dropped). Its texture
+  units went to `turf` (`turf_00002_.png`, a short-grass-and-clover photo). `World.grassAt` is the
+  meadow weight per terrain vertex (open gaps out of the crowns' shade, a ring round the camp,
+  none on rock, mud or steep ground); it is a `grass` vertex attribute and `groundAt().grass`.
+  In `makeTerrainMaterial`, `gk` breaks its edge per pixel and turf wins over the litter by
+  height. Moss is kept off turf. The mud/humus is lifted (it read black by the river).
+- `src/world/Grass.js`: instanced tufts (5 shapes, incl. a short lawn and a tall seed head) out
+  to 28 m, thinned (not shrunk) over the last 10 m, clumped and sized by `groundPatch` fields,
+  tinted golden or green in drifts. Thin sedge under the trees and stragglers past the meadow
+  edge. Clears building footprints and blooms (`setBlockers`) and the spots where forage lies.
+  Cover.js and Litter.js thin out on turf; Cover also keeps off forage. Costs ~0.8 ms.
+- Thickets: the last scatter in `World.plan` (so nothing else moved) puts 4-8 tree ferns,
+  bananas, aroids, saplings, shrubs and taro in clumps, by `jungleDensity`.
+- Forage: `scatter('forage', 170)` plus 48 themed clusters and drops round the giants; scale
+  1.5-1.9. `Game.highlightForage` brightens the targeted instance and glints it.
+  `Game.interact`: tap E picks up, holding E rakes the nearest within 3 m (`nearestForage`);
+  `holdAction` ignores E while raking, so it never calls the night.
+- Sprint: `Player.bob` advances one unit per step (stride 2.0 m walking, 2.6 m sprinting) and
+  drives the footstep sound; `runK` eases sprinting in. `Machete.poses.run` carries the blade low
+  at the right; the pump is mostly vertical. FOV +5 at a sprint. After `collide`, `vel` is the
+  movement that actually happened (no running on the spot). Stamina drain 0.12/s, regen 0.2/s.
+- Smashables: labels are nouns ("Supply crate"); the prompt key `'LMB'` draws a mouse icon
+  (`MOUSE_SVG` in HUD.js) and the ring fills with damage.
+- Blight Blooms: `src/defense/Blooms.js` (model, sprout placement, damage, pulse, beacon) and
+  `Game.sproutBlooms / hatchBlooms / hitBloom / onBloomCleansed`. Sprouted on `waves.onDay` and
+  2.5 s after `begin()`; 1/2/2/3... per day, 45-90 m out, inside the flow field, clear of trunks
+  (`world.staticCircles`), undergrowth withered (`World.clearAround`). Guards are Blightlings
+  with `e.guard = {x, z, r, leash}` (`Enemies.updateWalker` prowls round the bloom and only
+  chases the player inside the leash). Cut: loot table `bloom`, favour `10 + 2n`, guards die,
+  journal goal `bloom`. At dusk (`waves.onNight`) survivors become lanes: `{x, z, bloom}` pushed
+  into `waves.open`, so packs spawn there too; cutting one at night removes its lane. Sling
+  stones and firepots hit blooms (`Projectiles.update`, `ctx.blooms`).
+
+**Measured** (this machine, `e2e/perf.mjs`): sprint p50 9.0 ms, p95 14.8 ms. The 0.5 build
+measures 9.0 / 14.3 the same way today, so the 4.8 ms in the 0.5 notes was a different state of
+the machine, not a regression. ComfyUI or a second headless browser on the GPU doubles it.
+
+**Left from the critics (next up)**
+- Mid-distance is better with thickets but still opens up in places; card LODs past 30 m and
+  fewer shadow casters would pay for a denser understory. Fog could go greener in dense forest.
+- The turf still reads a little temperate. A Flux attempt at tropical carpet grass came out
+  illustrated (drawn outlines), so it wasn't used; try a photo prompt with "macro photograph".
+- Trampled lanes worn into the turf along last night's routes from each rift.
+- The Heartwood's glowing vines are flat ribbons; the supply crates look like new pine.
+- Bloom mound and thorns could take the tri-planar bark/moss surfaces; ground cover inside a
+  bloom's stain could wilt purple.
+- Forage is visible when targeted but small items still blend into the litter at a glance.
 
 ## Handoff: 0.5 "Sharp Edges" (2026-10-14, overnight autonomous pass)
 

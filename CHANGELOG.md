@@ -1,5 +1,51 @@
 # Patch notes
 
+## 0.6: Blight Blooms (2026-10-14)
+
+Grass in the clearings, a forest floor full of things to pick up, a sprint that doesn't look
+silly, and a reason to go out hunting by day.
+
+### Blight Blooms
+- **Every dawn a few Blight Blooms sprout** out in the forest, 45-90 m from the Heartwood:
+  glowing, vein-lit pods on a dark mound, soaking a purple stain into the soil, each watched by
+  Blightlings that prowl round it. A faint column of spores rises over the trees, and the
+  compass and map mark each one ✺.
+- **Cut one down** (six machete blows, sling stones, or a firepot) and it bursts into rare loot
+  (strange seeds, glowcaps, ghost orchids, tubes, sometimes a relic) and earns favour with the
+  Heartwood toward your next boon. Its guards wither with it.
+- **Leave it, and at dusk it opens:** all night it is one more mouth the wave pours out of, a
+  new lane onto the Heart from wherever it stood. Cut it down in the dark and the lane closes.
+  So each day is a choice: hunt the blooms, or build to cover the flank they'll open.
+- One bloom on day 1, two on days 2-3, three after that.
+
+### The world
+- **Grass.** Open gaps in the jungle and the ring round the camp are meadows now: a new
+  photographic turf, with real 3D grass out to 28 m that sways in the wind, parts as you walk
+  through and whips when you swing. It grows in clumps and drifts, short lawn and long grass,
+  golden in dry patches, and straggles out into the leaves at its edges.
+- **The forest floor isn't one dark carpet any more.** The dark wet-leaf layer is gone; under
+  the trees thin sedge breaks up the litter, and the riverbanks and the camp's trampled earth
+  are lighter.
+- **Thickets.** Tree ferns, bananas, aroids, saplings and big shrubs grow in clumps through the
+  forest, so it closes into walls and corridors instead of an open grove of poles.
+- **Much more to pick up.** About seven times as many loose things lie on the floor, in natural
+  heaps: bundles of dead sticks, scatters of stones and flint, rings of mushrooms, bones and
+  feathers where something ate, bark, vines and resin at the feet of the giants, berries, moss
+  and fibre. The item you're looking at lights up with a glint, and plants no longer grow over
+  them.
+- Dead palm fronds no longer glow orange in the shade.
+
+### Feel
+- **Hold E to rake.** Tap E picks up what you're looking at; keep holding and you gather up
+  everything loose within 3 m.
+- **A better sprint.** The head bob now moves once per footstep (it ran four times too fast,
+  a frantic jitter), the machete drops to a low carry at your side that swings with your
+  stride, and the view widens a touch.
+- **Sprint lasts longer** (about 8 s) and recovers faster. Running into a wall no longer bobs
+  your head, plays footsteps or burns stamina.
+- **Crates, urns and chests** show a mouse icon and "Swing to smash · 3 blows" instead of an
+  E key, with a ring that fills as you hit them.
+
 ## 0.5: Sharp Edges (2026-10-14)
 
 A new machete in a gloved hand, a jungle floor with real variety, and the same depth the

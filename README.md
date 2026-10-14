@@ -6,7 +6,9 @@ and scavenge old camps, wrecks and temples. In the satchel you craft what you fo
 barricades and traps, and build them around the **Heartwood**, the glowing shrine at your camp.
 At dusk the Blight crawls out of rifts in the forest and follows the terrain to the Heart. Hold it
 until dawn. Each night is harder than the last, every fifth night brings a boss, and holding
-through **night 10** wins the run (you can carry on in endless mode). The run saves itself every
+through **night 10** wins the run (you can carry on in endless mode). Each day a few **Blight Blooms**
+sprout out in the forest under guard: cut them down for rare loot and the Heartwood's favour, or
+at dusk each one opens a new lane the Blight pours out of all night. The run saves itself every
 morning. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
 The world is built from code and dressed with generated photographs. Terrain, plants and props are
@@ -33,9 +35,9 @@ The Journal on the left walks you through the first day.
 | W A S D | Move |
 | Shift | Sprint (uses stamina) |
 | Space | Jump |
-| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, hits the Blight; every third hit in a row is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
+| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, smashes crates and urns, cuts down Blight Blooms, hits the Blight; every third hit in a row is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
 | Right mouse | Use the held consumable: eat a poultice, throw a firepot, raise orchid salve to mend nearby buildings and the Heartwood |
-| E | Pick up forage (tap). Search camps, wrecks and altars (hold). At a building: repair it if damaged, otherwise upgrade it (hold). At the Heartwood: offer relics for a boon, or call the night (hold) |
+| E | Pick up forage (tap; keep holding to rake up everything loose within 3 m). Search camps, wrecks and altars (hold). At a building: repair it if damaged, otherwise upgrade it (hold). At the Heartwood: offer relics for a boon, or call the night (hold) |
 | F (hold) | Pack up a building by day (you get it back) |
 | 1–8 / mouse wheel | Choose a belt slot. An empty slot means the machete |
 | R | Rotate a barricade before placing it |
@@ -84,6 +86,7 @@ src/
   world/World.js       chunk streaming, plant and forage scattering, terrain, collisions
   world/Litter.js      3D fallen leaves and sticks on the ground around the player
   world/Cover.js       seedlings, small ferns and dead fronds within 25 m of the player
+  world/Grass.js       3D grass tufts on the turf (and sedge under the trees) within 20 m
   world/flora/         plant library (Flora.js) + geometry helpers (geom.js)
   world/poi/POI.js     points of interest: placement rules + builders
   world/Sky.js         sky dome shader, sun/moon, day-night palette, environment map
@@ -105,6 +108,7 @@ src/
                        statuses (burn/root/slow), boss slam, spawn and death animations
   defense/Towers.js    buildings, tiers, repair, targeting, projectiles, placement ghost
   defense/Waves.js     the day/night director, wave composition, boss and rain nights
+  defense/Blooms.js    Blight Blooms: the day's guarded pods, cut down for loot, or they open lanes at dusk
   combat/Projectiles.js  slingshot stones and thrown firepots
   fx/Particles.js      leaf bursts, wood chips, sparks, spores, smoke, embers, ash, rings
   fx/LightPool.js      six shared point lights handed out by priority (no shader recompiles)

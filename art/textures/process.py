@@ -30,12 +30,13 @@ OUT = os.environ.get('OG_OUT', os.path.join(ROOT, '..', '..', 'public', 'texture
 # flatten (0 = keep big shading, 1 = remove it), height mode
 TILES = {
     # a square metre of floor each (leaves 5-15 cm; the first photos had a few giant leaves per
-    # frame, so at any tiling the floor read as a picture of leaves). Dry, paler leaves are
-    # mixed with the wet litter in big drifts by the terrain shader
-    'litter':   dict(src='litter6_00001_.png', size=1024, strength=2.4, mean=0.25, sat=0.8, flat=0.7, despec=0.85, desheen=0.85),
+    # frame, so at any tiling the floor read as a picture of leaves).
     # 0.5: a floor of many species' leaves in mixed colours (the pale dry litter2 read as one
-    # carpet of identical chips) and bare humus between the drifts
+    # carpet of identical chips) and bare humus between the drifts. (0.6 dropped the dark wet
+    # 'litter' tile: the floor read as one dark carpet, and the turf needed its texture units.)
     'litter3':  dict(src='litter7_00002_.png', size=1024, strength=2.4, mean=0.235, sat=0.58, flat=0.8, despec=0.6, gain=[1.0, 0.97, 0.9]),
+    # short grass with clover in the open gaps and round the camp (0.6)
+    'turf':     dict(src='turf_00002_.png', size=1024, strength=2.2, mean=0.3, sat=0.74, flat=0.85, despec=0.5, gain=[0.9, 1.0, 0.86]),
     'humus':    dict(src='humus_00002_.png', size=1024, strength=3.5, mean=0.16, sat=0.8, flat=0.7, despec=0.5),
     # cushion moss for logs, rocks and stone (the ground gets the flat carpet above)
     'cushion':  dict(src='moss2_00001_.png', size=1024, strength=5.0, mean=0.3, sat=0.72, flat=0.6, fsig=40),

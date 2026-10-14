@@ -5,6 +5,7 @@
 // baked shade, and shrinks away over the last few metres of the ring.
 import * as THREE from 'three';
 import { mulberry32, range } from '../utils/rng.js';
+import { smoothstep } from '../utils/math.js';
 import { addPackedNormal, addNightFill, patch } from '../art/shaders.js';
 
 const CELL = 4; // metres; leaves are generated per cell, once, and kept while near
@@ -140,7 +141,8 @@ export class Litter {
       const g = world.groundAt(x, z, _g);
       if (!g) return null;
       if (g.h < 0.4 || g.ny < 0.58 || g.rock > 0.45 || g.mud > 0.5) continue;
-      if (roll > g.litter * (1 - g.moss * 0.8)) continue;
+      // a few leaves blow onto the turf; the drifts stay under the trees
+      if (roll > g.litter * (1 - g.moss * 0.8) * (1 - 0.7 * smoothstep(0.3, 0.75, g.grass))) continue;
       if (pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius * 0.85) ** 2)) continue;
       if (shapeRoll > 0.94) {
         // a stick, lying along the ground

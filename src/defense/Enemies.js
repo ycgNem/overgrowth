@@ -234,9 +234,13 @@ export class Enemies {
     const toPlayer = Math.hypot(player.x - e.pos.x, player.z - e.pos.z);
     let want = null; // desired direction
     let attack = null; // { kind, ref }
-    const seesPlayer = ctx.playerAlive && toPlayer < def.aggro && Math.abs(player.y - e.pos.y) < 2.5;
+    // a bloom's guards see further, but won't be drawn far from it
+    const g = e.guard;
+    const aggro = g ? 10 : def.aggro;
+    const seesPlayer = ctx.playerAlive && toPlayer < aggro && Math.abs(player.y - e.pos.y) < 2.5
+      && (!g || Math.hypot(player.x - g.x, player.z - g.z) < g.leash);
     // Rotboars break off to gore a tower that comes within reach, and stay on it until it falls
-    if (def.towerAggro && !seesPlayer) {
+    if (def.towerAggro && !seesPlayer && !g) {
       if (e.prey && (e.prey.dead || e.prey.distTo(e.pos.x, e.pos.z) > def.towerAggro * 1.5)) e.prey = null;
       if (!e.prey) {
         let bd = def.towerAggro;
@@ -250,6 +254,19 @@ export class Enemies {
     if (seesPlayer) {
       want = { x: (player.x - e.pos.x) / toPlayer, z: (player.z - e.pos.z) / toPlayer };
       if (toPlayer < def.reach * def.scale * 0.8 + 0.4) attack = { kind: 'player' };
+    } else if (g) {
+      // prowl round the bloom: amble to a spot near it, pause, pick another
+      e.idleT = (e.idleT ?? 0) - dt;
+      if (!e.roam || Math.hypot(e.roam.x - e.pos.x, e.roam.z - e.pos.z) < 0.8) {
+        if (e.idleT <= 0) {
+          const a = Math.random() * Math.PI * 2, r = 2.5 + Math.random() * (g.r - 2.5);
+          e.roam = { x: g.x + Math.cos(a) * r, z: g.z + Math.sin(a) * r };
+          e.idleT = 1.5 + Math.random() * 3;
+        }
+      }
+      const dx = (e.roam?.x ?? g.x) - e.pos.x, dz = (e.roam?.z ?? g.z) - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+      want = dl < 0.8 ? { x: 0, z: 0 } : { x: dx / dl, z: dz / dl };
+      speed *= 0.35;
     } else if (e.prey) {
       const dx = e.prey.x - e.pos.x, dz = e.prey.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
       want = { x: dx / dl, z: dz / dl };

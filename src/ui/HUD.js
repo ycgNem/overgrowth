@@ -15,6 +15,8 @@ const DEG = Math.PI / 180;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const _p = new THREE.Vector3();
 
+const MOUSE_SVG = '<svg class="mouse" viewBox="0 0 16 22"><rect x="1.5" y="1.5" width="13" height="19" rx="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.5v7.5H1.5V8A6.5 6.5 0 0 1 8 1.5z" fill="currentColor"/></svg>';
+
 export class HUD {
   constructor(inventory) {
     this.inv = inventory;
@@ -301,7 +303,12 @@ export class HUD {
     this.el.cross.classList.add('hot');
     if (this.el.promptLabel.textContent !== label) this.el.promptLabel.textContent = label;
     if (this.el.promptSub.innerHTML !== sub) this.el.promptSub.innerHTML = sub;
-    if (this.el.promptKey.textContent !== key) this.el.promptKey.textContent = key;
+    if (this.el.promptKey.dataset.key !== key) {
+      this.el.promptKey.dataset.key = key;
+      // LMB: a little mouse with its left button lit (an attack, not a key)
+      if (key === 'LMB') this.el.promptKey.innerHTML = MOUSE_SVG;
+      else this.el.promptKey.textContent = key;
+    }
     this.el.promptFill.style.strokeDashoffset = String(100.5 * (1 - progress));
   }
 

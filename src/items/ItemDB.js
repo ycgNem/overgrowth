@@ -98,6 +98,8 @@ export const LOOT = {
   wreck: { chance: 1, rolls: 4, table: [['scrap_metal', 20], ['battery', 18], ['vacuum_tube', 14], ['compass', 8], ['copper_wire', 18], ['brass_gear', 12], ['pocket_watch', 4]] },
   temple: { chance: 1, rolls: 3, table: [['doubloon', 50], ['jade_figurine', 25]], guaranteed: ['golden_idol'] },
   templeChest: { chance: 1, rolls: 2, table: [['doubloon', 40], ['jade_figurine', 15], ['sun_mask', 3]] },
+  // a Blight Bloom cut down: what it was feeding on
+  bloom: { chance: 1, rolls: 3, table: [['strange_seeds', 26], ['glowcap', 20], ['resin', 12], ['bone', 10], ['battery', 7], ['vacuum_tube', 6], ['ghost_orchid', 6], ['doubloon', 7], ['jade_figurine', 2]] },
   // what the Blight leaves behind
   blightling: { chance: 0.55, rolls: 1, table: [['bone', 28], ['thorns', 24], ['stone', 18], ['strange_seeds', 14], ['fiber', 12], ['glowcap', 4]] },
   rotboar: { chance: 1, rolls: 2, table: [['bone', 30], ['moss', 20], ['mushroom', 25], ['log', 15], ['resin', 10], ['glowcap', 6]] },

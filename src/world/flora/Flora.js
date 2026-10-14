@@ -153,7 +153,7 @@ export class Flora {
       broad: leaf('broad', PLANT_WIND, { flutter: 0.01, rough: 0.55, trans: 0.7, env: 0.3 }),
       under: leaf('under', PLANT_WIND, { flutter: 0.012, trans: 0.7 }),
       underTree: leaf('under', TREE_WIND, { flutter: 0.012, trans: 0.7 }),
-      deadLeaf: leaf('fronds', { sway: 0.0 }, { glow: 0.0, rough: 0.85, trans: 0.2, flutter: 0 }),
+      deadLeaf: leaf('fronds', { sway: 0.0 }, { glow: 0.0, rough: 0.85, trans: 0, flutter: 0 }),
     };
 
     const variants = (n, seed0, fn) => Array.from({ length: n }, (_, i) => fn(seed0 + i * 101));
@@ -1188,7 +1188,8 @@ export class Flora {
     transform(g, { position: V(-1.8, 0.04, 0) });
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) p.setY(i, Math.max(0.025, p.getY(i) * 0.4 + Math.abs(p.getZ(i)) * 0.12));
-    const tint = [range(r, 0.75, 0.9), range(r, 0.52, 0.62), range(r, 0.28, 0.34)];
+    // dry and grey-brown: warmer and the tips glowed neon orange even in shade
+    const tint = [range(r, 0.6, 0.7), range(r, 0.5, 0.56), range(r, 0.38, 0.42)];
     shade(g, (q, n, c) => c.setRGB(...tint));
     return { geometry: mergeSlots([[g]]), colliders: [] };
   }
