@@ -41,6 +41,10 @@ export const ITEMS = {
   bone: { name: 'Bone', kind: 'material', rarity: 'uncommon', value: 3, desc: 'Picked clean. Something big ate well out here.' },
   moss: { name: 'Moss', kind: 'material', rarity: 'common', value: 1, desc: 'Damp and springy. Soaks up blood and packs wounds.' },
   strange_seeds: { name: 'Strange Seeds', kind: 'material', rarity: 'uncommon', value: 5, desc: 'Iridescent seeds that feel faintly warm.' },
+  // the drowned grove
+  reed: { name: 'Reeds', kind: 'material', rarity: 'common', value: 1, desc: 'Hollow stems cut from the drowned grove. Light and tough; they thatch and lash into anything.' },
+  eel: { name: 'Bog Eel', kind: 'material', rarity: 'uncommon', value: 4, desc: 'Slick, black and still twitching. Smoke it over a curl of bark and it will feed you well.' },
+  bog_iron: { name: 'Bog Iron', kind: 'material', rarity: 'uncommon', value: 6, desc: 'Rust-red nodules that grow in the swamp mud. Crude iron, but iron: it binds walls and makes shot.' },
   ghost_orchid: { name: 'Ghost Orchid', kind: 'material', rarity: 'rare', value: 20, desc: 'A pale, rare orchid. Its nectar knits wood back together.' },
 
   // ------------------------------------------------------------- salvage
@@ -72,6 +76,7 @@ export const ITEMS = {
   glow_lantern: { name: 'Glowcap Lantern', kind: 'build', rarity: 'rare', value: 0, model: 'glow_lantern', desc: 'A cage of glowcaps hung from a lashed pole. Its cold light shows up every weak seam in the Blight (they take more damage in it) and drags Burrowers up out of the ground.' },
   vine_snare: { name: 'Vine Snare', kind: 'build', rarity: 'uncommon', value: 0, model: 'vine_snare', desc: 'Coiled lianas under a mat of leaves. Whips up and binds whatever walks in, a few times over. Too weak to hold a Thornback, but it slows one.' },
   poultice: { name: 'Berry Poultice', kind: 'use', rarity: 'common', value: 0, heal: 45, desc: 'Mashed berries and moss bound in a leaf. Right-click to heal 45.' },
+  smoked_eel: { name: 'Smoked Eel', kind: 'use', rarity: 'uncommon', value: 0, heal: 75, desc: 'A bog eel smoked black over bark. Rich, oily and filling. Right-click to heal 75.' },
   firepot: { name: 'Firepot', kind: 'use', rarity: 'uncommon', value: 0, throw: true, desc: 'An old bottle of resin with a fibre wick. Right-click to throw: it bursts into flame and sets the Blight alight.' },
   orchid_salve: { name: 'Orchid Salve', kind: 'use', rarity: 'rare', value: 0, salve: true, desc: 'Ghost orchid nectar worked into moss. Right-click near your defences: mends every building within 20 m and the Heartwood.' },
   slingshot: { name: 'Slingshot', kind: 'tool', rarity: 'uncommon', value: 0, desc: 'A forked branch and a vine sling. Hold LMB to draw, release to fire. Shoots stones, or scrap shot for a harder hit. Reaches wisps.' },
@@ -100,13 +105,15 @@ export const LOOT = {
   temple: { chance: 1, rolls: 3, table: [['doubloon', 50], ['jade_figurine', 25]], guaranteed: ['golden_idol'] },
   templeChest: { chance: 1, rolls: 2, table: [['doubloon', 40], ['jade_figurine', 15], ['sun_mask', 3]] },
   // a Blight Bloom cut down: what it was feeding on
+  reeds: { chance: 0.85, rolls: 1, table: [['reed', 80], ['fiber', 14], ['eel', 3], ['strange_seeds', 3]] },
+  shrine: { chance: 1, rolls: 3, table: [['bog_iron', 24], ['glowcap', 18], ['jade_figurine', 10], ['doubloon', 14], ['vacuum_tube', 8], ['ghost_orchid', 10], ['strange_seeds', 12], ['sun_mask', 1]], guaranteed: ['jade_figurine'] },
   bloom: { chance: 1, rolls: 3, table: [['strange_seeds', 26], ['glowcap', 20], ['resin', 12], ['bone', 10], ['battery', 7], ['vacuum_tube', 6], ['ghost_orchid', 6], ['doubloon', 7], ['jade_figurine', 2]] },
   // what the Blight leaves behind
   blightling: { chance: 0.55, rolls: 1, table: [['bone', 28], ['thorns', 24], ['stone', 18], ['strange_seeds', 14], ['fiber', 12], ['glowcap', 4]] },
   rotboar: { chance: 1, rolls: 2, table: [['bone', 30], ['moss', 20], ['mushroom', 25], ['log', 15], ['resin', 10], ['glowcap', 6]] },
   wisp: { chance: 0.7, rolls: 1, table: [['feather', 30], ['strange_seeds', 30], ['resin', 20], ['glowcap', 14], ['ghost_orchid', 3]] },
   spitter: { chance: 0.8, rolls: 1, table: [['mushroom', 30], ['resin', 22], ['clay', 18], ['strange_seeds', 16], ['glowcap', 9], ['old_bottle', 5]] },
-  burrower: { chance: 1, rolls: 2, table: [['stone', 26], ['flint', 22], ['clay', 18], ['bone', 14], ['glowcap', 8], ['brass_gear', 4], ['copper_wire', 4]] },
+  burrower: { chance: 1, rolls: 2, table: [['stone', 26], ['flint', 22], ['clay', 18], ['bone', 14], ['glowcap', 8], ['bog_iron', 6], ['brass_gear', 4], ['copper_wire', 4]] },
   thornback: { chance: 1, rolls: 6, table: [['glowcap', 20], ['bone', 20], ['strange_seeds', 15], ['brass_gear', 10], ['vacuum_tube', 8], ['ghost_orchid', 8], ['log', 10]], guaranteed: ['jade_figurine', 'glowcap'] },
 };
 

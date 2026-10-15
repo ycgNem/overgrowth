@@ -21,3 +21,20 @@ export const DIFFICULTIES = {
 
 export const DIFFICULTY_IDS = Object.keys(DIFFICULTIES);
 export const difficulty = (id) => DIFFICULTIES[id] || DIFFICULTIES.warden;
+
+// Kits: what you wake up with, picked under the difficulty once the Many Paths Memory is
+// earned. 'starter' is the difficulty's own; the other two trade its tower for a plan.
+export const KITS = {
+  starter: { name: 'Usual Kit', glyph: '❦', blurb: "The difficulty's own: a Bramble Bow Tower, traps and poultices." },
+  builder: {
+    name: "Builder's Kit", glyph: '▦', items: [['barricade', 3], ['spore_mortar', 1], ['log', 8]],
+    blurb: 'Three thorn barricades, a Spore Mortar and a stack of logs. Shape the lanes from the first night.',
+  },
+  hunter: {
+    name: "Hunter's Kit", glyph: '➹', items: [['slingshot', 1], ['stone', 20], ['firepot', 2], ['poultice', 3]],
+    blurb: 'A slingshot and twenty stones, two firepots and three poultices. No tower: you are the defence.',
+  },
+};
+export const KIT_IDS = Object.keys(KITS);
+// the items a run starts with on difficulty d with kit k
+export const kitItems = (d, k) => (KITS[k]?.items || d.starter);

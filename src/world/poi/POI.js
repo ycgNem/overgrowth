@@ -6,8 +6,9 @@ import * as T from '../../art/textures.js';
 import { addMoss, addNightFill, addPackedNormal, addRelief } from '../../art/shaders.js';
 import { worldBox, BlockBatch, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
-import { terrainHeight, terrainNormal, CHUNK_SIZE } from '../WorldGen.js';
+import { terrainHeight, terrainNormal, CHUNK_SIZE, WATER_LEVEL, grove } from '../WorldGen.js';
 import { getItemModel } from '../../items/ItemModels.js';
+import { cloneModel } from '../../assets/Models.js';
 
 const TAU = Math.PI * 2;
 const TEMPLE_REGION = 7; // one temple per 7x7 chunks (~450m square)
@@ -19,6 +20,7 @@ export const POI_INFO = {
   crates: { label: 'Supply Cache', radius: 4.5, icon: '■' },
   camp: { label: 'Abandoned Camp', radius: 6.5, icon: '▴' },
   wreck: { label: 'Plane Wreck', radius: 13, icon: '✈' },
+  shrine: { label: 'Sunken Shrine', radius: 9, icon: '◈' },
 };
 
 // ---------------------------------------------------------------- specs
@@ -60,14 +62,18 @@ export function poiSpec(cx, cz) {
     }
     return null;
   };
-  if (hasTemple && cx === tcx && cz === tcz) {
+  // the sunken shrine stands half-drowned at the heart of the grove
+  const G = grove();
+  if (cx === Math.floor(G.x / CHUNK_SIZE) && cz === Math.floor(G.z / CHUNK_SIZE)) {
+    spec = { type: 'shrine', key, x: G.x, z: G.z, y: WATER_LEVEL - 0.35, rot: rand() * TAU, seed: (rand() * 1e9) | 0, radius: POI_INFO.shrine.radius };
+  } else if (hasTemple && cx === tcx && cz === tcz) {
     spec = tryPlace('temple', 20, 1.2, 6, 14);
   } else {
     const roll = rand();
     const type = roll < 0.11 ? 'scrap' : roll < 0.17 ? 'crates' : roll < 0.24 ? 'ruins' : roll < 0.285 ? 'camp' : roll < 0.305 ? 'wreck' : null;
     if (type) spec = tryPlace(type, 12, 0.8, type === 'wreck' ? 2.5 : 1.6, POI_INFO[type].radius * 0.6);
   }
-  if (spec) spec.y = Math.max(spec.y, 0.2);
+  if (spec && spec.type !== 'shrine') spec.y = Math.max(spec.y, 0.2);
   specCache.set(key, spec);
   return spec;
 }
@@ -121,6 +127,7 @@ function kit(flora) {
     bark: addPackedNormal(new THREE.MeshStandardMaterial({ map: lib.bark.map, normalMap: lib.bark.nmap, roughness: 0.95, color: 0xd8ccb8 })),
     ember: new THREE.MeshStandardMaterial({ color: 0x3a1000, emissive: 0xff5a10, emissiveIntensity: 1.5 }),
     lanternGlow: new THREE.MeshStandardMaterial({ color: 0xffd080, emissive: 0xffb040, emissiveIntensity: 2.2 }),
+    runeGlow: new THREE.MeshStandardMaterial({ color: 0x0c2a22, emissive: 0x40ffc8, emissiveIntensity: 1.1 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x0a1418, roughness: 0.1, metalness: 0.6 }),
     vine: new THREE.MeshStandardMaterial({ color: 0x3e5a24, roughness: 0.8 }),
     bronze: new THREE.MeshStandardMaterial({ color: 0x6a5030, roughness: 0.5, metalness: 0.8 }),
@@ -621,8 +628,12 @@ function buildCrates(b) {
     const px = stacked ? 0 : (i - (n - 1) / 2) * 1.35 + range(r, -0.2, 0.2);
     const pz = stacked ? 0 : range(r, -0.4, 0.4);
     const y = stacked ? 1.0 : 0;
-    const mat = r() < 0.4 ? k.plankStencil : k.plank;
-    const crate = b.add(new THREE.BoxGeometry(s, s, s), mat, [px, y + s / 2 - 0.05, pz], [0, range(r, -0.4, 0.4), 0]);
+    // the Blender crates (art/blender/crate.py): a 1 m box, origin at the foot
+    const crate = cloneModel(r() < 0.4 ? 'crate_b' : 'crate');
+    crate.scale.setScalar(s);
+    crate.position.set(px, y - 0.05, pz);
+    crate.rotation.y = range(r, -0.4, 0.4) + Math.floor(r() * 4) * (Math.PI / 2);
+    b.group.add(crate);
     const p = b.w(px, pz);
     const col = { type: 'box', x: p.x, z: p.z, hx: s / 2, hz: s / 2, rot: b.spec.rot + crate.rotation.y, top: b.spec.y + y + s - 0.05, bottom: b.spec.y - 2 };
     if (!stacked) b.colliders.push(col);
@@ -632,22 +643,11 @@ function buildCrates(b) {
 
 function buildCamp(b) {
   const { k, r } = b;
-  // A-frame tent
-  const L = 2.8, W = 2.3, H = 1.75;
-  const tent = new THREE.BufferGeometry();
-  const v = [
-    -W / 2, 0, -L / 2, 0, H, -L / 2, 0, H, L / 2, -W / 2, 0, -L / 2, 0, H, L / 2, -W / 2, 0, L / 2,
-    W / 2, 0, -L / 2, 0, H, L / 2, 0, H, -L / 2, W / 2, 0, -L / 2, W / 2, 0, L / 2, 0, H, L / 2,
-    -W / 2, 0, -L / 2, W / 2, 0, -L / 2, 0, H, -L / 2,
-  ];
-  tent.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  const uv = [];
-  for (let i = 0; i < v.length; i += 3) uv.push(v[i + 2] * 0.6 + v[i] * 0.3, v[i + 1] * 0.6);
-  tent.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  tent.computeVertexNormals();
-  b.add(tent, k.cloth, [-2.2, 0, 0], [0, 0.3, 0]);
-  b.bin(new THREE.CylinderGeometry(0.03, 0.03, L + 0.5, 6), k.bark, [-2.2, H, 0], [Math.PI / 2, 0, -0.3]);
-  for (const e of [-1, 1]) b.bin(new THREE.CylinderGeometry(0.03, 0.03, H + 0.1, 6), k.bark, [-2.2 + Math.sin(0.3) * e * (L / 2 + 0.2), H / 2, Math.cos(0.3) * e * (L / 2 + 0.2)]);
+  // the canvas A-frame (art/blender/tent.py: 2.3 m wide, 2.8 m long, door toward +z)
+  const tent = cloneModel('tent');
+  tent.position.set(-2.2, 0, 0);
+  tent.rotation.y = 0.3;
+  b.group.add(tent);
   b.boxCol(-2.2, 0, 1.2, 1.45, 1.75, 0.3);
   // fire pit
   for (let i = 0; i < 9; i++) {
@@ -680,37 +680,10 @@ function buildCamp(b) {
   b.flame([-0.9, 0.18, -0.9], 0.7).material = new THREE.SpriteMaterial({ map: k.flame.map, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.6, transparent: true });
 }
 
+// The crashed plane (art/blender/wreck.py), modelled in this builder's local frame: nose at
+// +z, the left wing and its engine at -x, the tail half slewed off toward -z, +x.
 function buildWreck(b) {
-  const { k, r } = b;
-  const prof = [];
-  for (let i = 0; i <= 16; i++) {
-    const y = (i / 16) * 12;
-    let rad = 1.3;
-    if (y < 2.5) rad = 1.3 * Math.sqrt(y / 2.5) + 0.05;
-    if (y > 8) rad = 1.3 - ((y - 8) / 4) * 0.9;
-    prof.push(new THREE.Vector2(rad, y));
-  }
-  const front = new THREE.LatheGeometry(prof.filter((p) => p.y <= 7.6), 18);
-  const tail = new THREE.LatheGeometry(prof.filter((p) => p.y >= 7.5), 18);
-  // Fuselage runs along local z, nose at +z. Lathe axis y maps to -z.
-  b.add(front, k.aircraft, [0, 0.9, 6], [-Math.PI / 2 - 0.06, 0, 0.12]);
-  b.add(tail, k.aircraft, [0.6, 0.7, 5.4], [-Math.PI / 2 + 0.04, 0, -0.22]);
-  b.bin(worldBox(1.0, 0.35, 0.9, 1), k.darkGlass, [0, 2.0, 4.0], [-0.4, 0, 0]);
-  // wings & tail fin
-  b.bin(worldBox(7, 0.22, 1.9, 3), k.aircraft, [-4.2, 0.35, 2.8], [0.05, 0.1, 0.12]);
-  b.bin(worldBox(3.2, 0.22, 1.7, 3), k.aircraft, [4.5, 0.15, 4.5], [0.1, 0.9, -0.15]);
-  b.bin(worldBox(0.2, 2.2, 1.7, 2), k.aircraft, [1.7, 2.0, -5.8], [0.1, 0.22, -0.2]);
-  b.bin(worldBox(3.2, 0.18, 1.2, 2), k.aircraft, [1.6, 1.1, -5.9], [0, 0.22, -0.18]);
-  // engine + bent propeller
-  b.bin(new THREE.CylinderGeometry(0.55, 0.45, 1.8, 14), k.rust, [-3.2, 0.7, 1.6], [Math.PI / 2, 0, 0]);
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * TAU;
-    b.bin(worldBox(0.18, 1.4, 0.05, 1), k.rust, [-3.2 + Math.cos(a) * 0.65, 0.7 + Math.sin(a) * 0.65, 2.6], [0.2, 0.3, a + Math.PI / 2]);
-  }
-  for (let i = 0; i < 6; i++) {
-    const a = r() * TAU, d = range(r, 4, 9);
-    b.bin(worldBox(range(r, 0.6, 1.4), 0.05, range(r, 0.4, 1.0), 1.5), k.aircraft, [Math.cos(a) * d, 0.1, Math.sin(a) * d], [range(r, -0.3, 0.3), r() * TAU, range(r, -0.3, 0.3)]);
-  }
+  b.group.add(cloneModel('wreck'));
   b.boxCol(0, 2.2, 1.3, 3.8, 2.4);
   b.boxCol(1.3, -4.5, 1.0, 2.3, 2.0, 0.2);
   b.boxCol(-4.2, 2.8, 3.5, 0.95, 0.75, 0.1);
@@ -718,7 +691,62 @@ function buildWreck(b) {
   b.interact({ kind: 'search', label: 'Search cockpit', lx: 0, lz: 4.6, ly: 1.4, r: 2.8, loot: 'wreck', time: 2.0 });
 }
 
-const BUILDERS = { temple: buildTemple, ruins: buildRuins, scrap: buildScrap, crates: buildCrates, camp: buildCamp, wreck: buildWreck };
+// The sunken shrine (the drowned grove): a ring of dressed stone half under the black water,
+// leaning pillars, steps going down into the pool, and an altar on an island of stone with
+// cold runes still burning in it. The spec's y sits 0.35 m under the waterline.
+function buildShrine(b) {
+  const { k, r } = b;
+  const top = 0.6; // the platform's top, 0.25 m above the water
+  // the platform: an octagon of blocks, the far side slumped into the water
+  for (let ring = 0; ring < 2; ring++) {
+    const R = ring ? 5.6 : 3.4, n = ring ? 16 : 8;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      const slump = Math.max(0, Math.sin(a + 0.6)) * (ring ? 0.7 : 0.35) + range(r, -0.04, 0.06);
+      const w = (TAU * R) / n * 0.96;
+      b.bin(worldBox(w, 0.8, ring ? 2.1 : 2.4, 1.2), k.stone, [Math.cos(a) * R, top - 0.4 - slump, Math.sin(a) * R], [range(r, -0.06, 0.06) + slump * 0.15, -a + Math.PI / 2, range(r, -0.04, 0.04)]);
+    }
+  }
+  b.bin(new THREE.CylinderGeometry(2.4, 2.5, 0.8, 8), k.stone, [0, top - 0.4, 0]);
+  // steps down into the pool on the near side
+  for (let i = 0; i < 4; i++) b.bin(worldBox(2.6, 0.3, 0.6, 1.2), k.stone, [0, top - 0.25 - i * 0.28, -6.9 - i * 0.55], [range(r, -0.05, 0.05), range(r, -0.08, 0.08), 0]);
+  // the altar: a block with a basin, runes in its faces, a relic glint in the basin
+  b.bin(worldBox(1.4, 0.9, 1.0, 1.2), k.stone, [0, top + 0.45, 0]);
+  b.bin(worldBox(1.6, 0.18, 1.2, 1.2), k.stone, [0, top + 0.98, 0]);
+  for (const s of [-1, 1]) {
+    b.add(worldBox(0.08, 0.5, 0.03, 1), k.runeGlow, [s * 0.35, top + 0.5, -0.51], [0, 0, 0], { shadow: false });
+    b.add(worldBox(0.3, 0.06, 0.03, 1), k.runeGlow, [s * 0.35, top + 0.62, -0.51], [0, 0, s * 0.6], { shadow: false });
+  }
+  b.add(new THREE.SphereGeometry(0.12, 12, 8), k.runeGlow, [0, top + 1.14, 0], [0, 0, 0], { shadow: false });
+  b.boxCol(0, 0, 0.8, 0.6, top + 1.07);
+  // pillars round the ring: two standing, one leaning, one fallen into the water
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * TAU + 0.4 + range(r, -0.15, 0.15), R = 4.6;
+    const px = Math.cos(a) * R, pz = Math.sin(a) * R;
+    const h = range(r, 3.2, 4.4);
+    if (i < 2) {
+      b.bin(new THREE.CylinderGeometry(0.38, 0.44, h, 10), k.stone, [px, top + h / 2 - 0.2, pz], [range(r, -0.04, 0.04), 0, range(r, -0.04, 0.04)]);
+      b.bin(worldBox(1.0, 0.32, 1.0, 1.2), k.stone, [px, top + h - 0.1, pz]);
+      b.add(worldBox(0.04, 0.9, 0.04, 1), k.runeGlow, [px - Math.cos(a) * 0.4, top + 1.3, pz - Math.sin(a) * 0.4], [0, -a, 0], { shadow: false });
+      b.circleCol(px, pz, 0.5, top + h);
+    } else if (i === 2) {
+      b.bin(new THREE.CylinderGeometry(0.38, 0.44, h, 10), k.stone, [px, top + h / 2 - 0.35, pz], [0.32 * Math.sin(a), 0, -0.32 * Math.cos(a)]);
+      b.circleCol(px, pz, 0.5, top + h * 0.8);
+    } else {
+      // fallen: lying half in the water, pointing out of the ring
+      b.bin(new THREE.CylinderGeometry(0.38, 0.42, h, 10), k.stone, [Math.cos(a) * (R + h / 2 - 0.5), top - 0.55, Math.sin(a) * (R + h / 2 - 0.5)], [Math.PI / 2, 0, -a + Math.PI / 2]);
+    }
+  }
+  // moss and lumps of rubble round the rim
+  for (let i = 0; i < 10; i++) {
+    const a = r() * TAU, d = range(r, 5.8, 8);
+    const g = new THREE.DodecahedronGeometry(range(r, 0.25, 0.55), 0);
+    b.bin(g, k.rubble, [Math.cos(a) * d, top - range(r, 0.6, 1.0), Math.sin(a) * d], [r(), r(), r()]);
+  }
+  b.interact({ kind: 'search', label: 'Search the drowned altar', lx: 0, lz: -0.9, ly: top + 0.9, r: 2.4, loot: 'shrine', time: 2.4 });
+}
+
+const BUILDERS = { shrine: buildShrine, temple: buildTemple, ruins: buildRuins, scrap: buildScrap, crates: buildCrates, camp: buildCamp, wreck: buildWreck };
 
 export function buildPOI(spec, flora) {
   const it = buildPOISteps(spec, flora);

@@ -148,11 +148,11 @@ come back** (runs don't build on each other) and **variety after night 6** (the 
 Blight and seven defences every time). The next four milestones go after that, then polish for
 a 1.0.
 
-9. **The Long Vigil (release 0.8): in progress.** New threats, new answers, a reason to
-   return. Done so far: the Spitter, the Burrower, the Glowcap Lantern, five Memories with three
-   Memory-only boons, the night lighting pass, Field Guide entries and wave composition with a
-   first balance pass. Left: the kit pick, journal goals for the lantern, and a wider balance
-   sweep (see the 0.8 handoff below).
+9. **The Long Vigil: done (2026-10-15, shipped in release 0.9).** New threats, new answers,
+   a reason to return: the Spitter, the Burrower, the Glowcap Lantern, six Memories (the last
+   is *Many Paths*, a kit pick at New Game), three Memory-only boons, darker nights, journal
+   goals for the lantern and the Spitter, and a balance sweep on all three difficulties. The
+   original plan:
    - **Spitter** (new Blight, from night 3): a bloated thing that stops at range and lobs
      arcing globs of blight at your towers, leaving a burning puddle. It forces you to cover
      your towers instead of hiding behind them, and it is fragile up close.
@@ -171,7 +171,12 @@ a 1.0.
      moon, the Blight's eyes and rims carry, fire and the Heartwood light the clearing.
    - Field Guide, journal goals, wave composition and balance (`e2e/balance.mjs`) for all of it.
 
-10. **Wild Places (release 0.9): a world that's worth crossing.**
+10. **Wild Places: done (2026-10-15, release 0.9).** Pooled instancing (~200 draw calls),
+    far LODs and draw distances (forest frames 16 → 9 ms), Steady frame rate, the tent, wreck
+    and crates in Blender, moss cushions and round veins on the Heartwood, the drowned grove
+    with its flora, forage, recipes, shrine and night-4 rift, and trampled lanes. Carried into
+    milestone 11: the denser understory and the rest of the art backlog (see Start here). The
+    original plan:
     - Draw calls: one instanced mesh per plant variant across the streaming window (450-790
       calls today), which buys a denser understory and card LODs past 30 m.
     - The last primitive props modelled in Blender: the camp tent, the wreck, the Heartwood's
@@ -215,37 +220,37 @@ a 1.0.
   each replacing two Blightlings); Burrowers from night 6, `n − 5` (in the third pack, each
   replacing three); the Thornback on nights 5 and 10. A wave arrives in three packs. The
   difficulty's `count` scales all of these but the boss.
-- Enemy HP: +12% a night up to night 6, then +14% a night. The Thornback (1800 HP) comes at 0.8×
+- Enemy HP: +12% a night up to night 6, then +14% a night. The Thornback (1800 HP) comes at 0.7×
   on night 5 and scales at half the Blight's rate after that. From night 7 the *surge* (a fourth
   pack from every rift at once) adds `4(n − 6)` Blightlings, `1.5(n − 6)` Rotboars and
   `(n − 6)/2` Wisps. Tower damage only grows through upgrades and boons.
-- Five rifts: three open from night 1, the fourth tears open on night 7 and the fifth on night 9.
+- Six rifts: three open from night 1, the drowned grove's tears open on night 4 (its Blight wade
+  in from the water), the fifth on night 7 and the sixth on night 9.
 - Heartwood: 500 HP. Blightling bite 8 per 1 s, Wisp 7, Rotboar 22 per 1.5 s, Burrower 12 per
-  1.3 s, Thornback 40 per 2.2 s plus a slam every 6.5–8.5 s (30 to the Heart, 110 to buildings,
-  26 to you). A Spitter's glob every 4 s does 12 to buildings within 1.9 m, 8 to the Heart, 10
-  to you, and leaves a puddle that burns you for 6 a second for 4 s.
-- Measured with a passive player (`e2e/balance.mjs`, Heartwood HP left out of 500):
+  1.3 s, Thornback 40 per 2.2 s plus a slam every 6.5–8.5 s (30 to the Heart, 85 to buildings,
+  26 to you). A Spitter (60 HP) lobs a glob every 4 s: 9 to buildings within 1.9 m, 8 to the
+  Heart, 10 to you, and a puddle that burns you for 6 a second for 4 s. Bow towers pick
+  Spitters out first. Rotboars break off for a tower within reach (`towerAggro` 4.5 m): they,
+  not the Spitters, are what tears a defence down, and the Thornback's slam finishes the traps.
+- Measured with a passive player (`e2e/balance.mjs <night> <setup> [difficulty]`, Heartwood HP
+  left at dawn; Warden 500, Verdant 700, Blightborn 400). Two or three runs each, 0.8 rules
+  with the grove rift, 2026-10-15:
 
-  | Night | starter | mid | late |
+  | Night | Warden | Verdant | Blightborn |
   | --- | --- | --- | --- |
-  | 1 | 500 | | |
-  | 2 | 413 | | |
-  | 3 | 26–74 (or lost) | | |
-  | 4 | | 500 | |
-  | 5 (boss) | | 123 | |
-  | 6 | | 391 → 225 (0.8) | |
-  | 8 | | lost | |
-  | 9 | | | 500 |
-  | 10 (boss) | | | 183 → 141 (0.8) |
+  | 3, starter | lost (26–74 before the grove; it varies) | | |
+  | 5 (boss), mid | 356, 179, 275 | | |
+  | 6, mid | 500, 319 | 700 | lost |
+  | 8, mid | lost | | |
+  | 10 (boss), late | 97, 351 | 700 | lost |
 
-  *starter* is the one bow tower. *mid* is two bow towers, a mortar, a brazier, and a barricade
-  plus spike trap per rift. *late* adds a third bow, a totem, a second brazier and a snare per
-  rift, everything upgraded to tier 2. Spawns are random, so a run varies by ±50 HP and night 3
-  with the starter tower sometimes falls. The curve asks you to keep building after night 6: a
-  *late* base now loses about 300 HP on night 10 with nobody fighting (0.4 rebalance, measured on
-  2026-10-14). The 0.8 Blight make nights 6+ harder for a passive player (the Spitters shell
-  towers, the Burrowers skip the walls); both are meant to be answered by fighting (Spitters are
-  fragile up close) and by lanterns, which the sim setups don't build yet.
+  *starter* is the one bow tower. *mid* is two bow towers, a mortar, a brazier, a Glowcap
+  Lantern, and a barricade plus spike trap per rift. *late* adds a third bow, a totem, a second
+  brazier and a snare per rift, everything upgraded to tier 2. Spawns are random and runs swing
+  by ±150 HP, so read a cell as a range. Night 8 on a *mid* base is meant to fall: past night 6
+  the curve asks you to keep building and to fight (Spitters fold up close, lanterns drag
+  Burrowers up). `NO=<types>` and `NOLANTERN=1` ablate a kind or the lantern, and the `DMG`
+  line says who did the building damage and who finished each building.
 
 ## Where things live
 
@@ -274,80 +279,116 @@ a 1.0.
 - Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
   filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
 
-## Start here (next session, written 2026-10-14)
+## Start here (next session, written 2026-10-15)
 
-Read this section, then the 0.8 handoff below it, then `README.md`. Start the dev server with
+Read this section, then the 0.9 handoff below it, then `README.md`. Start the dev server with
 the Browser preview (`.claude/launch.json`, name `overgrowth`, port 5188) or `npm run dev`,
 and run `node e2e/loop.mjs` (ten PASS) and `node e2e/blight.mjs` (three PASS) before changing
 anything. Commit on `main` and push only when the user asks; after a release add CHANGELOG
 notes and refresh this section. The developer's alias is **ycgNem** (credits, git author).
 
-### Finish milestone 9 (release 0.8.0)
-1. **Kit pick.** Add a sixth Memory, *Many Paths* (win on Warden or Blightborn): New Game shows three kit cards under the difficulty (the
-   difficulty's own starter, a builder's kit of 3 barricades + 1 mortar + logs, a hunter's
-   kit of slingshot + 20 stones + 2 firepots + 3 poultices). Data in `core/Memories.js` (or
-   a `KITS` table beside `DIFFICULTIES`), UI in `Menu.pageNew`, applied in
-   `Game.setDifficulty(id, kit)`.
-2. **Journal goals** (`core/Journal.js`, rolling goals): "Raise a Glowcap Lantern" after the
-   first Burrower night; "Fell a Spitter with the machete" after the first Spitter night.
-3. **Balance sweep.** Add a lantern to the *mid* and *late* setups in `e2e/balance.mjs` (by
-   the rift with the most walls), then measure nights 3/5/6/8/10 on all three difficulties
-   (`g.setDifficulty` before `skipToNight`). Targets: Warden *mid* holds night 6 with 200+,
-   *late* holds night 10; Verdant comfortably; Blightborn loses *mid* on 6. Tune counts in
-   `waveFor` and the two `ENEMY_TYPES` entries, and update the Balance table.
-4. **Critic pass.** Run the `indie-critic` agent on a night 6-8 fight; fix what it ranks first.
-5. **Release:** version 0.8.0, CHANGELOG "0.8: The Long Vigil" (fold the preview notes in),
-   milestone 9 marked done, this section rewritten for milestone 10.
+### Milestone 11: Omens (release 0.10), step by step
+1. **Nightly omens.** A table `OMENS` (new `defense/Omens.js`): id, name, glyph, banner line
+   and hooks. Roll one at dawn for the coming night from night 3, about every other night
+   (seeded by the night number like `rainsOn` in `defense/Waves.js`, so a reload keeps the
+   same omen; never on a boss night). Announce it in the dawn banner and the `Day n` banner
+   (`Waves.js` ~line 205 and ~line 255), and show it in the wave preview and on the pause menu.
+   - *Blood Moon*: Blight move and bite 20% faster, loot rolls twice. Tint the moon and the
+     night palette red (`world/Sky.js`, the `P.night*` colours).
+   - *Pale Fog*: tower range ×0.7 (ranges are read through the tier multipliers in
+     `defense/Towers.js`; add an omen multiplier there), fog density up (`Sky.update`, like
+     `swamp`).
+   - *The Swarm*: twice the Blightlings at half health (`waveFor` counts and the HP scale in
+     `Waves.js` ~line 237).
+   - *Stillness*: no wind (the wind uniforms in `art/shaders.js`), Wisps walk.
+   - Save the omen with the run (`core/Save.js`), list omens in the Field Guide
+     (`ui/Menu.js`), and add `OMEN=<id>` to `e2e/balance.mjs` to measure each one.
+2. **A daily vigil.** The world seed is a constant today (`SEED = 4217` in
+   `world/WorldGen.js`, and the noises are module-level). Make it re-seedable (`setSeed(n)`
+   that rebuilds the noises and clears the cached grove centre, spawn and base site), keep
+   4217 for normal runs, and add a "Daily Vigil" button on New Game that seeds the world, the
+   rifts, the blooms and the omens from the date. Keep its own record in `og.records` (best
+   night per day). The save must store the seed.
+3. **Endless that means something.** A score (nights × difficulty × kills) on the game-over
+   and victory cards and in Records; the **Rot Mother** at night 15 (a new Blender model in
+   `art/blender/` and an `ENEMY_TYPES` entry: she lays Blightling eggs that hatch unless burned
+   or cut); the surge (`Waves.js`) keeps escalating past her.
+4. **Day events.** A wandering spirit that trades relics for rare parts (an interactable that
+   walks a loop near the base); a storm that topples a tree across a lane (reuse the falling
+   tree from `World.cutPlant`, then rebuild the flow field); a bloom that walks
+   (`defense/Blooms.js`).
+5. **Carried over from milestone 10** (fill gaps with these; each is small):
+   - A denser understory. The far LODs and draw distances freed about 7 ms a frame. Add new
+     scatters at the *end* of `World.plan` (so existing placement doesn't shift) and give each
+     new small type a `FAR` entry in `World.js`. Measure with `e2e/gpu.mjs` and
+     `e2e/perf.mjs` before and after.
+   - Art backlog: bark and moss surfaces on the Blooms (`defense/Blooms.js`), wilt inside a
+     bloom's stain, tropical turf (a "macro photograph" prompt in `art/textures/jobs.json`),
+     forage that reads at a glance (check with `e2e/view.mjs`).
+   - A critic pass with the `indie-critic` agent on a night 6–8 fight (planned for 0.8, not
+     run yet); fix what it ranks first.
+6. **Release 0.10.0**: CHANGELOG, PLAN (milestone 11 done, handoff), README.
 
-### Milestone 10: Wild Places (release 0.9), step by step
-1. **Draw calls first** (it pays for everything after). Today `World.instanceSteps`
-   (`src/world/World.js`, ~line 790) makes one `InstancedMesh` per plant type *and variant*
-   *per chunk*, over a 5×5 window (`VIEW_RADIUS = 2`, 64 m chunks): 450-790 calls in the main
-   pass (`e2e/shots.mjs` prints `calls`; 784 at spawn). Plan: one shared `InstancedMesh` per
-   (type, variant) for the whole window with a free-list of slots; a chunk load writes its
-   matrices/colours/slope into slots and records the ranges, an unload zeroes them (scale 0)
-   and frees them. Keep `cut`/`foraged` (they hide single instances by index: map chunk
-   index → slot). Shadow casters: consider a separate low-detail caster set past 30 m.
-   Measure before/after with `e2e/perf.mjs` (p50/p95) and the call count; the goal is under
-   250 calls and no new hitches when chunks stream (`instanceSteps` yields every 12 meshes).
-2. **Card LODs past 30 m** for trees and tree ferns once calls are down, then a denser
-   understory (more `scatter` in `World.plan`, ~line 359 onward; add new scatters *last* so
-   existing placement doesn't shift).
-3. **Props to Blender** (`art/blender/`, same pipeline as the towers: script → `export_new.py`
-   → `public/models/` → `MODEL_NAMES` in `assets/Models.js` → `cloneModel` in the builder):
-   the camp's A-frame tent (`buildCamp`, `world/poi/POI.js` ~line 635), the plane wreck
-   (`buildWreck`, ~line 690: fuselage lathe, wings, prop; keep its colliders and the search
-   interactable as they are), the supply crates (`buildCrates`, ~line 625: they're breakable,
-   so keep `hide: [crate]` working), and the Heartwood's moss lumps (`art/blender/heartwood.py`).
-4. **The drowned grove** (a second region):
-   - Terrain: in `sampleTerrain` (`world/WorldGen.js`) add a low-frequency `swamp` mask (its
-     own noise, mostly away from spawn) that pulls height toward `WATER_LEVEL` with shallow
-     pools and hummocks; export it on `out` like `river`/`mountain`. Keep `findSpawn` and
-     `findBaseSite` out of it.
-   - Flora: new types in `world/flora/Flora.js` (mangrove with arching prop roots, reeds,
-     water lilies, dead snags) and scatters in `World.plan` gated by the mask; the jungle
-     species thin out there.
-   - Mood: fog colour and density lean green-grey when the player stands in it (`Sky.update`
-     takes a `swamp` amount like `cover`), plus mist on the water.
-   - Forage and loot: reeds, eels, bog iron (new `ITEMS`, forage scatter, a recipe or two that
-     use them, e.g. a reed-and-bog-iron upgrade path for walls).
-   - A point of interest: a sunken shrine (`POI_INFO` + a builder in `POI.js`) with a relic and
-     rare parts; a rift that opens there from night 4 (`pickRifts` in `defense/Base.js`).
-   - Check with `e2e/view.mjs` (add a `swamp` finder) and `e2e/perf.mjs`.
-5. **Art backlog** (from the critics, see the 0.6 handoff): tropical turf (try a "macro
-   photograph" prompt in `art/textures/jobs.json`), trampled lanes along last night's routes,
-   round glowing vines on the Heartwood, bark/moss surfaces on the Blooms, wilt inside a
-   bloom's stain, forage that reads at a glance.
-6. **Release 0.9.0**: CHANGELOG, PLAN (milestone 10 done, handoff), README.
+## Handoff: 0.9 "Wild Places" (2026-10-15)
 
-## Handoff: 0.8 "The Long Vigil", in progress (2026-10-14)
+**State:** released as **0.9.0** (committed on `main` and pushed). It folds in everything
+planned for 0.8 (milestone 9) and most of milestone 10. `node e2e/loop.mjs` passes all ten
+checks, `node e2e/blight.mjs` its three, and `vite build` is clean.
 
-**State:** live as **0.8.0-preview.1** (committed on `main` and pushed; CHANGELOG has "0.8
-preview: The Long Vigil, part one"). `node e2e/loop.mjs` passes all ten checks, `node e2e/blight.mjs` passes
-its three (Spitter shells a tower from range, Burrower digs under a wall, a lantern drags a
-Burrower up and exposes it), `vite build` is clean.
+**What changed and where (0.9)**
+- Kit pick: `KITS`, `KIT_IDS` and `kitItems` in `core/Difficulty.js`; the sixth Memory
+  `paths` (*Many Paths*, counted by `records.hardWins`) in `core/Memories.js`;
+  `Game.setDifficulty(id, kit)` falls back to the starter kit unless it's earned; kit cards in
+  `Menu.pageNew` (`pickKit`).
+- Journal: goals `lantern` and `spitter` with `after:` (offered only once that Blight has been
+  met: `Game` calls `journal.meet(types)` each night); `journal.event('melee', type)`.
+- Balance: Spitter 60 HP, `spit.building` 0.75, bow towers score Spitters 40 better; Rotboar
+  `towerAggro` 4.5; slam 85 to buildings (`Game.onSlam`); night-5 Thornback 0.7×; barricade
+  tier 3 needs reeds and bog iron. `e2e/balance.mjs` builds a lantern in *mid*/*late*, takes a
+  difficulty and `NO=`/`NOLANTERN=`, and prints a `DMG` line (who damaged and who finished
+  each building). Results are in the Balance section.
+- Draw calls: `world/Pools.js`. A `Pool` is one `InstancedMesh` per plant variant or forage
+  item. Chunks `alloc(n)` a `Block` (it answers `setMatrixAt`/`getMatrixAt`/`setColorAt` like
+  an InstancedMesh, so cutting, highlighting and hit tests work unchanged) and `seal()` it.
+  `Pools.update(camera, shadowCam)` (from `Game.cullWorld`) culls blocks against the view or
+  the sun's shadow box and packs the visible ones to the front.
+- Distance: a pool can have `far` (stops drawing) and `lod` + `lodDist` (a second mesh with
+  lighter geometry), decided per plant and re-sorted every 4 m the camera moves.
+  `lodGeometry` (`world/flora/lod.js`) keeps 45% of the alpha-tested cards (grown ×1.37) and
+  drops solid pieces under 10% of the plant's size; pieces are joined by shared positions.
+  `LOD_TYPES`, `LOD_DIST` (38 m), `FAR` and `FORAGE_FAR` sit at the top of `World.js`.
+- Steady frame rate: `Game.tickRes` scales the pixel ratio 0.6–1.0 by frame time
+  (`applyRes`; setting `og.autores`). Release builds set
+  `renderer.debug.checkShaderErrors = false`. The compass caches its width and writes only
+  changed styles (`HUD.updateCompass`).
+- Measured on this machine at 1600×900 (`e2e/gpu.mjs`): spawn 11.7 → 7.7 ms, forest 16.1 →
+  8.8 ms, grove 15.2 → 8.2 ms. Plants went from 9–12 ms of that to under 1 ms; each post
+  effect costs under 1 ms; frames are now bound by CPU submission. Sprinting p50 is 9.2 ms.
+- Props: `art/blender/tent.py`, `wreck.py` (authored in game axes through `G(x,y,z)`) and
+  `crate.py`/`crate_b.py` (material names avoid `Plank`, which would pick up the deadwood
+  detail), exported to `public/models/` and used by `buildCamp`, `buildWreck` and
+  `buildCrates` in `world/poi/POI.js` (colliders, the cockpit search and the crate `hide`
+  kept). `heartwood.py`: `cushion()` moss and round `ringed_cyl` veins.
+  `art/blender/preview.py -- <names>` renders Workbench previews to `e2e/out/models`.
+- The drowned grove: `grove()` in `world/WorldGen.js` (its centre 194–214 m from the base, R
+  135: it must sit inside the flow field's ±100 m reach for its rift) and `out.swamp` from
+  `sampleTerrain`. Flora `mangrove`, `reeds`, `lily` and `snag` in `world/flora/Flora.js`,
+  scattered last in `World.plan` near the grove, plus wet forage (`addWet`).
+  `Sky.update(..., swamp)` greens and thickens the fog; `Water.js` (`uGrove`) blackens the
+  water. Items `reed`, `eel`, `bog_iron`, `smoked_eel`; loot `reeds` and `shrine`; recipes
+  `iron_shot` and `smoked_eel`. `buildShrine` in `POI.js` (POI `shrine`, at the grove centre).
+  The rift: `pickGroveRift` and `GROVE_RIFT_NIGHT = 4` in `defense/Base.js`. `findBaseSite`
+  now lives in `WorldGen.js` (re-exported from `Base.js`).
+- Trampled lanes: `world/Trample.js` (2 m cells around the base; `step` counts ground Blight
+  footfalls by night, `settle` wears them in at dawn, saved as bytes). `World.wearChunk` writes
+  the wear into the terrain's splat, grass and colour attributes from
+  `baseSplat/baseGrass/baseCol` (the terrain shader has no texture units left); `Grass`,
+  `Litter` and `Cover` gained `reset()`.
+- Fixed: forage instances only had a colour at index 0 and rendered black (`FORAGE_TINT`).
+- New scripts: `e2e/gpu.mjs`, `e2e/calls.mjs`, `e2e/lod.mjs`; `view.mjs` has finders `poi` and
+  `find:'grove'`; `menu.mjs` takes `RECORDS=<json>`.
 
-**What changed and where**
+**From the 0.8 preview (the Long Vigil)**
 - Models: `art/blender/spitter.py`, `burrower.py`, `glow_lantern.py` (registered in
   `export_new.py` / `export_all.py`, exported to `public/models/`, listed in `Models.js`).
   Spitter: "Sac" swells before a shot. Burrower: shovel claws are `LegFL/FR`. Lantern: the cage
@@ -378,12 +419,6 @@ Burrower up and exposes it), `vite build` is clean.
   night exposure in `Game.frame` +0.6 → +0.4 stops. Daytime is unchanged.
   `node e2e/night.mjs <dir> 0.95,0.08` stages a fire, a lantern and a pack at night.
 - Audio: `spit`, `splat`, `burrow` in `AudioSys`; `Game.near(p)` scales them by distance.
-
-**Left for 0.8**
-- The kit pick (a Memory from winning: choose Warden's, a builder's or a hunter's kit).
-- Journal goals: build a lantern after the first Burrower night; kill a Spitter with the machete.
-- Balance sweep across difficulties, with a lantern in the *mid*/*late* sim setups.
-- Then CHANGELOG notes, version 0.8.0, and release.
 
 ## Handoff: 0.7 "The Title" (2026-10-14)
 

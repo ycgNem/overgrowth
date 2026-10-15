@@ -13,7 +13,10 @@ const P = {
   nightZenith: col('#0e1e40'), nightHorizon: col('#1c2c48'), nightFog: col('#25344c'),
   sunDay: col('#fff0d4'), sunSet: col('#ff9248'), moon: col('#9fb8f0'),
   hemiSkyDay: col('#d9dccb'), hemiSkyNight: col('#4f669a'), hemiGround: col('#5a4f36'),
+  // the drowned grove's mist (scaled down at night)
+  swampFog: col('#6f8270'),
 };
+const _swampFog = new THREE.Color();
 
 const vert = /* glsl */`
 varying vec3 vDir;
@@ -172,7 +175,8 @@ export class Sky {
     this.envTime = NaN;
   }
 
-  update(dt, focus, forceEnv = false, cover = 0, ahead = null) {
+  // swamp: how deep in the drowned grove the player stands (greener, thicker fog)
+  update(dt, focus, forceEnv = false, cover = 0, ahead = null, swamp = 0) {
     this._time = (this._time + (dt * this.timeScale) / this.dayLength) % 1;
     const a = (this.time - 0.25) * TAU;
     const sunDir = this.sunDir.set(Math.cos(a), Math.sin(a), 0.38).normalize();
@@ -195,7 +199,8 @@ export class Sky {
     // Fog: thicker at dawn/dusk and at night, a touch denser under canopy. Under the crowns the
     // air is in their shade: a deep green haze with less of the sun's glow in it, not a milky veil
     this.scene.fog.color.copy(u.uFog.value).multiplyScalar(1 - 0.4 * cover);
-    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002;
+    if (swamp > 0) this.scene.fog.color.lerp(_swampFog.copy(P.swampFog).multiplyScalar(0.25 + 0.75 * day), swamp * 0.7);
+    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002 + swamp * 0.016;
 
     // Sun by day, moon by night (same light, swapped direction).
     const moonUp = elev < -0.02;

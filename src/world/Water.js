@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { waterNormalTexture } from '../art/textures.js';
 import { patch, globalUniforms } from '../art/shaders.js';
-import { WATER_LEVEL, CHUNK_SIZE } from './WorldGen.js';
+import { WATER_LEVEL, CHUNK_SIZE, grove } from './WorldGen.js';
 
 const SIZE = 1400;
 const TILE = 9;
@@ -37,22 +37,29 @@ export class Water {
       shader.uniforms.uTime = globalUniforms.uTime;
       shader.uniforms.tHeight = { value: this.heightTex };
       shader.uniforms.uHBox = { value: this.box };
+      // the drowned grove: still, black water
+      const G = grove();
+      shader.uniforms.uGrove = { value: new THREE.Vector3(G.x, G.z, G.r) };
       shader.vertexShader = 'varying vec3 vWP;\n' + shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
-      shader.fragmentShader = 'uniform float uTime;\nuniform sampler2D tHeight;\nuniform vec4 uHBox;\nvarying vec3 vWP;\n' + shader.fragmentShader
+      shader.fragmentShader = 'uniform float uTime;\nuniform sampler2D tHeight;\nuniform vec4 uHBox;\nuniform vec3 uGrove;\nvarying vec3 vWP;\n' + shader.fragmentShader
         .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
           vec2 ogHuv = (vWP.xz - uHBox.xy) / uHBox.z + uHBox.w;
           float ogBed = texture2D(tHeight, ogHuv).r;
           float ogDepth = max(${WATER_LEVEL.toFixed(2)} - ogBed, 0.0);
+          float ogSw = 1.0 - smoothstep(uGrove.z * 0.5, uGrove.z, distance(vWP.xz, uGrove.xy));
+          // the grove's pools are stained black with tannin: no bed shows through them
+          ogDepth += ogSw * smoothstep(0.0, 0.12, ogDepth) * 1.4;
           // shallow water takes on the bed's warm tint; depth goes to dark olive-green
           vec3 ogShallow = vec3(0.10, 0.11, 0.06), ogDeep = vec3(0.012, 0.03, 0.022);
           diffuseColor.rgb = mix(ogShallow, ogDeep, 1.0 - exp(-ogDepth * 0.9));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.008, 0.01, 0.006), ogSw * 0.7);
           // foam: broken lines hugging the bank, drifting with the current
           float ogN1 = sin(vWP.x * 2.3 + uTime * 0.7 + sin(vWP.z * 1.7) * 2.0) * 0.5 + 0.5;
           float ogN2 = sin(vWP.z * 3.1 - uTime * 0.5 + sin(vWP.x * 1.3) * 2.0) * 0.5 + 0.5;
           // broken up by a coarse noise so it never draws straight strokes
           float ogBreak = sin(vWP.x * 0.61 + sin(vWP.z * 0.47) * 2.1) * sin(vWP.z * 0.53 - uTime * 0.2 + sin(vWP.x * 0.39) * 1.7) * 0.5 + 0.5;
-          float ogFoam = smoothstep(0.35, 0.02, ogDepth) * smoothstep(0.45, 0.85, ogN1 * ogN2 + 0.35) * smoothstep(0.35, 0.75, ogBreak);
+          float ogFoam = smoothstep(0.35, 0.02, ogDepth) * smoothstep(0.45, 0.85, ogN1 * ogN2 + 0.35) * smoothstep(0.35, 0.75, ogBreak) * (1.0 - ogSw);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.51, 0.46), ogFoam * 0.3);`)
         .replace('#include <normal_fragment_maps>', /* glsl */`
           vec3 n1 = texture2D(normalMap, vNormalMapUv + vec2(uTime * 0.018, uTime * 0.011)).xyz * 2.0 - 1.0;

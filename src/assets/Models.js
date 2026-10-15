@@ -10,6 +10,8 @@ import { flatten, ownMaterials } from '../art/merge.js';
 export const MODEL_NAMES = [
   'heartwood', 'bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'vine_snare', 'barricade',
   'blightling', 'rotboar', 'wisp', 'thornback', 'spitter', 'burrower', 'glow_lantern',
+  // point-of-interest props
+  'crate', 'crate_b', 'tent', 'wreck',
 ];
 
 // Part names that stay separate so code can animate them.

@@ -21,6 +21,22 @@ shroom = get_mat('Shroom', 0.6)
 
 BARK = '#5b4331'
 B = Part('Body', 11)
+# (the Moss material takes its hue from the photographed cushion; the vertex colour only sets
+# how bright it is, so these stay dark or the moss turns neon)
+MOSS = ['#3c5622', '#44602a', '#37501f']
+
+
+def cushion(m, sx, sy, th, seed, tufts=6):
+    """A flat, lumpy pad of moss hugging a surface at matrix m (its local z is the surface's
+    normal), with a fringe of small tufts round its edge."""
+    rr = random.Random(seed)
+    B.add(ico(1.0, 2), moss, rr.choice(MOSS), m @ M((0, 0, 0), (0, 0, rr.uniform(0, TAU)), (sx, sy, th)),
+          deform=jitter(0.22, seed, 2.4), smooth=True, var=0.3)
+    for k in range(tufts):
+        a = rr.uniform(0, TAU)
+        e = rr.uniform(0.75, 1.0)
+        B.add(ico(rr.uniform(0.035, 0.06), 1), moss, rr.choice(MOSS), m @ M((math.cos(a) * sx * e, math.sin(a) * sy * e, th * 0.2), (0, 0, a), (1, 1, 0.6)),
+              deform=jitter(0.01, seed + k, 9), var=0.3)
 
 # ---------------------------------------------------------------- dais (3 steps of cut stone)
 steps = [(3.05, 0.0, 0.24), (2.45, 0.22, 0.22), (1.9, 0.42, 0.18)]
@@ -40,7 +56,8 @@ B.add(cyl(1.5, 1.45, 0.2, 12), stone, '#5e5b53', M((0, 0, 0.42)), deform=jitter(
 for i in range(14):
     a = rnd.uniform(0, TAU); r = rnd.uniform(1.4, 2.9)
     z = 0.62 if r < 1.9 else (0.44 if r < 2.45 else 0.24)
-    B.add(ico(rnd.uniform(0.18, 0.38), 1), moss, rnd.choice(['#4d7429', '#58822f', '#466a25']), M((math.cos(a) * r, math.sin(a) * r, z - 0.02), (0, 0, a), (1.6, 1.0, 0.18)), deform=jitter(0.05, 200 + i), var=0.2)
+    rr = rnd.uniform(0.18, 0.38)
+    cushion(M((math.cos(a) * r, math.sin(a) * r, z - 0.03)), rr * 1.6, rr, 0.05, 200 + i, 4)
 
 # ---------------------------------------------------------------- standing stones
 for i in range(8):
@@ -52,10 +69,12 @@ for i in range(8):
     B.add(box(0.42, 0.66, h, cuts=3, chamfer=0.04), stone, sc, m, deform=jitter(0.07, 10 + i, 2.2), ao=0.5, ao_h=1.1, streak=0.5, var=0.12)
     # bevelled pyramid cap
     B.add(cyl(0.48, 0.16, 0.32, 4), stone, sc, m @ M((0, 0, h), (0, 0, math.pi / 4), (0.62, 0.95, 1)), deform=jitter(0.03, 20 + i, 2.0), streak=0.5)
-    # moss on the cap and a strip down the back
-    B.add(ico(0.24, 2), moss, '#4f7529', m @ M((0.02, 0, h + 0.1), (0, 0, rnd.uniform(0, TAU)), (1.0, 1.3, 0.7)), deform=jitter(0.06, 30 + i, 4.0), smooth=True, var=0.25)
-    for k in range(3):
-        B.add(ico(rnd.uniform(0.1, 0.17), 2), moss, '#4a7027', m @ M((0.2, rnd.uniform(-0.2, 0.2), h * rnd.uniform(0.15, 0.8)), (0, 0, 0), (0.45, 1.0, 1.4)), deform=jitter(0.05, 40 + i * 3 + k, 4.0), smooth=True, var=0.25)
+    # moss over the cap and in streaks down the back, lying flat on the stone
+    # (the cap is a squashed pyramid: about 0.2 x 0.3 m across halfway up)
+    cushion(m @ M((0.02, 0, h + 0.15)), 0.21, 0.31, 0.1, 30 + i)
+    for k in range(2):
+        z = h * rnd.uniform(0.3, 0.75)
+        cushion(m @ M((0.205, rnd.uniform(-0.18, 0.18), z), (0, math.pi / 2, 0)), rnd.uniform(0.12, 0.22), rnd.uniform(0.07, 0.12), 0.03, 40 + i * 3 + k, 3)
     # glyph on the inward face: a sapling rune, a stem with branches swept up in chevrons
     # and a seed above it, carved shallow so it glows from inside the stone
     g = m @ M((-0.212, 0, h * 0.3))
@@ -97,10 +116,20 @@ for i in range(4):
         a = a0 + t * 0.9
         r = 0.8 + (0.4 - 0.8) * zl / TH
         co = trunk_def(Vector((math.cos(a) * r, math.sin(a) * r, zl)))
-        pts.append(Vector((co.x * 1.03, co.y * 1.03, co.z + 0.5)))
+        pts.append(Vector((co.x * 1.04, co.y * 1.04, co.z + 0.5)))
+    # a round, knotted cord standing proud of the bark, with beads of glow where it swells,
+    # thinning as it climbs, and a fork near the top
     for j in range(len(pts) - 1):
         m, ln = look_m(pts[j], pts[j + 1])
-        B.add(cyl(0.03, 0.026, ln * 1.08, 5), vein, (1, 1, 1), m)
+        r0 = 0.052 - 0.022 * j / 9
+        B.add(ringed_cyl(r0, r0 * 0.9, ln * 1.06, 8, 2), vein, (1, 1, 1), m, smooth=True)
+        if j % 2 == 1:
+            B.add(sphere(r0 * 1.7, 10, 7), vein, (1, 1, 1), M(pts[j], (0, 0, 0), (1, 1, 1.3)), smooth=True)
+    fork = pts[6]
+    side = Vector((-math.sin(a0), math.cos(a0), 0)) * 0.25
+    tip = trunk_def(Vector(((fork.x + side.x) * 0.97, (fork.y + side.y) * 0.97, fork.z - 0.5 + 0.35))) + Vector((0, 0, 0.5))
+    m, ln = look_m(fork, tip)
+    B.add(ringed_cyl(0.026, 0.008, ln, 8, 2), vein, (1, 1, 1), m, smooth=True)
 
 # ---------------------------------------------------------------- roots
 for i in range(9):
@@ -156,7 +185,7 @@ for i in range(6):
             lm = Matrix.Translation(tw_end) @ Euler((pitch, 0, yaw)).to_matrix().to_4x4()
             B.add(leaf(rnd.uniform(0.28, 0.42), rnd.uniform(0.13, 0.19), 0.3, 0.25), leafm, rnd.choice(['#3f7d2c', '#4b8a31', '#356d26', '#5a9a38']), lm, var=0.15)
     # moss collar where each branch leaves the trunk
-    B.add(ico(0.2, 1), moss, '#55802d', M(base + Vector((0, 0, -0.05)) - inward * 0.12, (0, 0, a), (1.3, 0.9, 0.7)), deform=jitter(0.04, 120 + i))
+    cushion(M(base + Vector((0, 0, -0.02)) - inward * 0.12, (0.25, 0, a)), 0.24, 0.18, 0.07, 120 + i, 3)
 
 # hanging vines with leaves
 for i in range(7):

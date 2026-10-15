@@ -44,9 +44,9 @@ const toTitle = () => {
 
 const menu = new Menu(game, {
   save,
-  onNew: (diff) => {
+  onNew: (diff, kit) => {
     clearSave();
-    game.setDifficulty(diff);
+    game.setDifficulty(diff, kit);
     enter();
   },
   onContinue: () => {

@@ -181,6 +181,12 @@ export class Litter {
     return out.map((o) => ({ m: new Float32Array(o.m), c: new Float32Array(o.c), a: new Float32Array(o.a) }));
   }
 
+  // the ground changed under the cells (trampled lanes): build them again
+  reset() {
+    this.cells.clear();
+    this.cx = null;
+  }
+
   update(px, pz) {
     const ci = Math.floor(px / CELL), cj = Math.floor(pz / CELL);
     if (ci === this.cx && cj === this.cz && !this.missing) return;

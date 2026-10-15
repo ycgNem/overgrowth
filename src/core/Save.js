@@ -54,6 +54,7 @@ export function writeSave(game) {
     discovered: [...g.hud.discovered],
     done: [...g.doneSet],
     journal: g.journal.state(),
+    trample: g.trample?.state(),
   };
   try {
     store()?.setItem(KEY, JSON.stringify(data));
@@ -84,7 +85,7 @@ export function recordBest(nights, kills) {
 
 // Lifetime records across every run, for the title's Records page. Nights and kills are
 // banked at each dawn (and when a run ends), so a run quit halfway still counts.
-const EMPTY = { runs: 0, wins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, deepest: 0, seen: [] };
+const EMPTY = { runs: 0, wins: 0, hardWins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, deepest: 0, seen: [] };
 
 export function loadRecords() {
   try {

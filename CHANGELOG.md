@@ -1,11 +1,59 @@
 # Patch notes
 
-## 0.8 preview: The Long Vigil, part one (2026-10-14)
+## 0.9: Wild Places (2026-10-15)
 
-The first half of the next update, live early. Two new Blight, a new defence to answer them,
-permanent unlocks that carry from run to run, and nights that are actually dark.
+The Long Vigil and Wild Places in one update: a second region to explore, a forest that
+remembers where the Blight walked, the last primitive props rebuilt in Blender, a game that
+runs about twice as fast in the forest, and everything from the 0.8 preview, finished.
 
-### New Blight
+### The drowned grove
+- **A second region** about 200 m from the Heartwood: a sunken stretch of the forest gone to
+  black water. Mangroves stand on arching prop roots, reed beds and cattails crowd the
+  shallows, water lilies float on still pools and drowned trees stand bleached and snapped.
+- **Its own air.** Walk in and the fog closes in, grey-green and thick. The water is black
+  with tannin, so nothing shows through it.
+- **Its own forage.** Cut **reeds** (they thatch and lash into anything), catch **bog eels**
+  in the shallows, and pick **bog iron** out of the mud.
+  - New recipes: **Smoked Eel** (an eel and a strip of bark: heals 75) and **Iron Shot** (one
+    bog iron makes five scrap shot for the slingshot).
+  - Bog iron is what a barricade's third tier now needs (with reeds), and Burrowers sometimes
+    drop it.
+- **The Sunken Shrine** at its heart: a drowned stone platform with fallen pillars and a
+  glowing altar. Search it for a jade figurine and rare parts.
+- **A rift in the grove.** From night 4 a sixth rift tears open in the drowned grove, and its
+  Blight wade in out of the water.
+
+### A forest that remembers
+- **Trampled lanes.** The Blight wear paths into the ground. At dawn the routes they walked
+  hardest are churned to bare earth, the grass and leaf litter gone from them. Old lanes fade
+  over a few days unless they're walked again, so you can read last night's attack in the
+  morning. The lanes are kept in the save.
+
+### Rebuilt in Blender
+- **The camp tent:** sagging, wrinkled canvas on poles and guy lines, one flap rolled up, a
+  bedroll, a pack, a mug and a coil of rope inside.
+- **The plane wreck:** a dented, rust-streaked fuselage nosed into the earth, broken ribs and
+  windscreen, a cargo door, one wing with its engine and bent prop, a torn-off tail, scattered
+  debris, and moss and vines taking it back.
+- **Supply crates** in two kinds, stencilled planks or strapped and latched. They still smash.
+- **The Heartwood's** moss lumps are now soft cushions with tufts on its steps and stones, and
+  its glowing veins are round cords with bright beads.
+
+### Smoother
+- **About twice as fast in the forest.** The plants were most of the cost of a frame:
+  - Every plant of a kind is drawn together across the whole area in view (around 200 draw
+    calls, from up to 790).
+  - Trees and big leafy plants past about 38 m swap to a lighter copy with fewer, larger leaf
+    cards. It's hard to spot through the haze, and it halves the triangles drawn.
+  - Small plants and forage stop drawing where they'd only be a few pixels.
+  - On this machine a frame in the forest went from 16 ms to 9 ms.
+- **Steady frame rate** (Settings, on by default): when frames run slow the scene is drawn at
+  a slightly lower resolution, and sharpens again when there's room.
+- Fewer hitches: the compass no longer forces a page layout every frame, and release builds
+  skip a slow shader check.
+- **Fixed:** forage on the ground could render black.
+
+### New Blight (from the 0.8 preview)
 - **Spitters** (from night 3). Squat things carrying a sac of glowing green bile. They stop
   well out of reach behind the pack and lob globs at your towers, which burn on the ground
   for a few seconds after. They barely fight up close: run them down with the machete.
@@ -28,6 +76,10 @@ permanent unlocks that carry from run to run, and nights that are actually dark.
     (Blight that bite the Heartwood catch fire), **Deep Roots** (your buildings mend at every
     dawn) and **Lantern Bearer** (lanterns shine further and expose more).
   - *The Heartwood in Bloom* (win a vigil): start with an Orchid Salve and two more poultices.
+  - *Many Paths* (win a vigil on Warden or Blightborn): **choose how a vigil starts.** New
+    Game shows three kits under the difficulty: the difficulty's own, a **Builder's Kit**
+    (3 barricades, a spore mortar and logs) or a **Hunter's Kit** (slingshot, 20 stones, two
+    firepots, three poultices).
 - They're listed on the Records page with what each one needs, and New Game shows what you
   carry in. A message tells you when you earn one.
 
@@ -36,12 +88,18 @@ permanent unlocks that carry from run to run, and nights that are actually dark.
   Heartwood light the clearing, while the Blight's glowing outlines still carry. Daytime is
   unchanged.
 
-### Field Guide and balance
+### Field Guide, Journal and balance
 - The Field Guide has the Spitter, the Burrower and the lantern, and shows Memory-only boons
   as locked until you earn them.
-- Spitters and Burrowers take the place of some Blightlings rather than adding to every
-  night, but they hit a defence that only builds and never fights harder than before.
-  Keep an eye on your towers from night 3, and get lanterns up before night 6.
+- Two new Journal goals once you've met them: raise a Glowcap Lantern after your first
+  Burrower night, and fell a Spitter with the machete after your first Spitter night.
+- **Spitters are easier to answer.** 60 HP, a bit less damage to buildings, and bow towers
+  now pick them out first, so a covered tower rarely loses a fight with one.
+- **Rotboars** break off for towers from a little closer (4.5 m, was 6), and the
+  **Thornback's slam** does 85 to buildings (was 110). The first Thornback, on night 5, comes
+  at 70% of its health (was 80%), since that night now has a sixth rift.
+- Measured with nobody fighting: Warden holds night 6 with a middling defence and night 10
+  with a strong one; Verdant comfortably; Blightborn asks for more.
 
 ## 0.7: The Title (2026-10-14)
 

@@ -12,7 +12,7 @@ import { describeWave } from '../defense/Waves.js';
 import { ITEMS } from '../items/ItemDB.js';
 import { RECIPES } from '../items/Recipes.js';
 import { PERKS } from '../core/Perks.js';
-import { DIFFICULTIES, DIFFICULTY_IDS, difficulty } from '../core/Difficulty.js';
+import { DIFFICULTIES, DIFFICULTY_IDS, difficulty, KITS, KIT_IDS, kitItems } from '../core/Difficulty.js';
 import { loadBest, loadRecords } from '../core/Save.js';
 import { MEMORIES, unlocked } from '../core/Memories.js';
 import { renderPortraits } from './Portraits.js';
@@ -45,7 +45,7 @@ const BLIGHT = [
   {
     id: 'spitter', kind: 'Artillery', from: 3,
     lore: 'A squat thing carrying a sac of sick green bile on its back. It stops well out of reach, rears its tube of a mouth and lobs globs that burn where they land.',
-    tip: 'It hangs back behind the pack and goes for your towers. Run it down with the machete: up close it barely fights.',
+    tip: 'It hangs back behind the pack and goes for your towers. Bow towers pick Spitters out first; run one down with the machete and it barely fights.',
   },
   {
     id: 'wisp', kind: 'Flyer', from: 4,
@@ -81,6 +81,7 @@ const CONTROLS = [
 const SETTINGS = {
   quality: { key: 'og.quality', def: 'high' },
   bloom: { key: 'og.bloom', def: '1' },
+  autores: { key: 'og.autores', def: '1' },
   sensitivity: { key: 'og.sensitivity', def: '1' },
   invertY: { key: 'og.invertY', def: '0' },
   volume: { key: 'og.volume', def: '1' },
@@ -116,6 +117,7 @@ export class Menu {
     this.page = null; // the open page's name
     this.pinned = false; // opened by a click (stays) rather than by hovering Continue (follows the selection)
     this.diff = save?.difficulty || 'warden';
+    this.kit = 'starter';
     this.guideTab = 'blight';
     this.guidePick = { blight: 'blightling', defences: 'bow_tower' };
     $('#version').textContent = `v${version}`;
@@ -396,6 +398,14 @@ export class Menu {
     }).join('');
     this.html(`<div class="diffs">${cards}</div>`);
     const mem = unlocked();
+    // Many Paths: the kit you wake up with
+    if (mem.has('paths')) {
+      this.html(`<div class="p-eyebrow kits-head">Wake up with</div><div class="kits">${KIT_IDS.map((id) => `<button class="kit-card" data-id="${id}"><span class="g">${KITS[id].glyph}</span><h4>${KITS[id].name}</h4><p class="items"></p></button>`).join('')}</div>`);
+      for (const c of this.body.querySelectorAll('.kit-card')) {
+        c.addEventListener('click', () => this.pickKit(c.dataset.id));
+        c.addEventListener('mouseenter', () => this.audio.hover());
+      }
+    } else this.kit = 'starter';
     const carried = MEMORIES.filter((m) => mem.has(m.id));
     if (carried.length) this.html(`<div class="carried"><span class="p-eyebrow">Memories carried</span>${carried.map((m) => `<span class="mem-chip" title="${m.reward}">${m.glyph} ${m.name}</span>`).join('')}</div>`);
     this.html(`<div class="p-actions"><button class="btn gold" id="go-new">Begin</button>${this.save ? `<span class="p-note">This replaces your vigil on Day ${this.save.night}.</span>` : '<span class="p-note calm">You can change nothing once the first night falls. Choose well.</span>'}</div>`);
@@ -404,7 +414,8 @@ export class Menu {
       c.addEventListener('mouseenter', () => this.audio.hover());
     }
     this.pickDiff(this.diff, true);
-    const go = () => this.cb.onNew(this.diff);
+    this.pickKit(this.kit, true);
+    const go = () => this.cb.onNew(this.diff, this.kit);
     $('#go-new', this.body).addEventListener('click', () => {
       this.audio.choose();
       go();
@@ -416,6 +427,19 @@ export class Menu {
     if (!quiet && id !== this.diff) this.audio.ui();
     this.diff = id;
     for (const c of this.body.querySelectorAll('.diff-card')) c.classList.toggle('sel', c.dataset.id === id);
+    this.pickKit(this.kit, true);
+  }
+
+  pickKit(id, quiet = false) {
+    if (!quiet && id !== this.kit) this.audio.ui();
+    this.kit = id;
+    const d = difficulty(this.diff);
+    for (const c of this.body.querySelectorAll('.kit-card')) {
+      c.classList.toggle('sel', c.dataset.id === id);
+      c.title = KITS[c.dataset.id].blurb;
+      if (c.dataset.id === 'starter') $('h4', c).textContent = `${d.name} Kit`;
+      $('.items', c).innerHTML = kitItems(d, c.dataset.id).map(([item, n]) => `<span>${n > 1 ? `${n}× ` : ''}${ITEMS[item].name}</span>`).join('') || '<span>Nothing at all</span>';
+    }
   }
 
   // portraits are rendered once, the first time they're wanted
@@ -564,6 +588,7 @@ export class Menu {
       <div class="set-group"><h4>Display</h4>
         <div class="set-row"><label>Quality<small>Shadows, grass density and effects</small></label>
           <div class="seg" id="s-quality">${['low', 'medium', 'high'].map((v) => `<button data-v="${v}" class="${v === q ? 'sel' : ''}">${v}</button>`).join('')}</div></div>
+        <div class="set-row"><label>Steady frame rate<small>Draws a little softer when frames run slow</small></label><button class="toggle${readSetting('autores') === '1' ? ' on' : ''}" id="s-autores" aria-label="Steady frame rate"></button></div>
         <div class="set-row"><label>Glow<small>Bloom on fire, spores and the Heartwood</small></label><button class="toggle${readSetting('bloom') === '1' ? ' on' : ''}" id="s-bloom" aria-label="Glow"></button></div>
       </div>
       <div class="set-group"><h4>Controls</h4>
@@ -594,6 +619,7 @@ export class Menu {
       });
     };
     toggle('#s-bloom', 'bloom', (on) => { g.bloom = on; });
+    toggle('#s-autores', 'autores', (on) => { g.autoRes = on; g.applyRes(); });
     toggle('#s-invert', 'invertY', (on) => { if (g.player) g.player.invertY = on; });
     toggle('#s-music', 'music', (on) => this.audio.music(on && this.mode === 'title'));
     const slider = (sel, name, fmt, apply) => {
@@ -619,6 +645,7 @@ export class Menu {
   applySettings() {
     const g = this.game;
     g.bloom = readSetting('bloom') === '1';
+    g.autoRes = readSetting('autores') === '1';
     this.audio.volume = Number(readSetting('volume'));
   }
 

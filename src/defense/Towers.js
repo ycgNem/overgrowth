@@ -48,7 +48,8 @@ export const UPGRADES = {
   spore_mortar: { 2: { clay: 2, mushroom: 4, resin: 2 }, 3: { stone: 4, glowcap: 2, strange_seeds: 3 } },
   tesla_totem: { 2: { copper_wire: 2, scrap_metal: 2, rusty_bolts: 2 }, 3: { vacuum_tube: 1, brass_gear: 2, battery: 1 } },
   ember_brazier: { 2: { resin: 3, clay: 2, flint: 2 }, 3: { resin: 4, glowcap: 2, bone: 3 } },
-  barricade: { 2: { log: 1, thorns: 4, vine: 2 }, 3: { log: 2, stone: 5, bone: 2 } },
+  // the top wall is thatched with grove reeds and banded with bog iron
+  barricade: { 2: { log: 1, thorns: 4, vine: 2 }, 3: { log: 1, reed: 6, bog_iron: 2 } },
   glow_lantern: { 2: { glowcap: 2, resin: 2, stick: 2 }, 3: { glowcap: 3, strange_seeds: 3, battery: 1 } },
 };
 // What a full repair costs: towers want bark and resin, walls sticks and thorns.
@@ -418,15 +419,17 @@ export class Buildings {
       }
       if (b.rings) b.rings.rotation.y += dt * (1.6 + b.charge * 6);
 
-      // pick the enemy in range that is furthest along the path (closest to the Heart)
+      // pick the enemy in range that is furthest along the path (closest to the Heart); a
+      // crossbow picks out Spitters first, wherever they stand (they hang back and shell it)
       const range = b.stat('range', mods) * (ctx.rain ? 0.9 : 1);
+      const spotter = kind === 'bow';
       let best = null, bd = Infinity;
       for (const e of enemies.list) {
         if (e.dying || e.rise > 0.5) continue;
         if (e.def.flying && !b.def.air) continue;
         const d = Math.hypot(e.pos.x - b.x, e.pos.z - b.z);
         if (d > range || d < (b.def.minRange || 0)) continue;
-        const fd = (e.def.flying ? Math.hypot(e.pos.x - ctx.base.x, e.pos.z - ctx.base.z) : field.distAt(e.pos.x, e.pos.z)) + d * 0.1;
+        const fd = (e.def.flying ? Math.hypot(e.pos.x - ctx.base.x, e.pos.z - ctx.base.z) : field.distAt(e.pos.x, e.pos.z)) + d * 0.1 - (spotter && e.def.spit ? 40 : 0);
         if (fd < bd) { bd = fd; best = e; }
       }
       if (!best) {

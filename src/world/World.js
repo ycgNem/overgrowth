@@ -1,9 +1,10 @@
 // Streams the infinite world in 64m chunks around the player. Each chunk
-// owns a terrain mesh, instanced plants, an optional point of interest, and
-// the colliders / cuttables / interactables that live inside it.
+// owns a terrain mesh, blocks of instanced plants (in the shared pools, Pools.js), an
+// optional point of interest, and the colliders / cuttables / interactables that live
+// inside it.
 import * as THREE from 'three';
 import {
-  CHUNK_SIZE as CS, sampleTerrain, terrainHeight, terrainNormal, jungleDensity, groundPatch,
+  CHUNK_SIZE as CS, sampleTerrain, terrainHeight, terrainNormal, jungleDensity, groundPatch, grove, WATER_LEVEL,
 } from './WorldGen.js';
 import { chunkRng, range, hash2 } from '../utils/rng.js';
 import { createNoise2D } from '../utils/noise.js';
@@ -14,6 +15,8 @@ import { mergeToGeometry, bakedMaterial } from '../art/merge.js';
 import { getItemModel } from '../items/ItemModels.js';
 import { ITEMS } from '../items/ItemDB.js';
 import { Stubs } from './Stubs.js';
+import { lodGeometry } from './flora/lod.js';
+import { Pool, Pools, shareGeometry as withSlope } from './Pools.js';
 
 const TAU = Math.PI * 2;
 const SEG = 48;
@@ -22,9 +25,18 @@ export const STEP_HEIGHT = 0.55;
 
 // Small floor props and the low herb layer only live in the 3x3 chunks around the player;
 // the outer ring is deep in haze, where only trees, palms, tall herbs and rocks read.
+// Distance: trees and big leafy plants swap to a thinned copy past LOD_DIST; small plants and
+// forage stop drawing past their FAR (both per plant, see Pools.js)
+const LOD_DIST = 38;
+const LOD_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove', 'treeFern', 'banana', 'monstera', 'taro']);
+const FAR = {
+  fern: 80, bush: 85, grass: 60, flower: 65, orchid: 50, mushrooms: 45, pebbles: 40, deadFrond: 45, seedling: 50,
+  bromeliad: 60, reeds: 90, lily: 75, branch: 60, stump: 75,
+};
+const FORAGE_FAR = 60;
 const DRESSING = new Set([
   'seedling', 'pebbles', 'branch', 'deadFrond', 'mushrooms', 'orchid', 'bromeliad',
-  'grass', 'fern', 'bush', 'taro', 'flower',
+  'grass', 'fern', 'bush', 'taro', 'flower', 'lily',
 ]);
 
 // Soft contact shade each prop leaves on the ground: [radius, strength].
@@ -59,6 +71,9 @@ const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 // Forage: loose materials lying on the forest floor, picked up with E. They come back
 // every dawn. Geometry is the item model, merged into one instanced draw per item.
 const forageGeo = new Map();
+// a little dirt on everything lying in the leaves (the item models are clean, made for the
+// satchel); Game.highlightForage lights the one you're looking at and puts this back
+export const FORAGE_TINT = new THREE.Color(0.8, 0.76, 0.7);
 let forageMat = null;
 function forageGeometry(id) {
   if (!forageGeo.has(id)) {
@@ -70,19 +85,6 @@ function forageGeometry(id) {
     forageGeo.set(id, geometry);
   }
   return forageGeo.get(id);
-}
-
-// A geometry that shares a library geometry's buffers (uploaded once) but can
-// carry its own per-instance attributes.
-function withSlope(src) {
-  const g = new THREE.BufferGeometry();
-  for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
-  if (src.index) g.setIndex(src.index);
-  for (const gr of src.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
-  if (!src.boundingSphere) src.computeBoundingSphere();
-  g.boundingSphere = src.boundingSphere.clone();
-  g.boundingBox = src.boundingBox;
-  return g;
 }
 
 // Plant geometries are shared library assets; only free per-chunk data
@@ -126,6 +128,47 @@ export class World {
     this.clearings = [];
     this.extra = { colliders: [], interactables: [], cuttables: [] };
     this.foraged = new Set();
+    // one instanced mesh per plant variant and forage item for the whole window
+    this.pools = new Pools(scene);
+    this.trample = null; // the Blight's worn lanes (Trample.js), set by the game
+  }
+
+  // Wear the trampled lanes into a chunk's terrain: churned earth where the Blight walk, the
+  // litter, moss and turf worn off (from the splat the chunk was built with).
+  wearChunk(ch) {
+    const T = this.trample;
+    if (!T || !ch.baseSplat || !ch.terrainMesh) return;
+    const N = SEG + 1, step = CS / SEG, x0 = ch.cx * CS, z0 = ch.cz * CS;
+    if (!T.overlaps(x0, z0, x0 + CS, z0 + CS)) return;
+    const S = ch.splat, G = ch.grass, C = ch.shade, bS = ch.baseSplat, bG = ch.baseGrass, bC = ch.baseCol;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const v = j * N + i, t = T.at(x0 + i * step, z0 + j * step);
+        S[v * 4] = bS[v * 4] * (1 - 0.75 * t);
+        S[v * 4 + 1] = bS[v * 4 + 1] * (1 - 0.85 * t);
+        S[v * 4 + 3] = Math.max(bS[v * 4 + 3], t * 0.9);
+        G[v] = bG[v] * (1 - t);
+        const d = 1 - 0.14 * t;
+        C[v * 3] = bC[v * 3] * d; C[v * 3 + 1] = bC[v * 3 + 1] * d; C[v * 3 + 2] = bC[v * 3 + 2] * d;
+      }
+    }
+    const a = ch.terrainMesh.geometry.attributes;
+    a.splat.needsUpdate = a.grass.needsUpdate = a.color.needsUpdate = true;
+  }
+
+  wearAll() {
+    for (const ch of this.chunks.values()) this.wearChunk(ch);
+  }
+
+  // which pooled plants are in view this frame (call before rendering)
+  cull(camera, shadowCamera) {
+    this.pools.update(camera, shadowCamera);
+  }
+
+  // the chunk's pooled instances go back to the pools
+  static freeBlocks(list) {
+    for (const b of list) b.free();
+    list.length = 0;
   }
 
   // Plans are cached, so clearings must be registered before the first update.
@@ -154,14 +197,15 @@ export class World {
     this.foraged.clear();
     this.cut.clear();
     for (const ch of this.chunks.values()) {
-      if (ch.dressing) {
-        ch.group.remove(ch.dressing);
-        disposeGroup(ch.dressing);
-        ch.dressing = null;
-        ch.cuttables = ch.cuttables.filter((c) => !c.dress);
-        ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
-      }
+      if (ch.dressing) this.dropDressing(ch);
     }
+  }
+
+  dropDressing(ch) {
+    World.freeBlocks(ch.dressing);
+    ch.dressing = null;
+    ch.cuttables = ch.cuttables.filter((c) => !c.dress);
+    ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
   }
 
   // The ground as rendered at (x, z): the height and normal of the terrain mesh's own
@@ -649,6 +693,51 @@ export class World {
       }
     });
 
+    // ---- the drowned grove: mangroves on the hummocks, reed beds in the shallows, lilies on
+    // the pools, dead snags standing in the water, and what the mud gives up. Placed last, and
+    // only in chunks that reach the grove, so nothing else anywhere moves.
+    const G = grove();
+    if (Math.hypot(x0 + CS / 2 - G.x, z0 + CS / 2 - G.z) < G.r * 1.35 + CS * 0.75) {
+      scatter('mangrove', 70, (x, z, t, roll) => {
+        if (t.swamp < 0.2 || t.h < -0.7 || t.h > 1.3 || roll > 0.6 * t.swamp || blocked(x, z, 2.5) || nearBig(x, z, 4)) return;
+        place('mangrove', x, Math.max(t.h, WATER_LEVEL - 0.3) - 0.05, z, range(rand, 0.8, 1.3));
+      });
+      scatter('reeds', 260, (x, z, t, roll) => {
+        if (t.swamp < 0.12 || t.h < -0.55 || t.h > 0.6 || roll > 0.85 * smoothstep(0.35, 0.65, clump(4, x, z, 0.06)) || blocked(x, z, 0.5)) return;
+        // reed beds: a few clumps together
+        for (let k = 0; k < 1 + Math.floor(rand() * 3); k++) {
+          const rx = x + (rand() - 0.5) * 2.2, rz = z + (rand() - 0.5) * 2.2, rh = terrainHeight(rx, rz);
+          if (rh < -0.6 || rh > 0.7) continue;
+          place('reeds', rx, rh - 0.05, rz, range(rand, 0.8, 1.25));
+        }
+      });
+      scatter('lily', 160, (x, z, t, roll) => {
+        if (t.swamp < 0.25 || t.h > -0.12 || t.h < -1.4 || roll > 0.7 || blocked(x, z, 0.5)) return;
+        place('lily', x, WATER_LEVEL + 0.015, z, range(rand, 0.8, 1.3));
+        // they float flat whatever the bed does
+        const it = items[items.length - 1];
+        it.nx = 0; it.ny = 1; it.nz = 0;
+      });
+      scatter('snag', 30, (x, z, t, roll) => {
+        if (t.swamp < 0.3 || t.h > 0.4 || t.h < -1.2 || roll > 0.5 || blocked(x, z, 3)) return;
+        place('snag', x, t.h - 0.1, z, range(rand, 0.85, 1.25));
+      });
+      const addWet = (id, x, z) => {
+        if (blocked(x, z, 0.5)) return;
+        forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.5, 1.9), nx: 0, ny: 1, nz: 0 });
+      };
+      scatter('forage', 70, (x, z, t, roll) => {
+        if (t.swamp < 0.2 || t.h < -0.45 || t.h > 0.9) return;
+        const r2 = rand();
+        if (t.h < 0.05 && roll < 0.3) addWet('eel', x, z); // in the shallows
+        else if (t.h < 0.4 && roll < 0.62) {
+          // bog iron in rusty seams: two or three together
+          for (let k = 0; k < 1 + Math.floor(r2 * 3); k++) addWet('bog_iron', x + (rand() - 0.5) * 1.6, z + (rand() - 0.5) * 1.6);
+        } else if (roll < 0.85) addWet('reed', x, z);
+        else addWet(r2 < 0.5 ? 'moss' : 'clay', x, z);
+      });
+    }
+
     const plan = { items, forage };
     this.plans.set(k, plan);
     return plan;
@@ -676,12 +765,12 @@ export class World {
     const plan = this.plan(cx, cz);
     const group = new THREE.Group();
     group.name = `chunk ${k}`;
-    const chunk = { key: k, cx, cz, group, cuttables: [], colliders: [], interactables: [], animated: [], poi: null };
+    const chunk = { key: k, cx, cz, group, cuttables: [], colliders: [], interactables: [], animated: [], poi: null, blocks: [] };
 
     group.add(yield* this.terrainSteps(cx, cz, chunk));
     yield;
 
-    yield* this.instanceSteps(chunk, plan, group, (type) => !DRESSING.has(type));
+    yield* this.instanceSteps(chunk, plan, chunk.blocks, (type) => !DRESSING.has(type));
 
     const spec = poiSpec(cx, cz);
     if (spec) {
@@ -707,25 +796,20 @@ export class World {
   updateDressing(ch) {
     const near = Math.max(Math.abs(ch.cx - this.cx), Math.abs(ch.cz - this.cz)) < VIEW_RADIUS;
     if (near && !ch.dressing) {
-      ch.dressing = new THREE.Group();
+      ch.dressing = []; // its blocks
       const plan = this.plan(ch.cx, ch.cz);
       this.instance(ch, plan, ch.dressing, (type) => DRESSING.has(type), true);
       this.instanceForage(ch, plan, ch.dressing);
-      ch.group.add(ch.dressing);
       return true;
     }
     if (!near && ch.dressing) {
-      ch.group.remove(ch.dressing);
-      disposeGroup(ch.dressing);
-      ch.dressing = null;
-      ch.cuttables = ch.cuttables.filter((c) => !c.dress);
-      ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
+      this.dropDressing(ch);
       return true;
     }
     return false;
   }
 
-  instanceForage(chunk, plan, group) {
+  instanceForage(chunk, plan, blocks) {
     if (!forageMat) forageMat = bakedMaterial({ side: THREE.DoubleSide });
     const bins = new Map();
     plan.forage.forEach((f, i) => {
@@ -735,21 +819,20 @@ export class World {
       bins.get(f.id).push([f, key]);
     });
     for (const [id, list] of bins) {
-      const mesh = new THREE.InstancedMesh(forageGeometry(id), forageMat, list.length);
-      mesh.setColorAt(0, _c.setRGB(1, 1, 1));
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      const pool = this.pools.get(`forage:${id}`, () => new Pool(this.scene, forageGeometry(id), forageMat, { shadow: true, far: FORAGE_FAR }));
+      const mesh = pool.alloc(list.length);
+      blocks.push(mesh);
       list.forEach(([f, key], i) => {
         _q.setFromAxisAngle(_up, f.ry).premultiply(_q2.setFromUnitVectors(_up, _p.set(f.nx, f.ny, f.nz)));
         _m.compose(_p.set(f.x, f.y, f.z), _q, _s.setScalar(f.s));
         mesh.setMatrixAt(i, _m);
+        mesh.setColorAt(i, FORAGE_TINT);
         chunk.interactables.push({
           kind: 'forage', id, key, mesh, instance: i, x: f.x, y: f.y + 0.2, z: f.z, r: 0.5,
           label: `Pick up ${ITEMS[id].name}`, chunk,
         });
       });
-      mesh.computeBoundingSphere();
-      group.add(mesh);
+      mesh.seal();
     }
   }
 
@@ -787,13 +870,13 @@ export class World {
     it.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  // Instanced plants, one InstancedMesh per species variant.
-  instance(chunk, plan, group, want, dress = false) {
-    finish(this.instanceSteps(chunk, plan, group, want, dress));
+  // Instanced plants: a block in the pool of each species variant, recorded in `blocks`.
+  instance(chunk, plan, blocks, want, dress = false) {
+    finish(this.instanceSteps(chunk, plan, blocks, want, dress));
   }
 
-  // the same, yielding every dozen meshes
-  *instanceSteps(chunk, plan, group, want, dress = false) {
+  // the same, yielding every dozen variants
+  *instanceSteps(chunk, plan, blocks, want, dress = false) {
     let made = 0;
     const k = chunk.key;
     const bins = new Map();
@@ -808,10 +891,12 @@ export class World {
       const [type, v] = bk.split(':');
       const def = this.flora.types[type];
       const variant = def.variants[+v];
-      const mesh = new THREE.InstancedMesh(withSlope(variant.geometry), def.material, list.length);
-      const slope = new Float32Array(list.length * 2);
-      mesh.castShadow = def.shadow;
-      mesh.receiveShadow = true;
+      const pool = this.pools.get(`plant:${bk}`, () => new Pool(this.scene, variant.geometry, def.material, {
+        slope: true, shadow: def.shadow, far: FAR[type] ?? Infinity,
+        lod: LOD_TYPES.has(type) ? lodGeometry(variant.geometry, def.material) : null, lodDist: LOD_DIST,
+      }));
+      const mesh = pool.alloc(list.length);
+      blocks.push(mesh);
       list.forEach((idx, i) => {
         const it = plan.items[idx];
         _q.setFromAxisAngle(_up, it.ry);
@@ -831,9 +916,8 @@ export class World {
         }
         if (it.nx === undefined) {
           const n = terrainNormal(it.x, it.z);
-          slope[i * 2] = -n.x / n.y;
-          slope[i * 2 + 1] = -n.z / n.y;
-        }
+          mesh.setSlopeAt(i, -n.x / n.y, -n.z / n.y);
+        } else mesh.setSlopeAt(i, 0, 0);
         const c = Math.cos(it.ry), s = Math.sin(it.ry);
         for (const col of variant.colliders) {
           chunk.colliders.push({
@@ -849,9 +933,7 @@ export class World {
           chunk.cuttables.push({ key: `${k}:${idx}`, mesh, instance: i, x: it.x, y: it.y, z: it.z, r: def.cut.r * it.s, type, v: +v, def, alive: true, dress });
         }
       });
-      mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(slope, 2));
-      mesh.computeBoundingSphere();
-      group.add(mesh);
+      mesh.seal();
     }
   }
 
@@ -878,7 +960,7 @@ export class World {
   *terrainSteps(cx, cz, chunk = null) {
     const N = SEG + 1, W = N + 2, step = CS / SEG;
     const x0 = cx * CS, z0 = cz * CS;
-    const H = new Float32Array(W * W), RV = new Float32Array(W * W), MT = new Float32Array(W * W);
+    const H = new Float32Array(W * W), RV = new Float32Array(W * W), MT = new Float32Array(W * W), SW = new Float32Array(W * W);
     const t = {};
     // the camp: trampled bare earth round the Heartwood, ragged at the edge, giving way to litter
     const home = this.clearings[0];
@@ -894,6 +976,7 @@ export class World {
         H[j * W + i] = t.h;
         RV[j * W + i] = t.river;
         MT[j * W + i] = t.mountain;
+        SW[j * W + i] = t.swamp;
       }
     }
     if (chunk) chunk.heights = H; // the water reads these for its depth
@@ -970,8 +1053,17 @@ export class World {
         const moss = clamp(
           smoothstep(0.2, 0.65, patch) * 0.55 + (1 - dens) * 0.15 + (1 - RV[gi]) * 0.4 - canopy * 0.8,
           0, 1) * (1 - rock) * (1 - mud) * (1 - 0.8 * gAt);
-        const litter = clamp(0.5 + dens * 0.25 + canopy * 1.2 - moss * 0.5, 0.05, 1) * (1 - rock) * (1 - mud * 0.8);
-        spl[v * 4] = litter; spl[v * 4 + 1] = moss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = mud;
+        let litter = clamp(0.5 + dens * 0.25 + canopy * 1.2 - moss * 0.5, 0.05, 1) * (1 - rock) * (1 - mud * 0.8);
+        // the drowned grove: peat and moss on the hummocks, not the river's gravel
+        const sw = SW[gi];
+        let wetMoss = moss, wetMud = mud;
+        if (sw > 0) {
+          wetMud = mud * (1 - 0.75 * sw);
+          wetMoss = Math.max(moss, sw * (0.45 + 0.4 * smoothstep(0.2, 0.6, patch)));
+          litter = Math.max(litter * (1 - sw * 0.3), sw * 0.35);
+          ao *= 1 - 0.3 * sw;
+        }
+        spl[v * 4] = litter; spl[v * 4 + 1] = wetMoss; spl[v * 4 + 2] = rock; spl[v * 4 + 3] = wetMud;
         grs[v] = gAt;
 
         const tint = 0.92 + patch * 0.08;
@@ -996,7 +1088,11 @@ export class World {
     geo.setAttribute('splat', new THREE.BufferAttribute(spl, 4));
     geo.setAttribute('grass', new THREE.BufferAttribute(grs, 1));
     // kept for groundAt (fallen leaves lie only where litter covers the ground)
-    if (chunk) { chunk.splat = spl; chunk.shade = col; chunk.grass = grs; }
+    if (chunk) {
+      chunk.splat = spl; chunk.shade = col; chunk.grass = grs;
+      // as built, before any lanes were worn into it
+      chunk.baseSplat = spl.slice(); chunk.baseGrass = grs.slice(); chunk.baseCol = col.slice();
+    }
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.terrainMat);
@@ -1005,6 +1101,10 @@ export class World {
     mesh.castShadow = true;
     mesh.customDepthMaterial = TERRAIN_DEPTH;
     mesh.userData.terrain = true;
+    if (chunk) {
+      chunk.terrainMesh = mesh;
+      this.wearChunk(chunk);
+    }
     return mesh;
   }
 
@@ -1013,6 +1113,8 @@ export class World {
     if (!ch) return;
     this.scene.remove(ch.group);
     disposeGroup(ch.group);
+    World.freeBlocks(ch.blocks);
+    if (ch.dressing) World.freeBlocks(ch.dressing);
     this.chunks.delete(k);
   }
 

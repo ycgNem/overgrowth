@@ -4,7 +4,9 @@
 //
 //   node e2e/view.mjs <outDir> '<json array of shots>'
 //   shot: { name, find?: 'spawn'|'river'|'cliff'|'clearing'|'slope'|'temple'|'base', x?, z?,
-//           yaw?, yawOff?, pitch?, time?, eval?: "js run before the capture", settle?: frames }
+//           yaw?, yawOff?, pitch?, time?, eval?: "js run before the capture", settle?: frames,
+//           poi?: 'camp'|'wreck'|'crates'|... (stand `dist` m from the nearest one, `around` rad),
+//           find: 'grove' stands `dist` m from the drowned grove's heart }
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,6 +56,14 @@ for (const v of shots) {
       const d = v.dist ?? 3, a = v.around ?? 0.7;
       spot = { x: it.x + Math.sin(a) * d, z: it.z + Math.cos(a) * d };
       spot.yaw = Math.atan2(spot.x - it.x, spot.z - it.z);
+    } else if (v.find === 'grove') {
+      // stand `dist` m from the grove's heart (default: on its fringe facing in), `around` rad
+      const G = W.grove(), d = v.dist ?? G.r * 0.8, a = v.around ?? Math.atan2(g.base.x - G.x, g.base.z - G.z);
+      spot = { x: G.x + Math.sin(a) * d, z: G.z + Math.cos(a) * d };
+      spot.yaw = Math.atan2(spot.x - G.x, spot.z - G.z);
+    } else if (v.poi) {
+      if (!g.teleport(v.poi, v.dist ?? 10, v.around ?? 0.5)) return { missing: true };
+      spot = { x: g.player.pos.x, z: g.player.pos.z, yaw: g.player.yaw };
     } else if (v.find === 'temple') { g.teleport('temple', 34, 0.5); spot = { x: g.player.pos.x, z: g.player.pos.z, yaw: g.player.yaw }; }
     else if (v.find === 'base') spot = { x: g.base.x + 14, z: g.base.z + 6, yaw: Math.atan2(14, 6) };
     else if (!v.find || v.find === 'spawn') spot = { x: s.x, z: s.z, yaw: Math.atan2(-(g.base.x - s.x), -(g.base.z - s.z)) };

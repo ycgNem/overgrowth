@@ -11,7 +11,9 @@ sprout out in the forest under guard: cut them down for rare loot and the Heartw
 at dusk each one opens a new lane the Blight pours out of all night. The run saves itself every
 morning. Six kinds of Blight come for it, from swarming Blightlings to bile-lobbing Spitters and
 Burrowers that dig under your walls, and what you live through stays with you: lifetime records
-unlock **Memories** that add to every run after. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
+unlock **Memories** that add to every run after. A short walk out lies a second
+region, the **drowned grove**: black water, mangroves and fog, with its own forage, a sunken
+shrine, and from night 4 its own rift. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
 The world is built from code and dressed with generated photographs. Terrain, plants and props are
 code-built meshes. Their surfaces (leaf litter, moss, mud, rock, bark, temple stone) and every leaf,
@@ -19,7 +21,8 @@ frond and flower are Flux generations, turned into seamless tiles and cut-out at
 `art/textures/` (see its README) and shipped in `public/textures/`. The image goes through an HDR post
 chain (ambient occlusion, sun shafts through the canopy, bloom, filmic grade). The soundscape is
 synthesised with Web Audio. The hero models (the Heartwood, the five towers, the barricade, the
-vine snare, the glowcap lantern and the six Blight) are made in **Blender** from Python scripts (`art/blender/`),
+vine snare, the glowcap lantern, the six Blight, and the tent, plane wreck and supply crates)
+are made in **Blender** from Python scripts (`art/blender/`),
 shipped as GLBs in `public/models/`, and pick up the same bark, stone and moss surfaces at load.
 
 ## Running
@@ -57,7 +60,7 @@ around). `?t=0.75` sets the time of day (0 = midnight, 0.5 = noon). The `game` o
 exposed on `window`, for example:
 
 ```js
-game.teleport('temple')   // also: 'ruins', 'wreck', 'camp', 'scrap', 'crates'
+game.teleport('temple')   // also: 'ruins', 'wreck', 'camp', 'scrap', 'crates', 'shrine'
 game.give('log', 5)       // any item id from src/items/ItemDB.js
 game.skipToNight()        // jump the clock to dusk: the rifts open
 game.waves.setNight(5)    // pretend it's night 5 (a boss night)
@@ -66,7 +69,7 @@ game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)   // also 'blightli
 
 Debug runs never autosave. The save lives in `localStorage` under `og.save.v1`, the best run
 under `og.best`, lifetime records under `og.records`, and settings under `og.quality`,
-`og.bloom`, `og.sensitivity`, `og.invertY`, `og.volume` and `og.music`.
+`og.bloom`, `og.autores`, `og.sensitivity`, `og.invertY`, `og.volume` and `og.music`.
 
 ## How it's put together
 
@@ -93,12 +96,18 @@ src/
   art/shaders.js       material patches: wind, foliage translucency, moss, terrain splat, fog
   render/PostFX.js     HDR chain: SAO-style AO, ray-marched sun shafts, bloom, tone map + grade
   render/Canopy.js     sky occlusion under the tree crowns (darkens and greens the forest floor)
-  world/WorldGen.js    the height function (warped hills, ridged mountains, rivers)
-  world/World.js       chunk streaming, plant and forage scattering, terrain, collisions
+  world/WorldGen.js    the height function (warped hills, ridged mountains, rivers, the
+                       drowned grove's swamp), spawn and base-site search
+  world/World.js       chunk streaming, plant and forage scattering, terrain, collisions,
+                       draw distances and LODs per plant type
+  world/Pools.js       one instanced mesh per plant variant for the whole view: chunks take
+                       slot blocks, culled per block, near/far LOD sorted per plant
+  world/Trample.js     the lanes the Blight wear into the ground, settled at dawn
   world/Litter.js      3D fallen leaves and sticks on the ground around the player
   world/Cover.js       seedlings, small ferns and dead fronds within 25 m of the player
   world/Grass.js       3D grass tufts on the turf (and sedge under the trees) within 20 m
-  world/flora/         plant library (Flora.js) + geometry helpers (geom.js)
+  world/flora/         plant library (Flora.js), geometry helpers (geom.js) and the thinned
+                       far copies of trees (lod.js)
   world/poi/POI.js     points of interest: placement rules + builders
   world/Sky.js         sky dome shader, sun/moon, day-night palette, environment map
   world/Water.js       river/lake surface
@@ -201,7 +210,11 @@ evaluated in a booted game.
 stages the Spitter, the Burrower and the Glowcap Lantern and checks each works,
 `node e2e/night.mjs <dir>` stages a night fight for lighting checks, `node e2e/menu.mjs <dir>`
 screenshots the title flow, and
-`node e2e/balance.mjs <night> <starter|mid|late>` simulates one night against a fixed defence. Two review agents
+`node e2e/balance.mjs <night> <starter|mid|late> [difficulty]` simulates one night against a
+fixed defence (and says who broke which building). For performance, `node e2e/perf.mjs` profiles
+frame times while sprinting, `node e2e/gpu.mjs` times what each part of a frame costs on the GPU
+(shadows, post effects, plants, terrain...), `node e2e/calls.mjs` counts draw calls and
+`node e2e/lod.mjs` shoots views with the far tree LODs on and off. Two review agents
 live in `.claude/agents/`:
 
 - `indie-critic` reviews look, feel and play as a whole.

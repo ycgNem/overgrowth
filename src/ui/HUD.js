@@ -93,16 +93,25 @@ export class HUD {
 
   // heading: radians clockwise from north (-z)
   updateCompass(heading, player, done) {
-    const w = this.el.compass.clientWidth;
+    // the strip's width is read now and then, not every frame (a read after last frame's
+    // writes forces a layout), and styles are only written when they change
+    if (!this.compassW || --this.compassWT <= 0) {
+      this.compassW = this.el.compass.clientWidth;
+      this.compassWT = 60;
+    }
+    const w = this.compassW;
     const span = 100 * DEG;
     const place = (e, a) => {
       const d = angleDelta(heading, a);
-      if (Math.abs(d) > span) {
-        e.style.display = 'none';
-        return d;
+      const x = Math.abs(d) > span ? null : Math.round((w / 2 + (d / span) * (w / 2)) * 2) / 2;
+      if (e._x !== x) {
+        if (x === null) e.style.display = 'none';
+        else {
+          if (e._x === null || e._x === undefined) e.style.display = '';
+          e.style.left = `${x}px`;
+        }
+        e._x = x;
       }
-      e.style.display = '';
-      e.style.left = `${w / 2 + (d / span) * (w / 2)}px`;
       return d;
     };
     for (const m of this.marks) place(m.e, m.a);
@@ -126,7 +135,10 @@ export class HUD {
         this.el.strip.appendChild(e);
         this.poiEls.set(key, e);
       }
-      e.className = `poi ${cls}`;
+      if (e._cls !== cls) {
+        e.className = `poi ${cls}`;
+        e._cls = cls;
+      }
       const html = `${icon}<small>${label} ${Math.round(dist)}m</small>`;
       if (e.dataset.html !== html) {
         e.innerHTML = html;

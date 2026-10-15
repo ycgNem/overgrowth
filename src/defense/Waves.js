@@ -177,9 +177,10 @@ export class Waves {
     this.clock = 0;
     this.open = this.rifts.filter((r) => r.night <= this.night);
     for (const r of this.rifts) r.target = r.night <= this.night ? 1 : 0;
-    const boss = w.counts.thornback > 0, torn = this.rifts.some((r) => r.night === this.night && r.night > 1);
+    const boss = w.counts.thornback > 0, torn = this.rifts.find((r) => r.night === this.night && r.night > 1);
     this.hud.banner(`Night ${this.night}`, boss ? 'The ground shakes. The Thornback is coming.'
-      : torn ? 'A new rift has torn open. Watch your flank.' : 'The Blight crawls out of the rifts. Hold the Heartwood.', boss || torn ? 'boss' : 'night');
+      : torn?.grove ? 'A rift has torn open in the drowned grove. They wade in from the water.'
+        : torn ? 'A new rift has torn open. Watch your flank.' : 'The Blight crawls out of the rifts. Hold the Heartwood.', boss || torn ? 'boss' : 'night');
     this.audio.horn?.();
     // the first night a kind of Blight comes, say what it does
     const before = this.night > 1 ? waveFor(this.night - 1, this.diff.count).counts : {};
@@ -233,7 +234,7 @@ export class Waves {
         const a = Math.random() * Math.PI * 2;
         // the boss is already a wall of HP: its first night it comes in light (a mid defence lost
         // night 5 to it), then it scales at half rate (two come on night 10, with the surge)
-        const k = s.type === 'thornback' ? (this.night <= 5 ? 0.8 : 1 + (this.hpScale / this.diff.hp - 1) * 0.5) * this.diff.hp : this.hpScale;
+        const k = s.type === 'thornback' ? (this.night <= 5 ? 0.7 : 1 + (this.hpScale / this.diff.hp - 1) * 0.5) * this.diff.hp : this.hpScale;
         this.enemies.spawn(s.type, r.x + Math.cos(a) * 1.2, r.z + Math.sin(a) * 1.2, k);
         if (s.type === 'thornback') {
           this.hud.banner('The Thornback', 'It is out of the rift. Bring it down.', 'boss');

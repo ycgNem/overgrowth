@@ -40,16 +40,17 @@ export const ENEMY_TYPES = {
   },
   rotboar: {
     name: 'Rotboar', model: 'rotboar', hp: 240, speed: 2.2, radius: 0.95, dmg: 22, rate: 1.5, reach: 1.9, windup: 0.5,
-    aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5, towerAggro: 6,
+    aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5, towerAggro: 4.5,
   },
   wisp: {
     name: 'Blight Wisp', model: 'wisp', hp: 55, speed: 3.4, radius: 0.5, dmg: 7, rate: 0.9, reach: 1.2, windup: 0.25,
     aggro: 0, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
   },
   spitter: {
-    name: 'Spitter', model: 'spitter', hp: 75, speed: 2.5, radius: 0.7, dmg: 12, rate: 4.0, reach: 1.3, windup: 0.75,
+    name: 'Spitter', model: 'spitter', hp: 60, speed: 2.5, radius: 0.7, dmg: 12, rate: 4.0, reach: 1.3, windup: 0.75,
     aggro: 3, chest: 0.75, loot: 'spitter', gait: 7, swing: 0.45, scale: 1.15,
-    spit: { range: 13, playerRange: 10, splash: 1.9, puddle: 4 },
+    // building: the share of dmg a glob does to buildings (towers have to outlast them)
+    spit: { range: 13, playerRange: 10, splash: 1.9, puddle: 4, building: 0.75 },
   },
   burrower: {
     name: 'Burrower', model: 'burrower', hp: 150, speed: 2.9, radius: 0.75, dmg: 12, rate: 1.3, reach: 1.6, windup: 0.4,
@@ -601,7 +602,7 @@ export class Enemies {
     const mesh = new THREE.Mesh(globGeo, globMat);
     mesh.position.copy(from);
     this.scene.add(mesh);
-    this.globs.push({ mesh, from, to, t: 0, dur: 0.55 + dist / 16, arc: 2 + dist * 0.18, dmg: e.def.dmg, splash: S.splash, puddle: S.puddle, src: e });
+    this.globs.push({ mesh, from, to, t: 0, dur: 0.55 + dist / 16, arc: 2 + dist * 0.18, dmg: e.def.dmg, building: S.building ?? 1, splash: S.splash, puddle: S.puddle, src: e });
     ctx.particles?.sporeBurst(from, 0x9ae040, 8, 0.6);
     ctx.onSpit?.(e);
   }
@@ -620,7 +621,7 @@ export class Enemies {
       this.globs.splice(i, 1);
       const to = g.to;
       for (const b of ctx.buildings) {
-        if (!b.dead && b.distTo(to.x, to.z) < g.splash) ctx.hitBuilding(b, g.dmg, g.src);
+        if (!b.dead && b.distTo(to.x, to.z) < g.splash) ctx.hitBuilding(b, g.dmg * g.building, g.src);
       }
       if (Math.hypot(to.x - ctx.base.x, to.z - ctx.base.z) < GOAL_RADIUS + 0.5) ctx.hitBase(g.dmg * 0.7, g.src);
       if (ctx.playerAlive && Math.hypot(to.x - ctx.player.x, to.z - ctx.player.z) < g.splash) ctx.hitPlayer(g.dmg * 0.8, g.src);

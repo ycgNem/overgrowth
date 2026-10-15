@@ -32,6 +32,11 @@ export const MEMORIES = [
     reward: 'Every vigil starts with an Orchid Salve and two more poultices.',
     kit: [['orchid_salve', 1], ['poultice', 2]],
   },
+  {
+    id: 'paths', glyph: '⟡', name: 'Many Paths', need: 'Win a vigil on Warden or Blightborn',
+    test: (r) => r.hardWins >= 1,
+    reward: "Choose how a vigil starts: the difficulty's own kit, a builder's or a hunter's.",
+  },
 ];
 
 // the ids earned so far

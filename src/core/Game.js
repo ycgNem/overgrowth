@@ -12,13 +12,14 @@ import { setDetailTextures } from '../art/merge.js';
 import { CanopyMap, installCanopy, canopyBox } from '../render/Canopy.js';
 import { globalUniforms } from '../art/shaders.js';
 import { Flora } from '../world/flora/Flora.js';
-import { World } from '../world/World.js';
+import { World, FORAGE_TINT } from '../world/World.js';
+import { Trample } from '../world/Trample.js';
 import { Litter } from '../world/Litter.js';
 import { Cover } from '../world/Cover.js';
 import { Grass } from '../world/Grass.js';
 import { Sky } from '../world/Sky.js';
 import { Water } from '../world/Water.js';
-import { findSpawn, terrainHeight, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
+import { findSpawn, grove, sampleTerrain, terrainHeight, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
 import { POI_INFO, poisAround, buildPOI } from '../world/poi/POI.js';
 import { Player } from '../player/Player.js';
 import { Machete } from '../player/Machete.js';
@@ -36,7 +37,7 @@ import { AudioSys } from '../audio/AudioSys.js';
 import { HUD } from '../ui/HUD.js';
 import { smoothstep, damp, clamp } from '../utils/math.js';
 import { loadModels, MODEL_NAMES } from '../assets/Models.js';
-import { Base, Rift, pickRifts, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
+import { Base, Rift, pickRifts, pickGroveRift, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
 import { FlowField } from '../defense/FlowField.js';
 import { Enemies } from '../defense/Enemies.js';
 import { Buildings, BuildGhost, BUILD_DEFS, TIER_NAMES } from '../defense/Towers.js';
@@ -46,7 +47,7 @@ import { Projectiles } from '../combat/Projectiles.js';
 import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
 import { Journal } from './Journal.js';
 import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
-import { difficulty } from './Difficulty.js';
+import { difficulty, kitItems } from './Difficulty.js';
 import { MEMORIES, unlocked } from './Memories.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
@@ -74,6 +75,8 @@ export class Game {
     // no canvas MSAA: the scene is drawn into multisampled targets by PostFX
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    // reading back every program's info log stalls the CPU on each compile; only when developing
+    this.renderer.debug.checkShaderErrors = debug || import.meta.env.DEV;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // the sun crawls and the shadow box is snapped to texels: every other frame is plenty
@@ -128,6 +131,9 @@ export class Game {
     this.fadeEl = document.getElementById('title-fade'); // black, for the title's cuts and the fly-in
     this.bloom = true;
     this.rand = Math.random;
+    this.autoRes = true;
+    this.resScale = 1;
+    this.res = { avg: 1 / 60, cool: 3, hold: 0, fast: 0, sinceUp: 99 };
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -135,8 +141,8 @@ export class Game {
   // High / Medium / Low: the costly parts a slower machine can do without
   setQuality(q) {
     this.quality = q;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * (q === 'low' ? 0.75 : 1));
-    this.resize();
+    this.basePR = Math.min(devicePixelRatio, 1.5) * (q === 'low' ? 0.75 : 1);
+    this.applyRes();
     this.post.enabled.ao = q !== 'low';
     this.post.enabled.vol = q === 'high';
     globalUniforms.uPom.value = q === 'low' ? 0 : 1;
@@ -152,6 +158,41 @@ export class Game {
       sh.map = null;
       this.renderer.shadowMap.needsUpdate = true;
     }
+  }
+
+  applyRes() {
+    this.renderer.setPixelRatio((this.basePR ?? Math.min(devicePixelRatio, 1.5)) * (this.autoRes ? this.resScale : 1));
+    this.resize();
+  }
+
+  // Steady frame rate: when frames run slow for a second or two the scene is drawn at a
+  // little lower resolution (down to 60%), and creeps back up once there's room again. A step
+  // up that brings the slowdown straight back isn't tried again for a while.
+  tickRes(dt) {
+    if (!this.autoRes || dt > 0.25) return;
+    const r = this.res;
+    r.avg += (dt - r.avg) * Math.min(1, dt * 2);
+    r.cool -= dt;
+    r.hold -= dt;
+    if (r.cool > 0) return;
+    if (r.avg > 1 / 48 && this.resScale > 0.6) {
+      // a drop soon after a step up: that step was too far
+      if (r.sinceUp < 5) r.hold = 45;
+      this.resScale = Math.max(0.6, this.resScale - 0.1);
+      r.cool = 2;
+      r.fast = 0;
+      this.applyRes();
+    } else if (r.avg < 1 / 57 && this.resScale < 1 && r.hold <= 0) {
+      r.fast += dt;
+      if (r.fast > 6) {
+        this.resScale = Math.min(1, this.resScale + 0.05);
+        r.cool = 2;
+        r.fast = 0;
+        r.sinceUp = 0;
+        this.applyRes();
+      }
+    } else r.fast = 0;
+    r.sinceUp += dt;
   }
 
   resize() {
@@ -186,6 +227,7 @@ export class Game {
     const sp = findBaseSite(findSpawn());
     this.world.addClearing(sp.x, sp.z, BASE_CLEAR, BASE_SOFT);
     this.base = new Base(this.scene, this.world, sp.x, sp.z);
+    this.trample = this.world.trample = new Trample(sp.x, sp.z);
     this.player = new Player(this.camera, this.world);
     this.respawn();
     progress(0.5, 'Growing the jungle…');
@@ -202,7 +244,10 @@ export class Game {
     await nextFrame();
     this.field = new FlowField(this.world, this.base.x, this.base.z, GOAL_RADIUS);
     this.field.rebuild([]);
-    this.rifts = pickRifts(this.field, this.base.x, this.base.z, 5, Math.round(sp.x + sp.z)).map((r) => new Rift(this.scene, r.x, r.z, r.night));
+    const riftSpots = pickRifts(this.field, this.base.x, this.base.z, 5, Math.round(sp.x + sp.z));
+    const gr = pickGroveRift(this.field, this.base.x, this.base.z, grove());
+    if (gr) riftSpots.push(gr);
+    this.rifts = riftSpots.map((r) => Object.assign(new Rift(this.scene, r.x, r.z, r.night), { grove: !!r.grove }));
     this.enemies = new Enemies(this.scene);
     this.buildings = new Buildings(this.scene, this.world);
     this.ghost = new BuildGhost(this.scene);
@@ -225,12 +270,17 @@ export class Game {
       this.showRifts(n);
       this.hatchBlooms();
       this.journal.event('night');
+      this.journal.meet(Object.keys(this.waves.preview.counts).filter((k) => this.waves.preview.counts[k] > 0));
       this.bloomUsed = false;
       this.rootT = 6;
     };
     this.waves.onDawn = (_held, won) => {
       this.weather.target = 0;
-      this.bankRecords({ nights: 1, wins: won ? 1 : 0 });
+      // the night's routes wear into the ground
+      this.trample.settle();
+      this.world.wearAll();
+      for (const layer of [this.grass, this.litter, this.groundCover]) layer.reset();
+      this.bankRecords({ nights: 1, wins: won ? 1 : 0, hardWins: won && this.difficulty !== 'verdant' ? 1 : 0 });
       if (this.mods.harvest) this.harvestDawn();
       if (this.mods.dawnMend) for (const b of this.buildings.list) b.hp = b.maxHp;
       if (won) this.onVictory();
@@ -301,6 +351,7 @@ export class Game {
       this.renderer.compile(this.scene, this.camera);
     }
     this.renderer.shadowMap.needsUpdate = true;
+    this.cullWorld();
     this.renderer.setRenderTarget(this.post.sceneRT);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
@@ -416,18 +467,23 @@ export class Game {
     el.style.opacity = String(v);
   }
 
-  // A new run on the chosen difficulty: the Heartwood's HP, the Blight and the starting kit.
-  setDifficulty(id) {
+  // A new run on the chosen difficulty: the Heartwood's HP, the Blight and the starting kit
+  // (the difficulty's own unless Many Paths is earned and another was picked).
+  setDifficulty(id, kit = 'starter') {
     const d = difficulty(id);
+    const mem = unlocked();
+    if (!mem.has('paths')) kit = 'starter';
     this.difficulty = id;
     this.waves.setDifficulty(d);
     this.base.maxHp = this.base.hp = Math.round(500 * d.heart);
     const inv = this.inventory;
     inv.slots.fill(null);
-    for (const [item, n] of d.starter) inv.add(item, n);
-    // what the Memories of the Heartwood add to every vigil
-    const mem = unlocked();
-    for (const m of MEMORIES) if (mem.has(m.id)) for (const [item, n] of m.kit || []) inv.add(item, n);
+    for (const [item, n] of kitItems(d, kit)) inv.add(item, n);
+    // what the Memories of the Heartwood add to every vigil (one of each weapon is plenty)
+    for (const m of MEMORIES) {
+      if (!mem.has(m.id)) continue;
+      for (const [item, n] of m.kit || []) if (ITEMS[item].kind !== 'tool' || !inv.count(item)) inv.add(item, n);
+    }
     inv.select(inv.slots.findIndex((s, i) => !s && i < HOTBAR));
     inv.changed();
   }
@@ -505,6 +561,13 @@ export class Game {
     return best;
   }
 
+  // the pooled plants in view of the camera (as it is this frame) or the sun's shadow camera
+  cullWorld() {
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    this.world.cull(cam, this.sky.sun.castShadow ? this.sky.sun.shadow.camera : null);
+  }
+
   // Debug helpers
   give(id, n = 1) {
     this.inventory.add(id, n);
@@ -562,6 +625,10 @@ export class Game {
     for (const k of d.discovered || []) this.hud.discovered.add(k);
     for (const k of d.done || []) this.doneSet.add(k);
     this.journal.restore(d.journal);
+    if (d.trample) {
+      this.trample.restore(d.trample);
+      this.world.wearAll();
+    }
     this.loaded = true;
     inv.changed();
   }
@@ -1195,7 +1262,7 @@ export class Game {
     const prev = this.hiForage;
     if (prev !== it) {
       if (prev && !prev.done) {
-        prev.mesh.setColorAt(prev.instance, _white.setRGB(1, 1, 1));
+        prev.mesh.setColorAt(prev.instance, FORAGE_TINT);
         prev.mesh.instanceColor.needsUpdate = true;
       }
       this.hiForage = it;
@@ -1429,6 +1496,7 @@ export class Game {
       this.particles.ring(e.pos.clone(), 4, 0x9ae040, 0.5);
     }
     if (opts.source === 'sling') this.hud.hitmarker(true, opts.crit);
+    if (opts.source === 'melee') this.journal.event('melee', e.type);
     if (e.def.boss) {
       this.stats.bosses++;
       this.particles.ring(e.pos.clone(), 9, 0xff60c0, 1.2);
@@ -1543,7 +1611,7 @@ export class Game {
     for (const b of [...this.buildings.list]) {
       const d = b.distTo(at.x, at.z);
       if (d < R) {
-        this.buildings.damage(b, 110 * (1 - (d / R) * 0.5));
+        this.buildings.damage(b, 85 * (1 - (d / R) * 0.5));
         this.particles.chipBurst(new THREE.Vector3(b.x, b.y + 1, b.z), 0x8a6a40, 10, b.y);
       }
     }
@@ -1789,6 +1857,7 @@ export class Game {
       const w = this.waves;
       if (w.phase === 'night' || (w.phase === 'day' && this.sky.time > DUSK - 0.03)) this.weather.target = w.rainTonight ? 1 : 0;
       this.waves.update(dt, { fastForward: input.down('KeyT') && active });
+      if (w.phase === 'night') this.trample.step(dt, this.enemies.list);
       this.enemies.update(dt, t, {
         field: this.field, base: this.base, player: pos, playerAlive: this.playerAlive,
         buildings: this.buildings.list, particles: this.particles, damageCtx: ctx,
@@ -1860,7 +1929,9 @@ export class Game {
     // and the crowns overhead in general darken the haze (deep green under the forest, bright in gaps)
     this.haze = damp(this.haze ?? 0, this.canopy.coverAround(pos.x, pos.z, 10), 0.8, dt);
     this.camera.getWorldDirection(this._ahead).setY(0).normalize();
-    this.sky.update(dt, pos, false, Math.max(this.cover, this.haze), this._ahead);
+    // the drowned grove's air: thick, green-grey, still
+    this.swampAir = damp(this.swampAir ?? 0, sampleTerrain(pos.x, pos.z, this._ground ||= {}).swamp, 0.6, dt);
+    this.sky.update(dt, pos, false, Math.max(this.cover, this.haze), this._ahead, this.swampAir);
     this.weather.update(realDt, t, this.camera, this.sky, this.audio, this.sky.state.night);
     this.hud.lightning(this.weather.uniforms.uFlash.value);
     this.lights.update(realDt, pos);
@@ -1931,7 +2002,9 @@ export class Game {
     if (canopyBox[3] > 0) canopyBox[3] = 0.35 + 0.2 * this.sky.state.day;
     this.frameNo++;
     this.renderer.shadowMap.needsUpdate = this.frameNo % 2 === 0 || this.sky.timeScale > 2;
+    this.cullWorld();
     this.post.render(realDt, this.machete);
+    this.tickRes(realDt);
     input.endFrame();
   }
 }

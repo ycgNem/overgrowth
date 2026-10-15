@@ -11,7 +11,9 @@ export const RECIPES = [
   { id: 'tesla_totem', out: 'tesla_totem', n: 1, group: 'Defences', needs: { log: 1, copper_wire: 2, battery: 1, vacuum_tube: 1, scrap_metal: 2 } },
   { id: 'slingshot', out: 'slingshot', n: 1, group: 'Weapons', needs: { stick: 2, vine: 1, fiber: 3 } },
   { id: 'scrap_shot', out: 'scrap_shot', n: 6, group: 'Weapons', needs: { tin_can: 1, rusty_bolts: 2 } },
+  { id: 'iron_shot', out: 'scrap_shot', n: 5, group: 'Weapons', needs: { bog_iron: 1 } },
   { id: 'firepot', out: 'firepot', n: 2, group: 'Weapons', needs: { old_bottle: 1, resin: 2, fiber: 1 } },
   { id: 'poultice', out: 'poultice', n: 1, group: 'Supplies', needs: { berries: 4, fiber: 1, moss: 1 } },
+  { id: 'smoked_eel', out: 'smoked_eel', n: 1, group: 'Supplies', needs: { eel: 1, bark: 1 } },
   { id: 'orchid_salve', out: 'orchid_salve', n: 1, group: 'Supplies', needs: { ghost_orchid: 1, moss: 2, resin: 1 } },
 ];

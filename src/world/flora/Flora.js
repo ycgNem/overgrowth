@@ -183,6 +183,10 @@ export class Flora {
       deadFrond: { variants: variants(2, 9950, (s) => this.deadFrond(s)), material: m.deadLeaf, shadow: false, tint: [0.03, 0.12] },
       seedling: { variants: variants(3, 10000, (s) => this.seedlings(s)), material: m.under, shadow: false, tint: [0.05, 0.16], cut: { r: 0.5, loot: 'grass', color: 0x5f8f2f } },
       taro: { variants: variants(3, 10100, (s) => this.taro(s)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.12], cut: { r: 1.0, loot: 'banana', color: 0x4f7a2a } },
+      mangrove: { variants: variants(3, 11000, (s) => this.mangrove(s)), material: [m.bark, m.canopyLow], shadow: true, tint: [0.03, 0.1] },
+      reeds: { variants: variants(3, 11100, (s) => this.reeds(s)), material: [m.stem, m.grass], shadow: false, tint: [0.05, 0.14], cut: { r: 0.6, loot: 'reeds', color: 0x9aa050 } },
+      lily: { variants: variants(2, 11200, (s) => this.lilies(s)), material: [m.broad, m.under], shadow: false, tint: [0.03, 0.1] },
+      snag: { variants: variants(3, 11300, (s) => this.snag(s)), material: m.deadwood, shadow: true, tint: [0.02, 0.08] },
       bromeliad: { variants: variants(2, 10200, (s) => this.bromeliad(s)), material: m.canopyLow, shadow: false, tint: [0.03, 0.1], cut: { r: 0.6, loot: 'grass', color: 0x6a8a2a } },
     };
   }
@@ -596,6 +600,182 @@ export class Flora {
       leaves.push(g);
     }
     return { geometry: mergeSlots([trunkP, leaves]), colliders: [{ x: 0, z: 0, r: 0.22 }], canopy: 2, crown: { r: 2.8, top: H + 0.4, x: lx, z: lz } };
+  }
+
+  // --------------------------------------------------------- the drowned grove
+
+  // Mangrove: a short, crooked trunk standing on a skirt of prop roots that arch out and dive
+  // into the water, under a dense, dark crown of leathery leaves.
+  mangrove(seed) {
+    const r = mulberry32(seed);
+    const bark = [], leaves = [];
+    const H = range(r, 5.5, 8.5);
+    const R0 = range(r, 1.1, 1.6); // where the trunk leaves its roots
+    const lx = range(r, -0.7, 0.7), lz = range(r, -0.7, 0.7);
+    const pts = [V(0, R0 - 0.3, 0), V(lx * 0.35, R0 + (H - R0) * 0.5, lz * 0.35), V(lx, H, lz)];
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const trunk = taperedTube(pts, (t) => 0.21 * (1 - 0.45 * t), 14, 10, 1, H / 2);
+    gnarl(trunk, curve, R0 - 0.3, H, createNoise2D(seed + 3), 0.09);
+    shade(trunk, (p, n, c) => {
+      const ao = 0.62 + 0.38 * smoothstep(R0, H, p.y);
+      c.setRGB(ao * 0.8, ao * 0.78, ao * 0.72);
+    });
+    bark.push(trunk);
+    // the prop roots: out from the trunk's foot and down in arcs into the water, dark and
+    // slick below the waterline
+    const nr = irange(r, 7, 11);
+    for (let i = 0; i < nr; i++) {
+      const a = (i / nr) * TAU + range(r, -0.25, 0.25);
+      const out = range(r, 1.3, 2.5);
+      const from = V(Math.cos(a) * 0.1, R0 + range(r, -0.4, 0.7), Math.sin(a) * 0.1);
+      const mid = V(Math.cos(a) * out * 0.5, from.y + range(r, 0.1, 0.45), Math.sin(a) * out * 0.5);
+      const to = V(Math.cos(a) * out, -0.5, Math.sin(a) * out);
+      const root = taperedTube([from, mid, to], (t) => 0.08 * (1 - 0.35 * t), 10, 6, 1, 2);
+      shade(root, (p, n, c) => {
+        const wet = 0.45 + 0.55 * smoothstep(-0.1, 0.35, p.y);
+        c.setRGB(wet * 0.75, wet * 0.72, wet * 0.66);
+      });
+      bark.push(root);
+    }
+    // a few aerial roots hanging straight down from the low limbs
+    for (let i = 0; i < irange(r, 2, 4); i++) {
+      const a = r() * TAU, d = range(r, 0.8, 1.6), y0 = R0 + range(r, 1.2, 2.4);
+      const p0 = V(Math.cos(a) * d, y0, Math.sin(a) * d);
+      bark.push(taperedTube([p0, p0.clone().add(V(0.05, -y0 * 0.5, 0)), V(p0.x + 0.08, -0.3, p0.z)], (t) => 0.025 * (1 - 0.3 * t), 6, 4, 1, 2));
+    }
+    const center = V(lx, H + 0.2, lz);
+    const clusters = [];
+    const nc = irange(r, 5, 7);
+    for (let i = 0; i < nc; i++) {
+      const a = (i / nc) * TAU + r();
+      const rad = i === 0 ? 0 : range(r, 1.4, 2.8);
+      const P = V(lx + Math.cos(a) * rad, H + range(r, -1.2, 0.6), lz + Math.sin(a) * rad);
+      const S = curve.getPointAt(range(r, 0.55, 0.9));
+      const from = S.clone().lerp(P, 0.5).add(V(0, 0.3, 0));
+      if (rad > 0) {
+        const br = taperedTube([S, from, P], (t) => 0.09 * (1 - t * 0.6), 5, 6, 1, 1);
+        shade(br, (p, n, c) => c.setRGB(0.75, 0.73, 0.68));
+        bark.push(br);
+      }
+      clusters.push({ P, R: range(r, 1.4, 1.9), from });
+    }
+    const twigs = ['twig0', 'twig2', 'twig3'].map((n) => this.cell('canopy', n));
+    this.crown(r, leaves, clusters, center, { cards: [10, 15], size: [1.3, 1.8], flat: 0.55, cells: twigs, topY: H + 1.6, bottomY: H - 1.8 });
+    let cr = 0;
+    for (const { P, R } of clusters) cr = Math.max(cr, Math.hypot(P.x - lx, P.z - lz) + R);
+    return { geometry: mergeSlots([bark, leaves]), colliders: [{ x: 0, z: 0, r: 0.9, top: R0 + 0.2 }], canopy: 2.5, crown: { r: cr, top: H + 1.6, x: lx, z: lz } };
+  }
+
+  // Reed bed: a dense clump of tall blades with a few cattail spikes standing out of it.
+  reeds(seed) {
+    const r = mulberry32(seed);
+    const stems = [], blades = [];
+    const cell = this.cell('fronds', 'grass1');
+    const n = irange(r, 6, 9);
+    for (let i = 0; i < n; i++) {
+      const H = range(r, 1.6, 2.5), W = H * cell.aspect * 0.8;
+      const g = prep(new THREE.PlaneGeometry(W, H, 1, 3));
+      g.translate(0, H / 2 - 0.05, 0);
+      const uv = g.attributes.uv;
+      for (let k = 0; k < uv.count; k++) uv.setXY(k, cell.u0 + uv.getX(k) * (cell.u1 - cell.u0), cell.v0 + uv.getY(k) * (cell.v1 - cell.v0));
+      const lean = range(r, 0.05, 0.3), p = g.attributes.position;
+      for (let k = 0; k < p.count; k++) p.setZ(k, p.getZ(k) + (p.getY(k) / H) ** 2 * lean * H * 0.3);
+      g.rotateY(r() * Math.PI);
+      const a = r() * TAU, d = Math.sqrt(r()) * 0.4;
+      g.translate(Math.cos(a) * d, 0, Math.sin(a) * d);
+      shade(g, (q, nn, c) => {
+        const k = 0.3 + 0.7 * Math.pow(Math.max(q.y, 0) / H, 0.6);
+        c.setRGB(k * 1.02, k, k * 0.82);
+      });
+      const nrm = g.attributes.normal;
+      for (let k = 0; k < nrm.count; k++) {
+        _n.fromBufferAttribute(nrm, k).multiplyScalar(0.45).add(_up).normalize();
+        nrm.setXYZ(k, _n.x, _n.y, _n.z);
+      }
+      blades.push(g);
+    }
+    // cattails: a thin stalk and a brown velvet spike near the top
+    for (let i = 0; i < irange(r, 2, 5); i++) {
+      const a = r() * TAU, d = Math.sqrt(r()) * 0.35, H = range(r, 1.9, 2.7);
+      const x = Math.cos(a) * d, z = Math.sin(a) * d, tx = x + range(r, -0.15, 0.15), tz = z + range(r, -0.15, 0.15);
+      const stalk = taperedTube([V(x, -0.1, z), V((x + tx) / 2, H * 0.5, (z + tz) / 2), V(tx, H, tz)], () => 0.012, 6, 4, 1, 1);
+      shade(stalk, (q, nn, c) => c.setRGB(0.55, 0.62, 0.32));
+      stems.push(stalk);
+      const head = prep(new THREE.CylinderGeometry(0.035, 0.035, 0.26, 7, 1));
+      head.translate(tx, H - 0.25, tz);
+      shade(head, (q, nn, c) => c.setRGB(0.32, 0.2, 0.11));
+      stems.push(head);
+    }
+    return { geometry: mergeSlots([stems, blades]), colliders: [] };
+  }
+
+  // Water lilies: round pads lying on a pool, and a pale flower or two standing among them.
+  lilies(seed) {
+    const r = mulberry32(seed);
+    const pads = [], flowers = [];
+    const cell = this.cell('broad', 'taro0');
+    const n = irange(r, 6, 11);
+    for (let i = 0; i < n; i++) {
+      const L = range(r, 0.35, 0.6);
+      const g = leafBlade(cell, { length: L, segs: 3, across: 2, elev: 0.0, droop: 0.0, fold: -0.04, upBias: 3 });
+      g.translate(-L * 0.45, 0, 0);
+      const a = r() * TAU, d = Math.sqrt(r()) * 1.3;
+      transform(g, { rotation: { y: r() * TAU }, position: V(Math.cos(a) * d, 0.01 + i * 0.002, Math.sin(a) * d) });
+      const k = range(r, 0.55, 0.8);
+      shade(g, (q, nn, c) => c.setRGB(k * 0.8, k, k * 0.75));
+      pads.push(g);
+    }
+    const fl = this.cell('under', 'orchid0');
+    for (let i = 0; i < irange(r, 1, 3); i++) {
+      const a = r() * TAU, d = Math.sqrt(r()) * 0.9;
+      for (let k = 0; k < 2; k++) {
+        const g = prep(new THREE.PlaneGeometry(0.16, 0.16));
+        const uv = g.attributes.uv;
+        for (let q = 0; q < uv.count; q++) uv.setXY(q, fl.u0 + uv.getX(q) * (fl.u1 - fl.u0), fl.v0 + uv.getY(q) * (fl.v1 - fl.v0));
+        g.translate(0, 0.09, 0);
+        g.rotateY(k * Math.PI / 2 + a);
+        g.translate(Math.cos(a) * d, 0, Math.sin(a) * d);
+        shade(g, (q, nn, c) => c.setRGB(1.1, 1.05, 1.1));
+        flowers.push(g);
+      }
+    }
+    return { geometry: mergeSlots([pads, flowers]), colliders: [] };
+  }
+
+  // Dead snag: a drowned tree, bleached and bare, its top snapped off and a few broken limbs.
+  snag(seed) {
+    const r = mulberry32(seed);
+    const nz = createNoise2D(seed);
+    const parts = [];
+    const H = range(r, 5, 11);
+    const lx = range(r, -0.6, 0.6), lz = range(r, -0.6, 0.6);
+    const pts = [V(0, -0.6, 0), V(lx * 0.3, H * 0.5, lz * 0.3), V(lx, H, lz)];
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const R = range(r, 0.2, 0.32);
+    const trunk = taperedTube(pts, (t) => R * (1 - 0.55 * t) + R * 0.6 * Math.exp(-t * 9), 16, 10, 1, H / 2);
+    gnarl(trunk, curve, -0.6, H, nz, 0.1);
+    // the snapped top: jagged splinters
+    const p = trunk.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) < H - 0.05) continue;
+      const a = Math.atan2(p.getZ(i) - lz, p.getX(i) - lx);
+      p.setY(i, p.getY(i) + Math.abs(nz(Math.cos(a) * 3, Math.sin(a) * 3)) * 0.9 + (Math.abs(Math.sin(a * 5)) > 0.8 ? 0.4 : 0));
+    }
+    trunk.computeVertexNormals();
+    shade(trunk, (q, nn, c) => {
+      const wet = 0.5 + 0.5 * smoothstep(-0.2, 0.9, q.y);
+      c.setRGB(wet * 0.85, wet * 0.83, wet * 0.78);
+    });
+    parts.push(trunk);
+    for (let i = 0; i < irange(r, 2, 4); i++) {
+      const t = range(r, 0.35, 0.8), S = curve.getPointAt(t);
+      const a = r() * TAU, L = range(r, 0.8, 2.2);
+      const E = S.clone().add(V(Math.cos(a) * L, L * range(r, 0.1, 0.7), Math.sin(a) * L));
+      const br = taperedTube([S, S.clone().lerp(E, 0.5).add(V(0, 0.1, 0)), E], (u) => R * 0.35 * (1 - u * 0.7), 5, 6, 1, 1);
+      shade(br, (q, nn, c) => c.setRGB(0.8, 0.78, 0.74));
+      parts.push(br);
+    }
+    return { geometry: mergeSlots([parts]), colliders: [{ x: 0, z: 0, r: R + 0.05 }] };
   }
 
   // --------------------------------------------------------- undergrowth

@@ -151,6 +151,12 @@ export class Grass {
     return out.map((a) => new Float32Array(a));
   }
 
+  // the ground changed under the cells (trampled lanes): build them again
+  reset() {
+    this.cells.clear();
+    this.cx = null;
+  }
+
   update(px, pz) {
     const ci = Math.floor(px / CELL), cj = Math.floor(pz / CELL);
     if (ci === this.cx && cj === this.cz && !this.missing) return;

@@ -48,6 +48,11 @@ function mats() {
     stem: std({ color: 0xe6dcc0, roughness: 0.7 }),
     glowcap: std({ color: 0x6ab8ff, roughness: 0.4, emissive: 0x2a7aff, emissiveIntensity: 1.6 }),
     berry: std({ color: 0x8a1a3a, roughness: 0.3 }),
+    reed: std({ color: 0xb8a468, roughness: 0.7 }),
+    reedHead: std({ color: 0x5a3a20, roughness: 0.9 }),
+    eel: std({ color: 0x23261c, roughness: 0.25, metalness: 0.1 }),
+    smoked: std({ color: 0x4a2a14, roughness: 0.6 }),
+    bogIron: std({ color: 0x7a3a1a, roughness: 0.85, metalness: 0.25 }),
     clay: std({ color: 0x8a8278, roughness: 0.75 }),
     feather: std({ color: 0xe8e2d2, roughness: 0.8, side: THREE.DoubleSide }),
     featherTip: std({ color: 0x3a3f4a, roughness: 0.8, side: THREE.DoubleSide }),
@@ -366,6 +371,51 @@ const forestBuilders = {
     g.add(mesh(new THREE.ShapeGeometry(s, 8), m.feather, { r: [0, 0, -0.5] }));
     g.add(mesh(new THREE.PlaneGeometry(0.05, 0.06), m.featherTip, { p: [0.165, 0.29, 0.001], r: [0, 0, -0.5] }));
     g.add(mesh(new THREE.CylinderGeometry(0.004, 0.006, 0.42, 4), m.bone, { p: [0.09, 0.15, 0.002], r: [0, 0, -0.5] }));
+    return g;
+  },
+  reed(m) {
+    // a bundle of hollow stems tied round the middle
+    const g = new THREE.Group();
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.4, r = i ? 0.028 : 0;
+      g.add(mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.5 + (i % 3) * 0.04, 6), m.reed, { p: [Math.cos(a) * r, 0, Math.sin(a) * r], r: [0, 0, Math.PI / 2 + (i % 2 ? 0.05 : -0.04)] }));
+    }
+    g.add(mesh(new THREE.TorusGeometry(0.04, 0.008, 5, 12), m.fiber, { r: [0, Math.PI / 2, 0] }));
+    for (const s of [-1, 1]) g.add(mesh(new THREE.ConeGeometry(0.012, 0.09, 5), m.reedHead, { p: [s * 0.29, 0.01, 0.01], r: [0, 0, -s * Math.PI / 2] }));
+    return g;
+  },
+  eel(m) {
+    // a sinuous black body, paler beneath, along a lazy S
+    const pts = [];
+    for (let i = 0; i <= 12; i++) pts.push(new THREE.Vector3((i / 12 - 0.5) * 0.5, 0, Math.sin(i * 0.65) * 0.06));
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const geo = new THREE.TubeGeometry(curve, 36, 0.024, 8, false);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const t = Math.floor(i / 9) / 36;
+      const c = curve.getPointAt(Math.min(1, t));
+      const k = 0.35 + 0.65 * Math.sin(Math.min(1, t * 1.15) * Math.PI) ** 0.5;
+      p.setXYZ(i, c.x + (p.getX(i) - c.x) * k, p.getY(i) * k * 0.8, c.z + (p.getZ(i) - c.z) * k);
+    }
+    geo.computeVertexNormals();
+    const g = new THREE.Group();
+    g.add(mesh(geo, m.eel));
+    g.add(mesh(new THREE.SphereGeometry(0.006, 6, 4), m.black, { p: [0.245, 0.01, 0.02] }));
+    return g;
+  },
+  smoked_eel(m) {
+    const g = forestBuilders.eel(m);
+    g.children[0].material = m.smoked;
+    g.add(mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.62, 5), m.wood, { r: [0, 0, Math.PI / 2] }));
+    return g;
+  },
+  bog_iron(m) {
+    // rust-red nodules fused into a lump
+    const g = new THREE.Group();
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.7;
+      g.add(mesh(lumpy(new THREE.IcosahedronGeometry(0.05 + (i % 3) * 0.012, 1), 0.3, i + 11), m.bogIron, { p: [Math.cos(a) * 0.05, (i % 2) * 0.03, Math.sin(a) * 0.05] }));
+    }
     return g;
   },
   bone(m) {

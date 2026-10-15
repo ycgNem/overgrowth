@@ -1,7 +1,7 @@
 // The Heartwood: the shrine you defend, and the Blight rifts the night spills out of.
 import * as THREE from 'three';
 import { cloneModel, part } from '../assets/Models.js';
-import { terrainHeight, terrainNormal, WATER_LEVEL } from '../world/WorldGen.js';
+import { terrainHeight, terrainNormal, WATER_LEVEL, findBaseSite } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
 import { setFlash } from '../art/merge.js';
 import { mulberry32, range } from '../utils/rng.js';
@@ -220,44 +220,8 @@ export class Base {
 
 // ----------------------------------------------------------------- site
 
-// A good place for the Heartwood: flat under the dais, dry, and with plenty of buildable
-// ground around it. Spirals out from `start` and takes the first spot that passes.
-export function findBaseSite(start) {
-  for (let r = 0; r < 900; r += 6) {
-    const steps = Math.max(1, Math.floor((r * TAU) / 10));
-    for (let i = 0; i < steps; i++) {
-      const a = (i / steps) * TAU;
-      const x = start.x + Math.cos(a) * r, z = start.z + Math.sin(a) * r;
-      const h = terrainHeight(x, z);
-      if (h < WATER_LEVEL + 1.2 || h > 14) continue;
-      if (terrainNormal(x, z).y < 0.96) continue;
-      let lo = h, hi = h, ok = true;
-      for (let k = 0; k < 16 && ok; k++) {
-        const b = (k / 16) * TAU;
-        for (const rr of [4, 9]) {
-          const hh = terrainHeight(x + Math.cos(b) * rr, z + Math.sin(b) * rr);
-          lo = Math.min(lo, hh);
-          hi = Math.max(hi, hh);
-        }
-        if (hi - lo > 1.3) ok = false;
-      }
-      if (!ok) continue;
-      // most of the build ring should be dry and walkable
-      let good = 0, n = 0;
-      for (let k = 0; k < 24; k++) {
-        const b = (k / 24) * TAU;
-        for (const rr of [16, 26, 36]) {
-          n++;
-          const px = x + Math.cos(b) * rr, pz = z + Math.sin(b) * rr;
-          if (terrainHeight(px, pz) > WATER_LEVEL + 0.3 && terrainNormal(px, pz).y > 0.85) good++;
-        }
-      }
-      if (good / n < 0.8) continue;
-      return { x, z };
-    }
-  }
-  return { x: start.x, z: start.z };
-}
+// (findBaseSite lives in WorldGen now: the drowned grove is placed from it)
+export { findBaseSite };
 
 // ----------------------------------------------------------------- rifts
 
@@ -285,6 +249,24 @@ export function pickRifts(field, bx, bz, count = 3, seed = 1) {
     if (best) out.push({ ...best, night: RIFT_NIGHTS[k] ?? 1 });
   }
   return out;
+}
+
+// The drowned grove's own rift, torn open on night 4: on the grove's shallow fringe, on the
+// side facing the Heartwood, just inside the flow field's reach (WorldGen.grove).
+export const GROVE_RIFT_NIGHT = 4;
+export function pickGroveRift(field, bx, bz, G) {
+  const a0 = Math.atan2(G.z - bz, G.x - bx);
+  for (let tries = 0; tries < 120; tries++) {
+    const a = a0 + ((tries % 12) - 5.5) * 0.07;
+    const d = 94 - Math.floor(tries / 12) * 3;
+    const x = bx + Math.cos(a) * d, z = bz + Math.sin(a) * d;
+    // (a hummock in the shallows will do)
+    if (terrainHeight(x, z) < WATER_LEVEL + 0.25) continue;
+    if (terrainNormal(x, z).y < 0.9) continue;
+    if (!field.reachable(x, z)) continue;
+    return { x, z, night: GROVE_RIFT_NIGHT, grove: true };
+  }
+  return null;
 }
 
 // curved thorn: a tapered cylinder bent toward +x

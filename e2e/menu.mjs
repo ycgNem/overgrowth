@@ -23,6 +23,10 @@ page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`));
 if (process.env.SAVE) {
   await page.addInitScript((s) => localStorage.setItem('og.save.v1', s), fs.readFileSync(process.env.SAVE, 'utf8'));
 }
+// RECORDS=<json file>: seed the lifetime records (Memories)
+if (process.env.RECORDS) {
+  await page.addInitScript((s) => localStorage.setItem('og.records', s), fs.readFileSync(process.env.RECORDS, 'utf8'));
+}
 await page.goto(BASE);
 await page.screenshot({ path: `${out}/00-loading.png` });
 await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
