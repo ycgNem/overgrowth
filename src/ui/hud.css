@@ -235,7 +235,13 @@ html, body {
   100% { opacity: 0; }
 }
 
-#fps { position: absolute; left: 8px; top: 6px; font-size: 13px; color: var(--ink-dim); font-family: ui-monospace, monospace; }
+#fps {
+  position: absolute; left: 8px; top: 6px; z-index: 2; padding: 2px 8px; border-radius: 4px; background: rgba(10,12,8,0.55);
+  font-size: 14px; font-weight: 600; color: var(--ink-dim); font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+}
+#fps.good { color: #9fe08a; }
+#fps.ok { color: #f0d070; }
+#fps.slow { color: #f0a088; }
 
 /* ---------------------------------------------------------- inventory */
 

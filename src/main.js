@@ -15,8 +15,7 @@ const time = params.has('t') ? parseFloat(params.get('t')) : null;
 const $ = (s) => document.querySelector(s);
 
 const game = new Game($('#game'), { debug, time });
-// the frame counter is a developer tool
-if (!debug) $('#fps')?.classList.add('hidden');
+// (the frame counter shows with Settings > Show FPS, or always with ?debug: Menu.applySettings)
 window.game = game; // handy for poking at things from the console
 
 const save = debug ? null : loadSave();

@@ -658,12 +658,25 @@ export class HUD {
     this.journal(s.journal);
     this.updateFloaters(dt, s.camera, s.enemies, s.buildings, s.player);
 
-    this.fpsAcc.t += dt;
-    this.fpsAcc.n++;
-    if (this.fpsAcc.t > 0.5) {
-      this.el.fps.textContent = `${Math.round(this.fpsAcc.n / this.fpsAcc.t)} fps`;
-      this.fpsAcc.t = this.fpsAcc.n = 0;
+    if (this.fpsOn) {
+      // frames drawn a second (the frame limit caps it) and the average frame time, twice a second
+      this.fpsAcc.t += dt;
+      this.fpsAcc.n++;
+      if (this.fpsAcc.t > 0.5) {
+        const fps = this.fpsAcc.n / this.fpsAcc.t;
+        this.el.fps.textContent = `${Math.round(fps)} FPS · ${(1000 / fps).toFixed(1)} ms`;
+        this.el.fps.className = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'slow';
+        this.fpsAcc.t = this.fpsAcc.n = 0;
+      }
     }
+  }
+
+  // the frame counter (Settings > Show FPS)
+  showFps(on) {
+    this.fpsOn = on;
+    this.el.fps.style.display = on ? '' : 'none';
+    this.fpsAcc.t = this.fpsAcc.n = 0;
+    if (on) this.el.fps.textContent = '… FPS';
   }
 
   // ---------------------------------------------------------------- hotbar

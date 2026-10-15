@@ -1,5 +1,10 @@
 # Patch notes
 
+## 0.9.2 (2026-10-15)
+
+- **FPS counter.** Turn on **Show FPS** in Settings to see frames a second and frame time in
+  the top-left corner while you play: green at 50 and up, yellow from 30, red below that.
+
 ## 0.9.1: Steady Ground (2026-10-15)
 
 A performance and quality-of-life patch: the game runs cooler and smoother on every machine,

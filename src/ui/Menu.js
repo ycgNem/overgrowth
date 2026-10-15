@@ -84,6 +84,7 @@ const SETTINGS = {
   autores: { key: 'og.autores', def: '1' },
   // 60 a second unless asked: on a 144 Hz screen the GPU otherwise draws 144 frames a second
   fps: { key: 'og.fps', def: '60' },
+  showFps: { key: 'og.showFps', def: '0' },
   sensitivity: { key: 'og.sensitivity', def: '1' },
   invertY: { key: 'og.invertY', def: '0' },
   volume: { key: 'og.volume', def: '1' },
@@ -604,6 +605,7 @@ export class Menu {
         <div class="set-row"><label>Steady frame rate<small>Draws a little softer when frames run slow</small></label><button class="toggle${readSetting('autores') === '1' ? ' on' : ''}" id="s-autores" aria-label="Steady frame rate"></button></div>
         <div class="set-row"><label>Frame limit<small>Fewer frames run the graphics card cooler</small></label>
           <div class="seg" id="s-fps">${[['30', '30'], ['60', '60'], ['120', '120'], ['0', 'Off']].map(([v, l]) => `<button data-v="${v}" class="${v === fps ? 'sel' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="set-row"><label>Show FPS<small>Frames a second and frame time, top left</small></label><button class="toggle${readSetting('showFps') === '1' ? ' on' : ''}" id="s-showfps" aria-label="Show FPS"></button></div>
         <div class="set-row"><label>Glow<small>Bloom on fire, spores and the Heartwood</small></label><button class="toggle${readSetting('bloom') === '1' ? ' on' : ''}" id="s-bloom" aria-label="Glow"></button></div>
       </div>
       <div class="set-group"><h4>Controls</h4>
@@ -639,6 +641,7 @@ export class Menu {
     };
     toggle('#s-bloom', 'bloom', (on) => { g.bloom = on; });
     toggle('#s-autores', 'autores', (on) => { g.autoRes = on; g.applyRes(); });
+    toggle('#s-showfps', 'showFps', (on) => g.hud.showFps(on || g.debug));
     toggle('#s-invert', 'invertY', (on) => { if (g.player) g.player.invertY = on; });
     toggle('#s-music', 'music', (on) => this.audio.music(on && this.mode === 'title'));
     const slider = (sel, name, fmt, apply) => {
@@ -667,6 +670,7 @@ export class Menu {
     g.autoRes = readSetting('autores') === '1';
     // (?debug runs keep every frame: the e2e timings measure frames flat out)
     g.fpsCap = g.debug ? 0 : Number(readSetting('fps'));
+    g.hud.showFps(g.debug || readSetting('showFps') === '1');
     this.audio.volume = Number(readSetting('volume'));
   }
 
