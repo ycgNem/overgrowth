@@ -5,7 +5,9 @@
 // the next cell, the player if they come close, and finally the Heart. Every bite is
 // telegraphed: the head rears back and the jaw opens for a beat before the damage lands.
 // Wisps fly straight over everything. The Thornback (every fifth night) slams the ground and
-// calls Blightlings to it.
+// calls Blightlings to it. Spitters stop at range and lob globs of bile at towers, leaving
+// burning puddles. Burrowers dig under a wall they meet and come up on the far side; a
+// Glowcap Lantern's light drags them up early and stuns them.
 //
 // Legs, jaw, head, wings and tail are animated procedurally on the Blender model's parts.
 // Spawning and dying use the baked material's dissolve, so the Blight seeps out of the rift
@@ -44,13 +46,31 @@ export const ENEMY_TYPES = {
     name: 'Blight Wisp', model: 'wisp', hp: 55, speed: 3.4, radius: 0.5, dmg: 7, rate: 0.9, reach: 1.2, windup: 0.25,
     aggro: 0, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
   },
+  spitter: {
+    name: 'Spitter', model: 'spitter', hp: 75, speed: 2.5, radius: 0.7, dmg: 12, rate: 4.0, reach: 1.3, windup: 0.75,
+    aggro: 3, chest: 0.75, loot: 'spitter', gait: 7, swing: 0.45, scale: 1.15,
+    spit: { range: 13, playerRange: 10, splash: 1.9, puddle: 4 },
+  },
+  burrower: {
+    name: 'Burrower', model: 'burrower', hp: 150, speed: 2.9, radius: 0.75, dmg: 12, rate: 1.3, reach: 1.6, windup: 0.4,
+    aggro: 5, chest: 0.45, loot: 'burrower', gait: 9, swing: 0.55, scale: 1.25, burrows: true,
+  },
   thornback: {
     name: 'Thornback', model: 'thornback', hp: 1800, speed: 1.45, radius: 2.0, dmg: 40, rate: 2.2, reach: 3.7, windup: 0.6,
     aggro: 6, chest: 2.6, loot: 'thornback', gait: 3.2, swing: 0.32, scale: 1.4, wallBreaker: 3, heavy: 0.9, boss: true,
   },
 };
 
-const RIM = { blightling: 0xb050ff, rotboar: 0xc070ff, wisp: 0xd080ff, thornback: 0xd060e0 };
+const RIM = { blightling: 0xb050ff, rotboar: 0xc070ff, wisp: 0xd080ff, thornback: 0xd060e0, spitter: 0x90ff60, burrower: 0xc890ff };
+
+// a Spitter's glob of bile, and the burning puddle it leaves
+const globGeo = new THREE.SphereGeometry(0.2, 10, 8);
+const globMat = new THREE.MeshStandardMaterial({ color: 0x8ad030, emissive: 0x7ac020, emissiveIntensity: 1.6, roughness: 0.3 });
+const puddleGeo = new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
+let puddleMat = null; // made on first use (needs the glow texture)
+// the mound of earth a Burrower pushes up as it tunnels
+const moundGeo = new THREE.SphereGeometry(0.7, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+const moundMat = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 });
 const _v = new THREE.Vector3();
 const ease = (t) => 1 - (1 - t) ** 3;
 
@@ -60,6 +80,8 @@ export class Enemies {
     this.list = [];
     this.kills = 0;
     this.killsByType = {};
+    this.globs = [];
+    this.puddles = [];
   }
 
   get alive() {
@@ -85,7 +107,7 @@ export class Enemies {
       slow: 1, slowT: 0, rootT: 0, burnT: 0, burnDps: 0, burnTick: 0, stagger: 0,
       phase: Math.random() * 10, attackT: Math.random() * def.rate, windT: 0, windTarget: null, lunge: 0,
       flash: 0, hitT: 0, barT: 0, dying: false, deathT: 0, rise: 1, leap: null, pounceCD: 1 + Math.random() * 2,
-      slamCD: 6, slamT: 0, summonCD: 12, roar: 0,
+      slamCD: 6, slamT: 0, summonCD: 12, roar: 0, digCD: 1.5, dig: null, litT: 0, lit: 1,
       legs: ['LegFL', 'LegFR', 'LegBL', 'LegBR'].map((n) => part(obj, n)),
       head: part(obj, 'Head'), jaw: part(obj, 'Jaw'), tail: part(obj, 'Tail'),
       wings: [part(obj, 'WingL'), part(obj, 'WingR')], core: part(obj, 'Core'), sac: part(obj, 'Sac'),
@@ -112,6 +134,8 @@ export class Enemies {
   // opts: { crit, source: 'melee'|'sling'|'tower'|'burn'|'trap', stagger }
   damage(e, n, ctx, knock, opts = {}) {
     if (e.dying || n <= 0) return false;
+    // a Glowcap Lantern's light shows up every weak seam
+    if (e.litT > 0) n *= e.lit;
     e.hp -= n;
     e.flash = opts.source === 'burn' ? Math.max(e.flash, 0.35) : 1;
     e.hitT = 1;
@@ -158,13 +182,20 @@ export class Enemies {
 
   // ground: skip flyers (mortar splash, traps). air: only flyers.
   inRadius(x, z, r, { ground = false, air = false } = {}) {
-    return this.list.filter((e) => !e.dying && !(ground && e.def.flying) && !(air && !e.def.flying)
+    return this.list.filter((e) => !e.dying && !e.dig && !(ground && e.def.flying) && !(air && !e.def.flying)
       && (e.pos.x - x) ** 2 + (e.pos.z - z) ** 2 < (r + e.def.radius) ** 2);
   }
 
   clear() {
-    for (const e of this.list) this.scene.remove(e.obj);
+    for (const e of this.list) {
+      this.scene.remove(e.obj);
+      if (e.mound) this.scene.remove(e.mound);
+    }
     this.list = [];
+    for (const g of this.globs) this.scene.remove(g.mesh);
+    for (const q of this.puddles) this.scene.remove(q.mesh);
+    this.globs = [];
+    this.puddles = [];
   }
 
   // ctx: { field, base, player, playerAlive, buildings, hitPlayer(dmg, e), hitBuilding(b, dmg, e),
@@ -182,13 +213,18 @@ export class Enemies {
       // hit flash is a quick violet-white pop; a winding-up bite glows hot pink at the rim
       setFlash(e.obj, e.flash * 0.5, e.flash * 0.4, e.flash * 0.5);
       // an outline to find them in the dark, never enough to wash the body out under bloom
-      setRim(e.obj, Math.min(0.45, rimK + wind * 0.25));
+      e.litT = Math.max(0, e.litT - dt);
+      setRim(e.obj, Math.min(0.6, rimK + wind * 0.25 + (e.litT > 0 ? 0.2 : 0)));
 
       if (e.dying) {
         this.animateDeath(e, dt, ctx);
         if (e.deathT > 1.45) {
           this.scene.remove(e.obj);
           this.list.splice(i, 1);
+        }
+        if (e.mound) {
+          this.scene.remove(e.mound);
+          e.mound = null;
         }
         continue;
       }
@@ -216,16 +252,22 @@ export class Enemies {
       else this.updateWalker(e, dt, t, ctx);
       if (e.dying) continue;
 
-      // spawning: seep up out of the rift
-      e.rise = Math.max(0, e.rise - dt * 1.3);
+      // spawning: seep up out of the rift (a digging Burrower drives its own)
+      if (!e.dig) e.rise = Math.max(0, e.rise - dt * 1.3);
       setDissolve(e.obj, e.rise * 0.85);
     }
+    this.updateGlobs(dt, t, ctx);
   }
 
   // ---------------------------------------------------------------- walkers
   updateWalker(e, dt, t, ctx) {
     const { field, base, player } = ctx;
     const def = e.def;
+    if (e.dig) {
+      this.updateDig(e, dt, t, ctx);
+      return;
+    }
+    e.digCD -= dt;
     let speed = def.speed * e.slow * (ctx.speedMul ?? 1);
     if (e.rootT > 0 || e.stagger > 0 || e.rise > 0.35 || e.slamT > 0) speed = 0;
 
@@ -286,6 +328,47 @@ export class Enemies {
         }
       } else {
         want = { x: (base.x - e.pos.x) / toBase, z: (base.z - e.pos.z) / toBase };
+      }
+    }
+
+    // ---- Spitters: stop at range and lob bile at the player, a tower, a wall in the way, or the Heart
+    if (def.spit && !g && e.rise <= 0.2) {
+      const S = def.spit;
+      let tgt = null;
+      if (ctx.playerAlive && toPlayer < S.playerRange && Math.abs(player.y - e.pos.y) < 4) tgt = { kind: 'spit', at: { x: player.x, z: player.z }, player: true };
+      if (!tgt) {
+        let bd = S.range;
+        for (const b of ctx.buildings) {
+          if (b.dead || !(b.def.range || b.blocks)) continue;
+          // towers first: a wall only counts when it is close
+          const d = b.distTo(e.pos.x, e.pos.z) + (b.def.range ? 0 : 6);
+          if (d < bd) { bd = d; tgt = { kind: 'spit', at: b, ref: b }; }
+        }
+      }
+      if (!tgt && toBase < S.range + GOAL_RADIUS * 0.5) tgt = { kind: 'spit', at: { x: base.x, z: base.z }, base: true };
+      if (tgt) {
+        const dx = tgt.at.x - e.pos.x, dz = tgt.at.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+        want = { x: dx / dl, z: dz / dl };
+        attack = tgt;
+      }
+    }
+
+    // ---- Burrowers: any wall between them and the Heart, they go under rather than round
+    if (def.burrows && !seesPlayer && !g && e.digCD <= 0 && e.rise <= 0 && e.rootT <= 0 && e.stagger <= 0) {
+      let wall = attack?.kind === 'building' && attack.ref.blocks;
+      if (!wall && toBase > GOAL_RADIUS + 6) {
+        const hx = (base.x - e.pos.x) / toBase, hz = (base.z - e.pos.z) / toBase;
+        for (const b of ctx.buildings) {
+          if (b.dead || !b.blocks) continue;
+          const d = b.distTo(e.pos.x, e.pos.z);
+          if (d > 2.6 + def.radius) continue;
+          const bx = b.x - e.pos.x, bz = b.z - e.pos.z, bl = Math.hypot(bx, bz) || 1;
+          if ((bx * hx + bz * hz) / bl > 0.45) { wall = true; break; }
+        }
+      }
+      if (wall) {
+        this.startDig(e, ctx);
+        return;
       }
     }
 
@@ -380,6 +463,7 @@ export class Enemies {
           if (a.kind === 'player') ctx.hitPlayer(def.dmg, e);
           else if (a.kind === 'base') ctx.hitBase(def.dmg, e);
           else if (a.kind === 'building' && attack.ref === a.ref) ctx.hitBuilding(a.ref, def.dmg * (def.wallBreaker || 1), e);
+          else if (a.kind === 'spit') this.spit(e, attack, ctx);
         }
         e.windTarget = null;
       }
@@ -498,6 +582,159 @@ export class Enemies {
     e.obj.rotation.set(0.15 + e.lunge * 0.5 - e.hitT * 0.4, e.yaw, bank);
   }
 
+  // ---------------------------------------------------------------- Spitter bile
+  spit(e, tgt, ctx) {
+    const S = e.def.spit;
+    const from = new THREE.Vector3(e.pos.x + Math.sin(e.yaw) * 0.6, e.pos.y + 1.0 * e.def.scale, e.pos.z + Math.cos(e.yaw) * 0.6);
+    let tx = tgt.at.x, tz = tgt.at.z;
+    if (tgt.base) {
+      // the near edge of the Heartwood, not its trunk
+      const dx = e.pos.x - tx, dz = e.pos.z - tz, dl = Math.hypot(dx, dz) || 1;
+      tx += (dx / dl) * GOAL_RADIUS * 0.5;
+      tz += (dz / dl) * GOAL_RADIUS * 0.5;
+    }
+    // it can't aim well: a little spread
+    tx += (Math.random() - 0.5) * 1.2;
+    tz += (Math.random() - 0.5) * 1.2;
+    const to = new THREE.Vector3(tx, ctx.base.groundAt(tx, tz) + 0.15, tz);
+    const dist = from.distanceTo(to);
+    const mesh = new THREE.Mesh(globGeo, globMat);
+    mesh.position.copy(from);
+    this.scene.add(mesh);
+    this.globs.push({ mesh, from, to, t: 0, dur: 0.55 + dist / 16, arc: 2 + dist * 0.18, dmg: e.def.dmg, splash: S.splash, puddle: S.puddle, src: e });
+    ctx.particles?.sporeBurst(from, 0x9ae040, 8, 0.6);
+    ctx.onSpit?.(e);
+  }
+
+  updateGlobs(dt, t, ctx) {
+    for (let i = this.globs.length - 1; i >= 0; i--) {
+      const g = this.globs[i];
+      g.t += dt;
+      const k = Math.min(1, g.t / g.dur);
+      g.mesh.position.lerpVectors(g.from, g.to, k);
+      g.mesh.position.y += Math.sin(k * Math.PI) * g.arc;
+      g.mesh.scale.set(1 - k * 0.2, 1 + Math.sin(t * 20) * 0.15, 1 - k * 0.2);
+      if (Math.random() < dt * 30) ctx.particles?.sparkle(g.mesh.position, 0x9ae040, 1);
+      if (k < 1) continue;
+      this.scene.remove(g.mesh);
+      this.globs.splice(i, 1);
+      const to = g.to;
+      for (const b of ctx.buildings) {
+        if (!b.dead && b.distTo(to.x, to.z) < g.splash) ctx.hitBuilding(b, g.dmg, g.src);
+      }
+      if (Math.hypot(to.x - ctx.base.x, to.z - ctx.base.z) < GOAL_RADIUS + 0.5) ctx.hitBase(g.dmg * 0.7, g.src);
+      if (ctx.playerAlive && Math.hypot(to.x - ctx.player.x, to.z - ctx.player.z) < g.splash) ctx.hitPlayer(g.dmg * 0.8, g.src);
+      ctx.particles?.sporeBurst(to, 0x9ae040, 26, 1.1);
+      ctx.particles?.ring(to, g.splash, 0x9ae040, 0.45);
+      ctx.onGlobLand?.(to);
+      puddleMat ??= new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0x6ad020, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+      const mesh = new THREE.Mesh(puddleGeo, puddleMat.clone());
+      mesh.position.set(to.x, to.y - 0.08, to.z);
+      mesh.scale.setScalar(0.2);
+      mesh.renderOrder = 2;
+      this.scene.add(mesh);
+      this.puddles.push({ mesh, pos: to.clone(), r: g.splash * 0.85, t: 0, life: g.puddle, tick: 0 });
+    }
+    // puddles burn whoever stands in them, then dry up
+    for (let i = this.puddles.length - 1; i >= 0; i--) {
+      const q = this.puddles[i];
+      q.t += dt;
+      const k = q.t / q.life;
+      q.mesh.scale.setScalar(q.r * 1.5 * Math.min(1, q.t * 6) * (1 - k * 0.3));
+      q.mesh.material.opacity = 0.32 * (1 - k) * (0.85 + Math.sin(t * 6 + q.pos.x) * 0.15);
+      if (Math.random() < dt * 6) ctx.particles?.sporeBurst(q.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * q.r, 0.1, (Math.random() - 0.5) * q.r)), 0x9ae040, 1, 0.4);
+      q.tick -= dt;
+      if (q.tick <= 0 && ctx.playerAlive && Math.hypot(q.pos.x - ctx.player.x, q.pos.z - ctx.player.z) < q.r && Math.abs(ctx.player.y - q.pos.y) < 1.2) {
+        q.tick = 0.5;
+        ctx.hitPlayer(3);
+      }
+      if (q.t >= q.life) {
+        this.scene.remove(q.mesh);
+        q.mesh.material.dispose();
+        this.puddles.splice(i, 1);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- Burrower digging
+  // down (0.6 s, sinking) -> tunnel (a mound of earth crossing under walls toward the Heart)
+  // -> up (0.5 s, bursting out). Can't be hit while under. A lantern's light forces it up.
+  startDig(e, ctx) {
+    const { base } = ctx;
+    const dx = base.x - e.pos.x, dz = base.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+    // tunnel 9 m toward the Heart, but surface outside the Heartwood's ring
+    const len = Math.max(2, Math.min(9, dl - GOAL_RADIUS - 3));
+    e.dig = { phase: 'down', t: 0, dir: { x: dx / dl, z: dz / dl }, left: len };
+    e.windT = 0;
+    e.windTarget = null;
+    e.barT = 0;
+    e.vel.set(0, 0, 0);
+    ctx.particles?.dust(e.pos.clone(), 18, 1.2, 0x5a4632);
+    ctx.onDig?.(e, 'down');
+  }
+
+  updateDig(e, dt, t, ctx) {
+    const D = e.dig, def = e.def;
+    D.t += dt;
+    if (D.phase === 'down') {
+      e.rise = Math.min(1, D.t / 0.6);
+      e.phase += dt * def.gait * 1.5;
+      this.pose(e, dt, t, 1, 0, 0.3);
+      this.place(e, Math.sin(t * 30) * 0.08, 0.6);
+      if (Math.random() < dt * 30) ctx.particles?.dust(e.pos.clone(), 1, 0.6, 0x5a4632);
+      if (D.t >= 0.6) {
+        D.phase = 'tunnel';
+        D.t = 0;
+        e.obj.visible = false;
+        e.mound = new THREE.Mesh(moundGeo, moundMat);
+        e.mound.scale.set(1, 0.35, 1.3);
+        this.scene.add(e.mound);
+      }
+      return;
+    }
+    if (D.phase === 'tunnel') {
+      e.rise = 1;
+      const step = def.speed * 1.3 * (ctx.speedMul ?? 1) * dt;
+      e.pos.x += D.dir.x * step;
+      e.pos.z += D.dir.z * step;
+      D.left -= step;
+      e.pos.y = ctx.base.groundAt(e.pos.x, e.pos.z);
+      e.yaw = Math.atan2(D.dir.x, D.dir.z);
+      e.mound.position.set(e.pos.x, e.pos.y - 0.12 + Math.sin(t * 18) * 0.03, e.pos.z);
+      e.mound.rotation.y = e.yaw;
+      if (Math.random() < dt * 24) ctx.particles?.dust(e.pos.clone(), 1, 0.7, 0x5a4632);
+      if (D.left <= 0 || D.forced) this.surface(e, ctx, D.forced);
+      return;
+    }
+    // up: burst out of the ground
+    e.rise = Math.max(0, 1 - D.t / 0.5);
+    this.pose(e, dt, t, 0.5, 0, 0.5);
+    this.place(e, 0, 0.5 - D.t);
+    if (D.t >= 0.5) {
+      e.dig = null;
+      e.rise = 0;
+      e.digCD = 6;
+    }
+  }
+
+  surface(e, ctx, forced) {
+    // never come up inside a building
+    for (const b of ctx.buildings) if (!b.dead && b.blocks) b.pushOut(e.pos, e.def.radius);
+    e.pos.y = ctx.base.groundAt(e.pos.x, e.pos.z);
+    e.dig.phase = 'up';
+    e.dig.t = 0;
+    e.obj.visible = true;
+    if (e.mound) {
+      this.scene.remove(e.mound);
+      e.mound = null;
+    }
+    // dragged up into the light: dazed for a moment
+    if (forced) e.stagger = 1.8;
+    ctx.particles?.dust(e.pos.clone(), 26, 1.4, 0x5a4632);
+    ctx.particles?.chipBurst(e.pos.clone().add(new THREE.Vector3(0, 0.4, 0)), 0x4a3a28, 14, e.pos.y);
+    ctx.onDig?.(e, forced ? 'forced' : 'up');
+  }
+
   // ---------------------------------------------------------------- shared animation
   // move: 0..1 gait amount; wind: 0..1 bite wind-up; open: extra jaw
   pose(e, dt, t, move, wind, open) {
@@ -516,7 +753,7 @@ export class Enemies {
     }
     if (e.jaw) e.jaw.rotation.x = e.jaw.userData.rest.x + wind * 0.75 + e.roar * 0.6 + open + (wind ? 0 : Math.sin(t * 6 + e.phase) * 0.08);
     if (e.tail) e.tail.rotation.y = e.tail.userData.rest.y + Math.sin(e.phase * 0.5) * 0.4;
-    if (e.sac) e.sac.scale.setScalar(1 + Math.sin(t * 3.2) * 0.07 + slam * 0.15 + e.flash * 0.1);
+    if (e.sac) e.sac.scale.setScalar(1 + Math.sin(t * 3.2) * 0.07 + slam * 0.15 + e.flash * 0.1 + (def.spit ? wind * 0.35 : 0));
     void slam;
   }
 

@@ -69,6 +69,7 @@ export const ITEMS = {
   spore_mortar: { name: 'Spore Mortar', kind: 'build', rarity: 'rare', value: 0, model: 'spore_mortar', desc: 'Lobs bursting spore pods in a high arc. Splash damage, and the spores slow whatever they touch.' },
   tesla_totem: { name: 'Tesla Totem', kind: 'build', rarity: 'epic', value: 0, model: 'tesla_totem', desc: 'Salvaged wire and a vacuum tube on a carved pole. Lightning that jumps between enemies.' },
   ember_brazier: { name: 'Ember Brazier', kind: 'build', rarity: 'rare', value: 0, model: 'ember_brazier', desc: 'A clay fire bowl on lashed legs. Sets nearby Blight alight, wisps included, and lights the clearing. Rain dampens it.' },
+  glow_lantern: { name: 'Glowcap Lantern', kind: 'build', rarity: 'rare', value: 0, model: 'glow_lantern', desc: 'A cage of glowcaps hung from a lashed pole. Its cold light shows up every weak seam in the Blight (they take more damage in it) and drags Burrowers up out of the ground.' },
   vine_snare: { name: 'Vine Snare', kind: 'build', rarity: 'uncommon', value: 0, model: 'vine_snare', desc: 'Coiled lianas under a mat of leaves. Whips up and binds whatever walks in, a few times over. Too weak to hold a Thornback, but it slows one.' },
   poultice: { name: 'Berry Poultice', kind: 'use', rarity: 'common', value: 0, heal: 45, desc: 'Mashed berries and moss bound in a leaf. Right-click to heal 45.' },
   firepot: { name: 'Firepot', kind: 'use', rarity: 'uncommon', value: 0, throw: true, desc: 'An old bottle of resin with a fibre wick. Right-click to throw: it bursts into flame and sets the Blight alight.' },
@@ -104,6 +105,8 @@ export const LOOT = {
   blightling: { chance: 0.55, rolls: 1, table: [['bone', 28], ['thorns', 24], ['stone', 18], ['strange_seeds', 14], ['fiber', 12], ['glowcap', 4]] },
   rotboar: { chance: 1, rolls: 2, table: [['bone', 30], ['moss', 20], ['mushroom', 25], ['log', 15], ['resin', 10], ['glowcap', 6]] },
   wisp: { chance: 0.7, rolls: 1, table: [['feather', 30], ['strange_seeds', 30], ['resin', 20], ['glowcap', 14], ['ghost_orchid', 3]] },
+  spitter: { chance: 0.8, rolls: 1, table: [['mushroom', 30], ['resin', 22], ['clay', 18], ['strange_seeds', 16], ['glowcap', 9], ['old_bottle', 5]] },
+  burrower: { chance: 1, rolls: 2, table: [['stone', 26], ['flint', 22], ['clay', 18], ['bone', 14], ['glowcap', 8], ['brass_gear', 4], ['copper_wire', 4]] },
   thornback: { chance: 1, rolls: 6, table: [['glowcap', 20], ['bone', 20], ['strange_seeds', 15], ['brass_gear', 10], ['vacuum_tube', 8], ['ghost_orchid', 8], ['log', 10]], guaranteed: ['jade_figurine', 'glowcap'] },
 };
 

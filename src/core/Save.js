@@ -84,7 +84,7 @@ export function recordBest(nights, kills) {
 
 // Lifetime records across every run, for the title's Records page. Nights and kills are
 // banked at each dawn (and when a run ends), so a run quit halfway still counts.
-const EMPTY = { runs: 0, wins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, seen: [] };
+const EMPTY = { runs: 0, wins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, deepest: 0, seen: [] };
 
 export function loadRecords() {
   try {
@@ -94,9 +94,11 @@ export function loadRecords() {
   }
 }
 
-export function addRecords(delta, seen = []) {
+// delta: added to the totals; most: kept if higher (the deepest night reached)
+export function addRecords(delta, seen = [], most = {}) {
   const r = loadRecords();
   for (const [k, v] of Object.entries(delta)) r[k] = (r[k] || 0) + v;
+  for (const [k, v] of Object.entries(most)) r[k] = Math.max(r[k] || 0, v);
   r.seen = [...new Set([...r.seen, ...seen])];
   try {
     store()?.setItem(RECORDS, JSON.stringify(r));

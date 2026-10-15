@@ -9,7 +9,9 @@ until dawn. Each night is harder than the last, every fifth night brings a boss,
 through **night 10** wins the run (you can carry on in endless mode). Each day a few **Blight Blooms**
 sprout out in the forest under guard: cut them down for rare loot and the Heartwood's favour, or
 at dusk each one opens a new lane the Blight pours out of all night. The run saves itself every
-morning. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
+morning. Six kinds of Blight come for it, from swarming Blightlings to bile-lobbing Spitters and
+Burrowers that dig under your walls, and what you live through stays with you: lifetime records
+unlock **Memories** that add to every run after. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
 The world is built from code and dressed with generated photographs. Terrain, plants and props are
 code-built meshes. Their surfaces (leaf litter, moss, mud, rock, bark, temple stone) and every leaf,
@@ -17,7 +19,7 @@ frond and flower are Flux generations, turned into seamless tiles and cut-out at
 `art/textures/` (see its README) and shipped in `public/textures/`. The image goes through an HDR post
 chain (ambient occlusion, sun shafts through the canopy, bloom, filmic grade). The soundscape is
 synthesised with Web Audio. The hero models (the Heartwood, the five towers, the barricade, the
-vine snare and the four Blight) are made in **Blender** from Python scripts (`art/blender/`),
+vine snare, the glowcap lantern and the six Blight) are made in **Blender** from Python scripts (`art/blender/`),
 shipped as GLBs in `public/models/`, and pick up the same bark, stone and moss surfaces at load.
 
 ## Running
@@ -75,6 +77,7 @@ src/
                        records, settings, controls, credits) and the pause menu
   ui/Portraits.js      renders the Blender models to portraits for the Field Guide
   core/Difficulty.js   Verdant / Warden / Blightborn
+  core/Memories.js     permanent unlocks earned from lifetime records
   audio/TitleTheme.js  the synthesised title music
   core/Game.js         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
                        building, boss slams, endings, autosave
@@ -112,7 +115,8 @@ src/
   items/Pickups.js     items in the world (pop, bob, glow, magnet)
   defense/Base.js      the Heartwood (light, beam, hit reactions), base-site search, Blight rifts
   defense/FlowField.js enemy path-finding: one Dijkstra field around the base
-  defense/Enemies.js   Blightling, Rotboar, Wisp, Thornback: steering, wind-ups, pounces,
+  defense/Enemies.js   Blightling, Rotboar, Wisp, Spitter, Burrower, Thornback: steering,
+                       wind-ups, pounces, bile globs and puddles, digging,
                        statuses (burn/root/slow), boss slam, spawn and death animations
   defense/Towers.js    buildings, tiers, repair, targeting, projectiles, placement ghost
   defense/Waves.js     the day/night director, wave composition, boss and rain nights
@@ -193,7 +197,10 @@ riverbank, cliffs, clearing, temple, dusk and hillside are covered.
 `node e2e/view.mjs <outDir> '<json shots>'` takes one-off views by place, plant type, time of day
 and pitch (see its header), and `node e2e/probe.mjs "<js>"` prints the result of a JS expression
 evaluated in a booted game.
-`node e2e/loop.mjs` checks the gather → craft → defend loop end to end, and
+`node e2e/loop.mjs` checks the gather → craft → defend loop end to end, `node e2e/blight.mjs`
+stages the Spitter, the Burrower and the Glowcap Lantern and checks each works,
+`node e2e/night.mjs <dir>` stages a night fight for lighting checks, `node e2e/menu.mjs <dir>`
+screenshots the title flow, and
 `node e2e/balance.mjs <night> <starter|mid|late>` simulates one night against a fixed defence. Two review agents
 live in `.claude/agents/`:
 

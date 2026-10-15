@@ -33,6 +33,8 @@ export const BUILD_DEFS = {
   barricade: { model: 'barricade', hp: 280, r: 0.62, pathCost: 30, blocks: true, thorns: 5, kind: 'wall', rotates: true },
   spike_trap: { model: null, hp: 14, r: 0.7, pathCost: 0, blocks: false, dmg: 22, rate: 0.55, kind: 'trap' },
   vine_snare: { model: 'vine_snare', hp: 6, r: 0.85, pathCost: 0, blocks: false, dmg: 6, rate: 1.4, root: 2.6, grabs: 3, kind: 'snare' },
+  // lights the ground: Blight in it take more damage, Burrowers can't stay under in it
+  glow_lantern: { model: 'glow_lantern', hp: 160, r: 0.6, range: 10, expose: 1.25, pathCost: 40, blocks: true, kind: 'lantern', light: true },
 };
 
 // Upgrades: stat multipliers per tier, and what each step costs.
@@ -47,6 +49,7 @@ export const UPGRADES = {
   tesla_totem: { 2: { copper_wire: 2, scrap_metal: 2, rusty_bolts: 2 }, 3: { vacuum_tube: 1, brass_gear: 2, battery: 1 } },
   ember_brazier: { 2: { resin: 3, clay: 2, flint: 2 }, 3: { resin: 4, glowcap: 2, bone: 3 } },
   barricade: { 2: { log: 1, thorns: 4, vine: 2 }, 3: { log: 2, stone: 5, bone: 2 } },
+  glow_lantern: { 2: { glowcap: 2, resin: 2, stick: 2 }, 3: { glowcap: 3, strange_seeds: 3, battery: 1 } },
 };
 // What a full repair costs: towers want bark and resin, walls sticks and thorns.
 export const REPAIRS = {
@@ -188,6 +191,7 @@ class Building {
     if (key === 'chain') return base + (this.tier >= 3 ? 2 : this.tier >= 2 ? 1 : 0);
     if (key === 'thorns') return base * (this.tier === 3 ? 3 : this.tier === 2 ? 2 : 1);
     if (key === 'burn') return base * m.dmg;
+    if (key === 'expose') return base + (this.tier - 1) * 0.1;
     return base;
   }
 
@@ -400,6 +404,10 @@ export class Buildings {
         this.updateTrap(b, dt, t, ctx);
         continue;
       }
+      if (kind === 'lantern') {
+        this.updateLantern(b, dt, t, ctx, mods);
+        continue;
+      }
       if (!b.def.range) continue;
       if (b.orb) {
         // the orb gathers charge before each strike
@@ -532,6 +540,35 @@ export class Buildings {
     audio.flame?.();
   }
 
+  // A cold blue light on the ground: every Blight in it glows and takes more damage, and a
+  // Burrower tunnelling through it is dragged up and dazed.
+  updateLantern(b, dt, t, ctx, mods) {
+    const { enemies, particles, lights } = ctx;
+    const range = b.stat('range', mods) * (mods.lanternRange || 1);
+    const expose = b.stat('expose') + (mods.lanternExpose || 0);
+    if (b.orb) {
+      b.orb.rotation.z = Math.sin(t * 0.9 + b.x) * 0.06;
+      b.orb.rotation.x = Math.sin(t * 0.7 + b.z) * 0.05;
+      const s = 1 + Math.sin(t * 2.2 + b.x) * 0.04 + b.recoil * 0.15;
+      b.orb.scale.setScalar(s);
+    }
+    const top = b.orb ? b.orb.getWorldPosition(_a).add(new THREE.Vector3(0, -0.45, 0)) : _a.set(b.x, b.y + 2, b.z);
+    lights?.request(top.clone(), 0x6ab8ff, 16 + b.tier * 4 + b.recoil * 16, range * 1.4, 1);
+    if (Math.random() < dt * 3) particles.sparkle(top.clone(), 0x9ad8ff, 1);
+    for (const e of enemies.list) {
+      if (e.dying || e.def.flying) continue;
+      const d = Math.hypot(e.pos.x - b.x, e.pos.z - b.z);
+      if (d > range + e.def.radius) continue;
+      // under two lanterns, the brighter one counts
+      e.lit = e.litT > 0.2 ? Math.max(e.lit, expose) : expose;
+      e.litT = 0.3;
+      if (e.dig && e.dig.phase === 'tunnel' && !e.dig.forced) {
+        e.dig.forced = true;
+        b.recoil = 1;
+      }
+    }
+  }
+
   updateTrap(b, dt, t, ctx) {
     const { enemies, particles, audio } = ctx;
     const def = b.def;
@@ -588,7 +625,7 @@ export class Buildings {
         if (canSplit && mods.boltSplit) {
           let next = null, nd = 7;
           for (const e of enemies.list) {
-            if (e.dying || e === target) continue;
+            if (e.dying || e.dig || e === target) continue;
             const d = Math.hypot(e.pos.x - to.x, e.pos.z - to.z);
             if (d < nd) { nd = d; next = e; }
           }
@@ -671,7 +708,7 @@ export class Buildings {
       for (let k = 1; k < n; k++) {
         let next = null, nd = Infinity;
         for (const e of enemies.list) {
-          if (e.dying || chain.includes(e)) continue;
+          if (e.dying || e.dig || chain.includes(e)) continue;
           const d = Math.hypot(e.pos.x - cur.pos.x, e.pos.z - cur.pos.z);
           if (d < b.def.chainRange && d < nd) { nd = d; next = e; }
         }

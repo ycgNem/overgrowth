@@ -47,6 +47,7 @@ import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
 import { Journal } from './Journal.js';
 import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
 import { difficulty } from './Difficulty.js';
+import { MEMORIES, unlocked } from './Memories.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
@@ -231,6 +232,7 @@ export class Game {
       this.weather.target = 0;
       this.bankRecords({ nights: 1, wins: won ? 1 : 0 });
       if (this.mods.harvest) this.harvestDawn();
+      if (this.mods.dawnMend) for (const b of this.buildings.list) b.hp = b.maxHp;
       if (won) this.onVictory();
     };
     this.waves.onOver = () => this.onDefeat();
@@ -423,6 +425,9 @@ export class Game {
     const inv = this.inventory;
     inv.slots.fill(null);
     for (const [item, n] of d.starter) inv.add(item, n);
+    // what the Memories of the Heartwood add to every vigil
+    const mem = unlocked();
+    for (const m of MEMORIES) if (mem.has(m.id)) for (const [item, n] of m.kit || []) inv.add(item, n);
     inv.select(inv.slots.findIndex((s, i) => !s && i < HOTBAR));
     inv.changed();
   }
@@ -435,7 +440,14 @@ export class Game {
     const delta = { ...extra };
     for (const k in now) delta[k] = Math.max(0, now[k] - last[k]);
     this.banked = now;
-    addRecords(delta, Object.keys(this.enemies.killsByType));
+    const had = unlocked();
+    const r = addRecords(delta, Object.keys(this.enemies.killsByType), { deepest: this.waves.night - 1 });
+    // a Memory earned: say so once the dawn (or the defeat) has had its moment
+    const fresh = MEMORIES.filter((m) => !had.has(m.id) && unlocked(r).has(m.id));
+    fresh.forEach((m, i) => setTimeout(() => {
+      this.hud.message(`Memory of the Heartwood: ${m.name}. ${m.reward}`, '#ffe08a');
+      this.audio.boon();
+    }, 4500 + i * 3500));
   }
 
   // A fresh run starts with the day-one banner; a loaded one with its own.
@@ -586,7 +598,7 @@ export class Game {
     this.chain = this.swingTapped && now - this.lastStrike < 1.1 ? this.chain + 1 : 1;
     let struck = 0;
     const foes = this.enemies.list
-      .filter((e) => !e.dying)
+      .filter((e) => !e.dying && !e.dig && e.rise < 0.6)
       .map((e) => [Math.hypot(e.pos.x - p.x, e.pos.z - p.z) - e.def.radius * e.def.scale, e])
       .filter(([d, e]) => {
         if (d > REACH || e.pos.y - p.y > 2.6 || p.y - e.pos.y > 2) return false;
@@ -1250,7 +1262,8 @@ export class Game {
   }
 
   offerBoon() {
-    const options = offerPerks(this.perks);
+    const mem = unlocked();
+    const options = offerPerks(this.perks, Math.random, mem.has('fourth') ? 4 : 3, mem);
     if (!options.length) {
       this.pendingBoons = 0;
       return;
@@ -1476,6 +1489,7 @@ export class Game {
 
   hitBase(dmg, e) {
     this.base.damage(dmg);
+    if (this.mods.heartBurn && e && !e.dying) this.enemies.ignite(e, 8, 3);
     // Last Bloom: once a night the failing Heartwood bursts and throws the Blight back
     if (this.mods.lastBloom && !this.bloomUsed && this.base.hp > 0 && this.base.hp < this.base.maxHp * 0.3) {
       this.bloomUsed = true;
@@ -1562,6 +1576,11 @@ export class Game {
       this.particles.ash(new THREE.Vector3(x, e.pos.y + 1, z), 12, 0.8);
     }
     this.audio.roar();
+  }
+
+  // 1 beside the player, 0 at 40 m: how loud something out in the clearing sounds
+  near(p) {
+    return Math.max(0, 1 - Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) / 40);
   }
 
   onWindup(e, kind) {
@@ -1790,6 +1809,9 @@ export class Game {
         onSlam: (e) => this.onSlam(e),
         summon: (e) => this.summon(e),
         onWindup: (e, kind) => this.onWindup(e, kind),
+        onSpit: (e) => this.audio.spit(this.near(e.pos)),
+        onGlobLand: (at) => this.audio.splat(this.near(at)),
+        onDig: (e, phase) => this.audio.burrow(this.near(e.pos), phase),
       });
       if (this.playerAlive) this.shovePlayer();
       this.rootPulse(dt);
@@ -1905,7 +1927,7 @@ export class Game {
     this.shade = damp(this.shade ?? 0, this.canopy.coverAt(pos.x, pos.z), 1.2, realDt);
     // at night the eye opens up too, and the crowns hide less of a sky that's dark anyway
     // (opening up a full stop in shade bleached the sunlit leaves beyond it white)
-    this.post.exposure = Math.pow(2, this.shade * 0.6 * this.sky.state.day + 0.6 * this.sky.state.night);
+    this.post.exposure = Math.pow(2, this.shade * 0.6 * this.sky.state.day + 0.4 * this.sky.state.night);
     if (canopyBox[3] > 0) canopyBox[3] = 0.35 + 0.2 * this.sky.state.day;
     this.frameNo++;
     this.renderer.shadowMap.needsUpdate = this.frameNo % 2 === 0 || this.sky.timeScale > 2;

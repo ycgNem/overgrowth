@@ -202,7 +202,7 @@ export class Sky {
     const L = moonUp ? sunDir.clone().negate() : sunDir;
     if (moonUp) {
       this.sun.color.copy(P.moon);
-      this.sun.intensity = 1.4 * smoothstep(0.0, 0.25, -elev);
+      this.sun.intensity = 1.1 * smoothstep(0.0, 0.25, -elev);
     } else {
       this.sun.color.copy(u.uSunColor.value);
       this.sun.intensity = 3.4 * smoothstep(-0.02, 0.2, elev);
@@ -238,8 +238,10 @@ export class Sky {
     this.hemi.groundColor.copy(P.hemiGround).multiplyScalar(0.9 + 0.1 * day);
     // canopy only dims the daylight fill; at night ambient is all there is
     // the canopy map (render/Canopy.js) dims ambient per pixel under the crowns
-    this.hemi.intensity = 3.2 - 2.4 * day;
-    this.scene.environmentIntensity = 1.3 - 0.45 * day;
+    // (night was lit nearly like day: a lower fill lets the moon, fires, lanterns and the
+    // Heartwood carve the clearing out of the dark, while the Blight's rims still carry)
+    this.hemi.intensity = 2.0 - 1.2 * day;
+    this.scene.environmentIntensity = 0.85;
 
     this.dome.position.copy(focus);
 

@@ -1,5 +1,48 @@
 # Patch notes
 
+## 0.8 preview: The Long Vigil, part one (2026-10-14)
+
+The first half of the next update, live early. Two new Blight, a new defence to answer them,
+permanent unlocks that carry from run to run, and nights that are actually dark.
+
+### New Blight
+- **Spitters** (from night 3). Squat things carrying a sac of glowing green bile. They stop
+  well out of reach behind the pack and lob globs at your towers, which burn on the ground
+  for a few seconds after. They barely fight up close: run them down with the machete.
+- **Burrowers** (from night 6). Armoured grubs with shovel claws. Put a wall between one and
+  the Heartwood and it goes under, a ridge of earth racing past your defences, then bursts
+  up on the far side. Nothing can hit it while it's underground.
+- The first night each kind of Blight comes, a note tells you what it does.
+
+### New defence: the Glowcap Lantern
+- A cage of glowcaps hung from a lashed pole (2 glowcaps, 4 sticks, resin and fibre). Blight
+  in its cold blue light take **25% more damage** (more with each upgrade), and a Burrower
+  tunnelling into it is **dragged up and dazed**.
+
+### Memories of the Heartwood
+- Your lifetime records now unlock **Memories**, permanent and for every vigil after:
+  - *The Old Sling* (hold through night 3): start with a slingshot and stones.
+  - *Glowcap Lore* (burn 5 Blight Blooms): start with a Glowcap Lantern.
+  - *A Fourth Card* (fell 150 Blight): the Heartwood offers four boons, not three.
+  - *The Thornback's Hide* (slay a Thornback): three new boons join the pool: **Ember Heart**
+    (Blight that bite the Heartwood catch fire), **Deep Roots** (your buildings mend at every
+    dawn) and **Lantern Bearer** (lanterns shine further and expose more).
+  - *The Heartwood in Bloom* (win a vigil): start with an Orchid Salve and two more poultices.
+- They're listed on the Records page with what each one needs, and New Game shows what you
+  carry in. A message tells you when you earn one.
+
+### Nights
+- Night no longer looks like tinted day. The moonlit fill is lower, so fires, lanterns and the
+  Heartwood light the clearing, while the Blight's glowing outlines still carry. Daytime is
+  unchanged.
+
+### Field Guide and balance
+- The Field Guide has the Spitter, the Burrower and the lantern, and shows Memory-only boons
+  as locked until you earn them.
+- Spitters and Burrowers take the place of some Blightlings rather than adding to every
+  night, but they hit a defence that only builds and never fights harder than before.
+  Keep an eye on your towers from night 3, and get lanterns up before night 6.
+
 ## 0.7: The Title (2026-10-14)
 
 Overgrowth now opens like a finished game instead of dropping you into a single run.

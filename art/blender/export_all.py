@@ -4,7 +4,8 @@ import os
 ROOT = r"C:/Users/jacks/Documents/overgrowth"
 JOBS = [('heartwood', 'Heartwood'), ('bow_tower', 'BowTower'), ('spore_mortar', 'SporeMortar'), ('tesla_totem', 'TeslaTotem'),
         ('barricade', 'Barricade'), ('blightling', 'Blightling'), ('rotboar', 'Rotboar'), ('wisp', 'Wisp'),
-        ('thornback', 'Thornback'), ('ember_brazier', 'EmberBrazier'), ('vine_snare', 'VineSnare')]
+        ('thornback', 'Thornback'), ('ember_brazier', 'EmberBrazier'), ('vine_snare', 'VineSnare'),
+        ('spitter', 'Spitter'), ('burrower', 'Burrower'), ('glow_lantern', 'GlowLantern')]
 report = {}
 for script, coll_name in JOBS:
     exec(open(f"{ROOT}/art/blender/{script}.py").read())

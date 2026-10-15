@@ -24,14 +24,25 @@ export function waveFor(n, count = 1) {
   const late = Math.max(0, n - 6);
   const sc = (x) => Math.round(x * count);
   // the surge (nights 7+): everything at once, from every side
-  const surge = { blightling: sc(late * 4), rotboar: sc(Math.round(late * 1.5)), wisp: sc(Math.ceil(late / 2)) };
+  const surge = {
+    blightling: sc(late * 4), rotboar: sc(Math.round(late * 1.5)), wisp: sc(Math.ceil(late / 2)),
+    spitter: sc(Math.ceil(late / 3)), burrower: sc(Math.floor(late / 2)),
+  };
+  // Spitters from night 3 and Burrowers from night 6 take the place of Blightlings (two and
+  // three of them each), so a night changes shape more than it grows
+  const spit = sc(n >= 3 ? Math.floor(n / 3) : 0), dig = sc(n >= 6 ? n - 5 : 0);
   const counts = {
-    blightling: Math.max(3, sc(6 + 3 * n)) + surge.blightling,
+    blightling: Math.max(3, sc(6 + 3 * n) - spit * 2 - dig * 3) + surge.blightling,
     rotboar: sc(Math.min(8, Math.max(0, n - 1))) + surge.rotboar,
     wisp: sc(n >= 4 ? Math.floor((n - 2) * 1.3) : 0) + surge.wisp,
+    spitter: spit + surge.spitter,
+    burrower: dig + surge.burrower,
     thornback: n % 5 === 0 ? (n >= 10 ? 2 : 1) : 0,
   };
-  const main = { blightling: counts.blightling - surge.blightling, rotboar: counts.rotboar - surge.rotboar, wisp: counts.wisp - surge.wisp };
+  const main = {
+    blightling: counts.blightling - surge.blightling, rotboar: counts.rotboar - surge.rotboar, wisp: counts.wisp - surge.wisp,
+    spitter: spit, burrower: dig,
+  };
   const out = [];
   const gap = Math.max(1.0, 2.6 - n * 0.15);
   let t = 2;
@@ -43,13 +54,15 @@ export function waveFor(n, count = 1) {
     push('blightling');
     t += i % 4 === 3 ? gap * 3 : gap;
   }
-  // a breather, then pack 2: the heavies with an escort (and the boss on boss nights)
+  // a breather, then pack 2: the heavies with an escort, Spitters lobbing from behind them
+  // (and the boss on boss nights)
   t += 16;
   pack = 1;
   const b2 = Math.ceil(main.blightling * 0.3);
-  for (let i = 0; i < Math.max(b2, main.rotboar); i++) {
+  for (let i = 0; i < Math.max(b2, main.rotboar, main.spitter); i++) {
     if (i < main.rotboar) push('rotboar');
     if (i < b2) push('blightling');
+    if (i < main.spitter) push('spitter');
     t += gap * 1.6;
   }
   if (counts.thornback) {
@@ -60,9 +73,10 @@ export function waveFor(n, count = 1) {
   t += 14;
   pack = 2;
   const b3 = main.blightling - b1 - b2;
-  for (let i = 0; i < Math.max(b3, main.wisp); i++) {
+  for (let i = 0; i < Math.max(b3, main.wisp, main.burrower); i++) {
     if (i < b3) push('blightling');
     if (i < main.wisp) push('wisp');
+    if (i < main.burrower) push('burrower');
     t += gap;
   }
   // the second Thornback rides in with the last pack
@@ -71,21 +85,33 @@ export function waveFor(n, count = 1) {
   if (late) {
     t += 12;
     pack = 3;
-    const m = Math.max(surge.blightling, surge.rotboar, surge.wisp);
+    const m = Math.max(surge.blightling, surge.rotboar, surge.wisp, surge.spitter, surge.burrower);
     for (let i = 0; i < m; i++) {
       if (i < surge.rotboar) push('rotboar');
       if (i < surge.blightling) push('blightling');
       if (i < surge.wisp) push('wisp');
+      if (i < surge.spitter) push('spitter');
+      if (i < surge.burrower) push('burrower');
       t += gap * 0.5;
     }
   }
   return { list: out, counts, surge: late > 0 };
 }
 
-const NAMES = { blightling: ['Blightling', 'Blightlings'], rotboar: ['Rotboar', 'Rotboars'], wisp: ['Wisp', 'Wisps'], thornback: ['Thornback', 'Thornbacks'] };
+const NAMES = {
+  blightling: ['Blightling', 'Blightlings'], rotboar: ['Rotboar', 'Rotboars'], wisp: ['Wisp', 'Wisps'],
+  spitter: ['Spitter', 'Spitters'], burrower: ['Burrower', 'Burrowers'], thornback: ['Thornback', 'Thornbacks'],
+};
 export function describeWave(counts) {
   return Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${NAMES[k][n === 1 ? 0 : 1]}`).join(' · ');
 }
+
+// told the first night each one comes
+const FIRST = {
+  wisp: 'New Blight: Wisps fly over walls and traps. Only bows, Tesla totems and fire reach them.',
+  spitter: 'New Blight: Spitters stop at range and lob bile at your towers. Get in close.',
+  burrower: 'New Blight: Burrowers dig under walls. A Glowcap Lantern drags them up into the light.',
+};
 
 export class Waves {
   constructor({ sky, enemies, rifts, hud, audio, world, base }) {
@@ -155,6 +181,11 @@ export class Waves {
     this.hud.banner(`Night ${this.night}`, boss ? 'The ground shakes. The Thornback is coming.'
       : torn ? 'A new rift has torn open. Watch your flank.' : 'The Blight crawls out of the rifts. Hold the Heartwood.', boss || torn ? 'boss' : 'night');
     this.audio.horn?.();
+    // the first night a kind of Blight comes, say what it does
+    const before = this.night > 1 ? waveFor(this.night - 1, this.diff.count).counts : {};
+    for (const [type, text] of Object.entries(FIRST)) {
+      if (w.counts[type] > 0 && !(before[type] > 0)) setTimeout(() => this.hud.message(text, '#e0b8ff'), 3500);
+    }
     this.onNight?.(this.night);
   }
 

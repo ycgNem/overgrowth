@@ -450,6 +450,29 @@ export class AudioSys {
     [0, 0.18].forEach((d) => this.tone({ type: 'square', f0: 330, f1: 300, a: 0.005, dec: 0.12, vol: 0.05, delay: d }));
   }
 
+  // a Spitter hawking up a glob: a wet, rising gurgle
+  spit(v = 1) {
+    if (!this.ctx || v <= 0) return;
+    this.noiseShot({ type: 'bandpass', f0: 300, f1: 1400, q: 3, a: 0.05, dec: 0.25, vol: 0.22 * v });
+    this.tone({ type: 'sawtooth', f0: 110, f1: 240, a: 0.03, dec: 0.2, vol: 0.05 * v });
+  }
+
+  // ...and where it lands
+  splat(v = 1) {
+    if (!this.ctx || v <= 0) return;
+    this.noiseShot({ type: 'lowpass', f0: 1800, f1: 200, a: 0.004, dec: 0.3, vol: 0.3 * v });
+    this.noiseShot({ type: 'bandpass', f0: 600, f1: 900, q: 5, a: 0.01, dec: 0.12, vol: 0.12 * v, delay: 0.05 });
+  }
+
+  // a Burrower going down or bursting up: grinding earth and a thump
+  burrow(v = 1, phase = 'down') {
+    if (!this.ctx || v <= 0) return;
+    const up = phase !== 'down';
+    this.noiseShot({ type: 'lowpass', f0: up ? 900 : 500, f1: 80, a: 0.02, dec: up ? 0.5 : 0.8, vol: 0.4 * v });
+    this.tone({ type: 'sine', f0: up ? 90 : 70, f1: 40, a: 0.01, dec: 0.35, vol: 0.2 * v });
+    if (phase === 'forced') this.tone({ type: 'sine', f0: 1600, f1: 2400, a: 0.01, dec: 0.4, vol: 0.05 * v, delay: 0.05 });
+  }
+
   // the dusk horn: a long, low, slightly sour call
   horn() {
     if (!this.ctx) return;

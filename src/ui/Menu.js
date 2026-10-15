@@ -14,6 +14,7 @@ import { RECIPES } from '../items/Recipes.js';
 import { PERKS } from '../core/Perks.js';
 import { DIFFICULTIES, DIFFICULTY_IDS, difficulty } from '../core/Difficulty.js';
 import { loadBest, loadRecords } from '../core/Save.js';
+import { MEMORIES, unlocked } from '../core/Memories.js';
 import { renderPortraits } from './Portraits.js';
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -42,6 +43,11 @@ const BLIGHT = [
     tip: 'Spore mortars slow it to a crawl. It goes for your buildings first, so keep walls between it and the towers.',
   },
   {
+    id: 'spitter', kind: 'Artillery', from: 3,
+    lore: 'A squat thing carrying a sac of sick green bile on its back. It stops well out of reach, rears its tube of a mouth and lobs globs that burn where they land.',
+    tip: 'It hangs back behind the pack and goes for your towers. Run it down with the machete: up close it barely fights.',
+  },
+  {
     id: 'wisp', kind: 'Flyer', from: 4,
     lore: 'Drifting lights of spore and spite. They float over walls and traps alike, straight for the Heartwood, and keen as they come.',
     tip: 'Bow towers, Tesla totems and embers reach them. Mortars, walls and traps do nothing.',
@@ -51,11 +57,16 @@ const BLIGHT = [
     lore: 'Something old and armoured that the Blight woke under the forest. It rises every fifth night, shakes the ground with its slams and calls Blightlings out of the soil.',
     tip: 'Its slams flatten buildings near it. Snares only slow it. Burn it, shoot it, and keep it moving.',
   },
+  {
+    id: 'burrower', kind: 'Tunneller', from: 6,
+    lore: 'An armoured grub as long as a man, plated in crust and built to dig. Put a wall in its way and it simply goes under, a ridge of earth racing toward the Heart.',
+    tip: "Nothing can touch it underground. A Glowcap Lantern's light drags it up, dazed, and everything hits it harder there.",
+  },
 ];
-const DEFENCES = ['bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'barricade', 'vine_snare', 'spike_trap'];
+const DEFENCES = ['bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'glow_lantern', 'barricade', 'vine_snare', 'spike_trap'];
 const ROLES = {
   bow_tower: 'Long range · single target', spore_mortar: 'Artillery · splash & slow', tesla_totem: 'Chain lightning',
-  ember_brazier: 'Close range · burning', barricade: 'Wall · reroutes the Blight', vine_snare: 'Trap · roots in place', spike_trap: 'Trap · hidden spikes',
+  ember_brazier: 'Close range · burning', glow_lantern: 'Light · exposes the Blight', barricade: 'Wall · reroutes the Blight', vine_snare: 'Trap · roots in place', spike_trap: 'Trap · hidden spikes',
 };
 
 const CONTROLS = [
@@ -384,6 +395,9 @@ export class Menu {
       </button>`;
     }).join('');
     this.html(`<div class="diffs">${cards}</div>`);
+    const mem = unlocked();
+    const carried = MEMORIES.filter((m) => mem.has(m.id));
+    if (carried.length) this.html(`<div class="carried"><span class="p-eyebrow">Memories carried</span>${carried.map((m) => `<span class="mem-chip" title="${m.reward}">${m.glyph} ${m.name}</span>`).join('')}</div>`);
     this.html(`<div class="p-actions"><button class="btn gold" id="go-new">Begin</button>${this.save ? `<span class="p-note">This replaces your vigil on Day ${this.save.night}.</span>` : '<span class="p-note calm">You can change nothing once the first night falls. Choose well.</span>'}</div>`);
     for (const c of this.body.querySelectorAll('.diff-card')) {
       c.addEventListener('click', () => this.pickDiff(c.dataset.id));
@@ -421,6 +435,10 @@ export class Menu {
     return this._portraits;
   }
 
+  memories() {
+    return unlocked();
+  }
+
   // a Blight is known once you've felled one or held through the night it first comes
   seen() {
     const seen = new Set(loadRecords().seen), best = loadBest();
@@ -447,7 +465,10 @@ export class Menu {
     const tab = this.guideTab;
     if (tab === 'boons') {
       root.innerHTML = `<p class="p-lead" style="margin-top:-4px">Offer relics at the Heartwood to earn its favour. Each time favour fills, choose one of three boons. They last the whole vigil.</p>
-        <div class="boons-grid">${PERKS.map((p) => `<div class="boon-card"><div class="g">${p.glyph}</div><h4>${p.name}</h4><p>${p.desc}</p></div>`).join('')}</div>`;
+        <div class="boons-grid">${PERKS.map((p) => {
+          const lock = p.memory && !this.memories().has(p.memory) ? MEMORIES.find((m) => m.id === p.memory) : null;
+          return `<div class="boon-card${lock ? ' locked' : ''}"><div class="g">${p.glyph}</div><h4>${p.name}</h4><p>${p.desc}</p>${lock ? `<small>Memory: ${lock.name}</small>` : ''}</div>`;
+        }).join('')}</div>`;
       return;
     }
     const pics = this.portraits();
@@ -496,7 +517,7 @@ export class Menu {
     if (d.range) stats.push(bar('Range', d.range, 30, `${d.range} m`));
     if (d.rate) stats.push(bar('Rate', 1 / d.rate, 1.8, `${(1 / d.rate).toFixed(1)}/s`));
     stats.push(bar('Toughness', d.hp, 320, d.hp));
-    const flags = [d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
+    const flags = [d.expose && `Blight take +${Math.round((d.expose - 1) * 100)}% in its light`, d.expose && 'Unearths Burrowers', d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
     return `<div class="g-portrait" style="--glow:rgba(214,169,74,0.2)"><img src="${pic}" alt=""></div>
       <h3 class="g-name">${it.name}</h3><div class="g-kind">${ROLES[id]}</div>
       <p class="g-lore">${it.desc}</p>
@@ -525,7 +546,14 @@ export class Menu {
     </div>
     <div class="p-sep"></div>
     <div class="p-eyebrow">Bestiary</div>
-    <div class="seen-row">${BLIGHT.map((b) => `<img class="${seen.has(b.id) ? '' : 'locked'}" src="${pics[b.id] || ''}" title="${seen.has(b.id) ? ENEMY_TYPES[b.id].name : 'Unknown'}" alt="">`).join('')}</div>`);
+    <div class="seen-row">${BLIGHT.map((b) => `<img class="${seen.has(b.id) ? '' : 'locked'}" src="${pics[b.id] || ''}" title="${seen.has(b.id) ? ENEMY_TYPES[b.id].name : 'Unknown'}" alt="">`).join('')}</div>
+    <div class="p-sep"></div>
+    <div class="p-eyebrow">Memories of the Heartwood</div>
+    <p class="p-lead" style="margin:6px 0 14px;font-size:18px">What you've lived through stays with you: each memory adds something to every vigil after it.</p>
+    <div class="memories">${MEMORIES.map((m) => {
+      const got = this.memories().has(m.id);
+      return `<div class="memory${got ? ' got' : ''}"><div class="g">${m.glyph}</div><div><h4>${m.name}</h4><p>${got ? m.reward : `<b>${m.need}</b> · ${m.reward}`}</p></div><span class="state">${got ? 'Earned' : 'Locked'}</span></div>`;
+    }).join('')}</div>`);
   }
 
   pageSettings() {

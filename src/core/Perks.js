@@ -20,6 +20,10 @@ export const PERKS = [
   { id: 'lastbloom', glyph: '❀', name: 'Last Bloom', desc: 'Once a night, when the Heartwood falls below 30%, it bursts: heals 25% and blasts Blight within 12 m for 60.', apply: (m) => { m.lastBloom = true; } },
   { id: 'roots', glyph: '⌇', name: 'Grasping Roots', desc: 'At night, every 12 s roots seize the four Blight nearest the Heartwood (within 18 m) for 2.5 s.', apply: (m) => { m.rootPulse = true; } },
   { id: 'harvest', glyph: '⚘', name: 'Harvest Dawn', desc: 'Every dawn each of your towers brings in two building materials.', apply: (m) => { m.harvest = true; } },
+  // earned with the Memory "The Thornback's Hide" (core/Memories.js)
+  { id: 'emberheart', memory: 'trophy', glyph: '♨', name: 'Ember Heart', desc: 'Blight that bite the Heartwood catch fire: 8 a second for 3 s.', apply: (m) => { m.heartBurn = true; } },
+  { id: 'deeproots', memory: 'trophy', glyph: '⚚', name: 'Deep Roots', desc: 'Every dawn, all your buildings mend completely.', apply: (m) => { m.dawnMend = true; } },
+  { id: 'lanterns', memory: 'trophy', glyph: '❂', name: 'Lantern Bearer', desc: 'Glowcap Lanterns shine 40% further, and Blight in their light take another 15% more.', apply: (m) => { m.lanternRange *= 1.4; m.lanternExpose += 0.15; } },
   { id: 'rot', glyph: '☣', name: 'Rotting Bloom', desc: 'Blight that die while slowed burst into spores: everything within 4 m is slowed by half for 3 s.', apply: (m) => { m.sporeBurst = true; } },
 ];
 
@@ -31,13 +35,14 @@ export function baseMods() {
     macheteDmg: 1, towerRange: 1, towerRate: 1, towerDmg: 1, heartThorns: 0, lootBonus: 0, moveSpeed: 1, staminaRegen: 1,
     buildRegen: 0, mortarSplash: 1, sporeSlow: 1, slingDraw: 1, slingDmg: 1, killHeal: 0, playerArmor: 1,
     boltSplit: 0, lastBloom: false, rootPulse: false, harvest: false, sporeBurst: false,
+    heartBurn: false, dawnMend: false, lanternRange: 1, lanternExpose: 0,
   };
 }
 
-// three boons the player doesn't have yet, picked at random
-export function offerPerks(owned, rand = Math.random) {
-  const pool = PERKS.filter((p) => !owned.includes(p.id));
+// n boons the player doesn't have yet, picked at random from those their Memories allow
+export function offerPerks(owned, rand = Math.random, n = 3, memories = new Set()) {
+  const pool = PERKS.filter((p) => !owned.includes(p.id) && (!p.memory || memories.has(p.memory)));
   const out = [];
-  while (out.length < 3 && pool.length) out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
   return out;
 }
