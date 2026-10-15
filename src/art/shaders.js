@@ -464,8 +464,20 @@ export function makeTerrainMaterial(lib) {
       float ogSteepK(float hTop, float hSide, float steep, float wk) {
         return steep >= 0.999 ? 1.0 : ogPick(hTop, hSide, (steep - 0.5) * 2.4, wk);
       }
+      // one height texel of ground layer id (0 litter, 1 turf, 2 humus and mud, 3 moss,
+      // 4 gravel): the march picks its layer per pixel, and a sampler can't be chosen at run
+      // time (the shader is also at its 16 texture units), so it branches
+      float ogHeightTex(int id, vec2 uv, vec2 dx, vec2 dy) {
+        float h;
+        if (id == 0) h = textureGrad(nLitter2, uv, dx, dy).b;
+        else if (id == 1) h = textureGrad(nTurf, uv, dx, dy).b;
+        else if (id == 2) h = textureGrad(nMud, uv, dx, dy).b;
+        else if (id == 3) h = textureGrad(nMoss, uv, dx, dy).b;
+        else h = textureGrad(nGravel, uv, dx, dy).b;
+        return h;
+      }
       // the height ogLayer would pick at p (two fetches)
-      float ogLayerH(sampler2D tn, vec2 p, float sc, float ang, vec2 off, float sw, vec2 dx, vec2 dy) {
+      float ogLayerH(int id, vec2 p, float sc, float ang, vec2 off, float sw, vec2 dx, vec2 dy) {
         float c = cos(ang), s = sin(ang);
         mat2 R = mat2(c, -s, s, c);
         vec2 uv = p * sc, uv2 = R * uv + off;
@@ -473,22 +485,22 @@ export function makeTerrainMaterial(lib) {
         // up to two mips down (the caller scales it by distance): a smooth field has no thin
         // slices for the march to step through
         dx1 *= 4.0; dy1 *= 4.0;
-        float a = textureGrad(tn, uv, dx1, dy1).b, b = textureGrad(tn, uv2, R * dx1, R * dy1).b;
+        float a = ogHeightTex(id, uv, dx1, dy1), b = ogHeightTex(id, uv2, R * dx1, R * dy1);
         return mix(a, b, ogPick(a, b, sw * 0.8, 0.15));
       }
       // Parallax occlusion: march the eye ray down through a layer's height field (top = the
       // mesh surface) and return where it lands. dir: the ray's world xz shift over the full
       // depth; n: steps.
-      vec2 ogPom(sampler2D tn, vec2 p, float sc, float ang, vec2 off, float sw, vec2 dir, float n, vec2 dx, vec2 dy, out float hit) {
+      vec2 ogPom(int id, vec2 p, float sc, float ang, vec2 off, float sw, vec2 dir, float n, vec2 dx, vec2 dy, out float hit) {
         float stepH = 1.0 / n;
         vec2 dP = dir * stepH, q = p;
-        float ray = 1.0, h = ogLayerH(tn, p, sc, ang, off, sw, dx, dy);
+        float ray = 1.0, h = ogLayerH(id, p, sc, ang, off, sw, dx, dy);
         float prevH = h, prevRay = 1.0;
         for (int i = 0; i < 24; i++) {
           if (float(i) >= n || h >= ray) break;
           prevH = h; prevRay = ray;
           q += dP; ray -= stepH;
-          h = ogLayerH(tn, q, sc, ang, off, sw, dx, dy);
+          h = ogLayerH(id, q, sc, ang, off, sw, dx, dy);
         }
         // between the last step above the surface and the first one below it
         float after = h - ray, before = prevRay - prevH;
@@ -498,12 +510,12 @@ export function makeTerrainMaterial(lib) {
       }
       // Sunlight the height field blocks at q (height h0): march toward the light, the
       // deepest blocker wins, so leaf edges throw small soft shadows on the leaves below.
-      float ogPomShadow(sampler2D tn, vec2 q, float h0, float sc, float ang, vec2 off, float sw, vec2 ldir, vec2 dx, vec2 dy) {
+      float ogPomShadow(int id, vec2 q, float h0, float sc, float ang, vec2 off, float sw, vec2 ldir, vec2 dx, vec2 dy) {
         float sh = 0.0;
         for (int i = 1; i <= 6; i++) {
           float f = float(i) / 6.0;
           float hh = h0 + (1.0 - h0) * f;
-          float hs = ogLayerH(tn, q + ldir * (hh - h0), sc, ang, off, sw, dx, dy);
+          float hs = ogLayerH(id, q + ldir * (hh - h0), sc, ang, off, sw, dx, dy);
           sh = max(sh, (hs - hh) * (1.0 - f * 0.7));
         }
         // never fully dark: the litter is translucent and the shadows are small
@@ -550,50 +562,69 @@ export function makeTerrainMaterial(lib) {
         // and whether the slope faces x (1) or z (0)
         float steep = 1.0 - smoothstep(0.72, 0.9, wn0.y);
         float ax = smoothstep(-0.12, 0.12, abs(wn0.x) - abs(wn0.z));
+        // where the floor is turf: the vertex weight, its edge broken up into tufts and runs
+        float gk = vGrass + (ogNoise(p * 0.3 + 41.0) - 0.5) * 0.8 + (ogNoise(p * 1.6 + 3.0) - 0.5) * 0.4;
+        gk = smoothstep(0.28, 0.72, gk);
+        // bare humus in patches a few metres across: dark crumbly earth and roots, with only
+        // the leaves lying highest still on it (the floor was one unbroken carpet of leaves)
+        float hm = ogNoise(p * 0.06 + 23.0) * 0.65 + ogNoise(p * 0.23 + 7.0) * 0.35;
+        float hk = smoothstep(0.44, 0.7, hm) * (1.0 - w.y) * (1.0 - gk);
+        // gravel bars along the water's edge, in patches
+        float gv = smoothstep(0.45, 0.7, ogNoise(p * 0.08 + 3.0)) * (1.0 - smoothstep(0.2, 1.4, vTP.y + (ogNoise(p * 0.45 + 9.0) - 0.5) * 1.1));
+        // Relief: the eye ray is marched through the height field of whichever layer covers
+        // most of the pixel (leaves, turf, humus, moss, gravel or mud), and every layer is
+        // sampled where it lands. Still one march a pixel: when only the leaves had relief,
+        // the turf, moss and bare earth beside them read as paint.
+        int pid = 0;
+        float pw = w.x * (1.0 - gk) * (1.0 - hk), pq;
+        pq = w.x * gk; if (pq > pw) { pid = 1; pw = pq; }
+        pq = w.x * hk; if (pq > pw) { pid = 2; pw = pq; }
+        pq = w.y; if (pq > pw) { pid = 3; pw = pq; }
+        float gvk = smoothstep(0.25, 0.5, gv);
+        pq = w.w * gvk; if (pq > pw) { pid = 4; pw = pq; }
+        pq = w.w * (1.0 - gvk); if (pq > pw) { pid = 5; pw = pq; }
+        // that layer's texture, scale, turn, offset and depth (as a share of the litter's)
+        int tid = pid == 5 ? 2 : pid;
+        float psc = LS2, pang = 0.6, pdk = 1.0; vec2 poff = vec2(0.11, 0.47);
+        if (pid == 1) { psc = 0.55; pang = 1.1; poff = vec2(0.53, 0.19); pdk = 1.15; }
+        else if (pid == 2) { psc = 0.42; pang = 0.4; poff = vec2(0.71, 0.13); pdk = 0.75; }
+        else if (pid == 3) { psc = 0.36; pang = 2.3; poff = vec2(0.13, 0.57); pdk = 0.9; }
+        else if (pid == 4) { psc = 0.42; pang = 2.9; poff = vec2(0.21, 0.83); pdk = 0.9; }
+        else if (pid == 5) { psc = 0.3; pang = 0.9; poff = vec2(0.61, 0.29); pdk = 0.7; }
         // (none on slopes: there the march and its sun shadows doubled every leaf's outline)
-        float pomK = (1.0 - smoothstep(4.0, 12.0, dist)) * smoothstep(0.1, 0.3, w.x) * uPom * smoothstep(0.8, 0.9, wn0.y);
+        float pomK = (1.0 - smoothstep(4.0, 12.0, dist)) * smoothstep(0.1, 0.3, pw) * uPom * smoothstep(0.8, 0.9, wn0.y);
         vec3 Vw = normalize(cameraPosition - vTP);
         float vn = max(dot(Vw, wn0), 0.3);
-        vec2 vdir = -(Vw.xz - wn0.xz * vn) / vn * DEPTH * pomK;
-        float steps = floor(mix(28.0, 10.0, vn));
+        vec2 vdir = -(Vw.xz - wn0.xz * vn) / vn * DEPTH * pdk * pomK;
+        float steps = floor(mix(22.0, 8.0, vn));
         float ln = dot(uSunDir, wn0);
-        vec2 ldir = (uSunDir.xz - wn0.xz * ln) / max(ln, 0.12) * DEPTH * pomK;
+        vec2 ldir = (uSunDir.xz - wn0.xz * ln) / max(ln, 0.12) * DEPTH * pdk * pomK;
         bool selfSh = pomK > 0.01 && ln > 0.0 && uDay > 0.05;
         // the march's height field: full detail up close (blurred there, leaf edges melted like
         // wax), two mips down from ~9 m
         float pb = mix(0.25, 1.0, smoothstep(3.0, 9.0, dist));
-        // where the floor is turf: the vertex weight, its edge broken up into tufts and runs
-        float gk = vGrass + (ogNoise(p * 0.3 + 41.0) - 0.5) * 0.8 + (ogNoise(p * 1.6 + 3.0) - 0.5) * 0.4;
-        gk = smoothstep(0.28, 0.72, gk);
-        // no leaf relief to march under a lawn
-        float noLawn = 1.0 - smoothstep(0.6, 0.95, gk);
-        pomK *= noLawn; vdir *= noLawn; ldir *= noLawn;
+        vec2 pp = p;
+        float pomS = 1.0;
+        if (pomK > 0.01) {
+          float hit = 0.0;
+          pp = ogPom(tid, p, psc, pang, poff, sw, vdir, steps, dpx * pb, dpy * pb, hit);
+          if (selfSh) pomS = ogPomShadow(tid, pp, hit, psc, pang, poff, sw, ldir, dpx * pb, dpy * pb);
+        }
+        // the march's shadow per splat channel (litter, moss, mud): only on the marched layer
+        float sL = 1.0, sM = pid == 3 ? pomS : 1.0, sD = pid >= 4 ? pomS : 1.0;
         if (w.x > 0.002) {
           // a mix of many species' leaves (brown, russet, olive, a few still green) over dark earth
-          float s2 = 1.0, hit = 0.0;
-          if (gk < 0.999) {
-            vec2 pl = p;
-            if (pomK > 0.01) {
-              pl = ogPom(nLitter2, p, LS2, 0.6, vec2(0.11, 0.47), sw, vdir, steps, dpx * pb, dpy * pb, hit);
-              if (selfSh) s2 = ogPomShadow(nLitter2, pl, hit, LS2, 0.6, vec2(0.11, 0.47), sw, ldir, dpx * pb, dpy * pb);
-            }
-            Ll = ogLayer(tLitter2, nLitter2, pl, LS2, 0.6, vec2(0.11, 0.47), sw, dpx, dpy);
-          }
-          ogSelf = s2;
-          // bare humus in patches a few metres across: dark crumbly earth and roots, with only
-          // the leaves lying highest still on it (the floor was one unbroken carpet of leaves)
-          float hm = ogNoise(p * 0.06 + 23.0) * 0.65 + ogNoise(p * 0.23 + 7.0) * 0.35;
-          float hk = smoothstep(0.44, 0.7, hm) * (1.0 - w.y) * (1.0 - gk);
+          if (gk < 0.999) Ll = ogLayer(tLitter2, nLitter2, pp, LS2, 0.6, vec2(0.11, 0.47), sw, dpx, dpy);
+          float kh = 0.0, kt = 0.0;
           if (hk > 0.01) {
-            Layer Lh = ogLayer(tMud, nMud, p, 0.42, 0.4, vec2(0.71, 0.13), sw, dpx, dpy);
+            Layer Lh = ogLayer(tMud, nMud, pp, 0.42, 0.4, vec2(0.71, 0.13), sw, dpx, dpy);
             float hs = mix(-0.4, 0.9, hk) + Lh.h * 0.2;
-            float kh = clamp((hs - Ll.h) / max(ogWk * 2.0, 0.04) + 0.5, 0.0, 1.0);
+            kh = clamp((hs - Ll.h) / max(ogWk * 2.0, 0.04) + 0.5, 0.0, 1.0);
             Ll.col = mix(Ll.col, Lh.col, kh); Ll.n = mix(Ll.n, Lh.n, kh); Ll.h = mix(Ll.h, Lh.h * 0.5, kh);
-            ogSelf = mix(ogSelf, 1.0, kh);
           }
           // turf: grass grows up through the leaves, and only the leaves lying highest stay on top
           if (gk > 0.001) {
-            Layer Lt = ogLayer(tTurf, nTurf, p, 0.55, 1.1, vec2(0.53, 0.19), sw, dpx, dpy);
+            Layer Lt = ogLayer(tTurf, nTurf, pp, 0.55, 1.1, vec2(0.53, 0.19), sw, dpx, dpy);
             // sunny dry turf goes golden, damp turf stays deep green
             float gd = smoothstep(0.3, 0.8, ogNoise(p * 0.05 + 61.0));
             Lt.col *= mix(vec3(0.88, 1.02, 0.86), vec3(1.12, 1.06, 0.78), gd);
@@ -601,18 +632,17 @@ export function makeTerrainMaterial(lib) {
             // into a grainy olive carpet where they stop
             Lt.col = mix(Lt.col, Lt.col * vec3(0.95, 1.18, 0.8), smoothstep(10.0, 26.0, dist) * 0.6);
             float ht = mix(-0.6, 1.1, gk) + Lt.h * 0.35;
-            float kt = gk >= 0.999 ? 1.0 : clamp((ht - Ll.h) / max(ogWk * 2.0, 0.04) + 0.5, 0.0, 1.0);
+            kt = gk >= 0.999 ? 1.0 : clamp((ht - Ll.h) / max(ogWk * 2.0, 0.04) + 0.5, 0.0, 1.0);
             Ll.col = mix(Ll.col, Lt.col, kt); Ll.n = mix(Ll.n, Lt.n * 0.85, kt); Ll.h = mix(Ll.h, Lt.h, kt);
-            ogSelf = mix(ogSelf, 1.0, kt);
           }
+          // the shadow falls on the part of the floor that was marched
+          sL = pid == 0 ? mix(pomS, 1.0, max(kh, kt)) : pid == 1 ? mix(1.0, pomS, kt) : pid == 2 ? mix(1.0, pomS, kh) : 1.0;
         }
-        if (w.y > 0.002) Lm = ogLayer(tMoss, nMoss, p, 0.36, 2.3, vec2(0.13, 0.57), sw, dpx, dpy);
+        if (w.y > 0.002) Lm = ogLayer(tMoss, nMoss, pp, 0.36, 2.3, vec2(0.13, 0.57), sw, dpx, dpy);
         if (w.w > 0.002) {
-          Ld = ogLayer(tMud, nMud, p, 0.3, 0.9, vec2(0.61, 0.29), sw, dpx, dpy);
-          // gravel bars along the water's edge, in patches
-          float gv = smoothstep(0.45, 0.7, ogNoise(p * 0.08 + 3.0)) * (1.0 - smoothstep(0.2, 1.4, vTP.y + (ogNoise(p * 0.45 + 9.0) - 0.5) * 1.1));
+          Ld = ogLayer(tMud, nMud, pp, 0.3, 0.9, vec2(0.61, 0.29), sw, dpx, dpy);
           if (gv > 0.01) {
-            Layer Lg = ogLayer(tGravel, nGravel, p, 0.42, 2.9, vec2(0.21, 0.83), sw, dpx, dpy);
+            Layer Lg = ogLayer(tGravel, nGravel, pp, 0.42, 2.9, vec2(0.21, 0.83), sw, dpx, dpy);
             float kg = clamp((Lg.h - Ld.h) * 4.0 + gv * 2.0 - 0.7, 0.0, 1.0);
             Ld.col = mix(Ld.col, Lg.col, kg); Ld.n = mix(Ld.n, Lg.n, kg); Ld.h = mix(Ld.h, Lg.h, kg);
           }
@@ -686,9 +716,9 @@ export function makeTerrainMaterial(lib) {
         ogRockW = b.z;
         // earth is matte away from the water (glossy, it mirrored the blue sky: tarmac)
         ogRough = dot(b, vec4(0.88, 0.95, 0.8, 0.8));
-        // sun hidden by the litter's own relief, and the gaps between leaves and stones
+        // sun hidden by the floor's own relief, and the gaps between leaves and stones
         // getting less of the sky: the depth that survives in shade
-        ogSelf = mix(1.0, ogSelf, b.x);
+        ogSelf = 1.0 - (1.0 - sL) * b.x - (1.0 - sM) * b.y - (1.0 - sD) * b.w;
         float hc = Ll.h * b.x + Lm.h * b.y + hR * b.z + Ld.h * b.w;
         ogCav = mix(mix(0.42, 0.65, b.w), 1.0, smoothstep(0.06, 0.68, hc));
         // a dark, glossy wet band at the water's edge

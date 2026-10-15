@@ -1,5 +1,51 @@
 # Patch notes
 
+## 0.9.1: Steady Ground (2026-10-15)
+
+A performance and quality-of-life patch: the game runs cooler and smoother on every machine,
+picks sensible settings for laptops, the whole forest floor has depth, and it's much clearer
+what to do and what you're missing.
+
+### Runs better
+- **Frame limit.** The game no longer draws a frame on every refresh of a fast monitor (144 a
+  second on a 144 Hz screen). It now runs at **60** by default, and drops to 30 while paused
+  or in another window. Choose 30, 60, 120 or Off in Settings.
+- **Quality that fits your machine.** The first time you play, the game picks Low, Medium or
+  High from your graphics card. Integrated and laptop graphics start on Low.
+- **Low and Medium do much more.** Low loads its textures at half size (about 170 MB less
+  video memory), uses fewer lights, redraws shadows less often and draws small plants less
+  far, with the haze hiding where they stop. Medium uses lighter shadows and half-size leaf
+  normal maps. Low runs at about half the cost of High. Texture detail changes when you
+  restart.
+- **Fewer stutters.**
+  - The sky's lighting used to rebuild with a brief hitch every second or two through the
+    day. It no longer does.
+  - The first time a Blight Bloom came into view, the game froze for a moment. Its look is
+    now prepared in the background.
+  - Much less memory churn every frame, so fewer clean-up pauses.
+- **Less wasted drawing.** Small things on the ground and far bushes no longer cast unseen
+  shadows, and the ground skips the parts hidden behind plants.
+- Sprinting through fresh forest on this test machine: typical frames 7.3 → 6.0 ms, and the
+  slowest 1% of frames 27 → 18 ms.
+
+### The ground
+- **Depth on all of it.** Turf, moss, bare earth, mud and gravel now have the same raised,
+  self-shadowed relief as the leaf litter, instead of looking painted on (Medium and High).
+
+### Knowing what to do
+- **"Keep the Heartwood alive."** Your first new run opens with a short card on what the vigil
+  is: gather by day, craft defences in your satchel, build them around the Heartwood, hold
+  the night. Find it again under **How to Play** on the pause menu.
+- **The satchel is always one key away.** A **Tab · Satchel** tag sits beside your belt, and
+  it glows and tells you when you have enough to craft a defence.
+- **Hover a recipe to see what you're missing.** A tooltip lists every ingredient with how
+  many you carry against how many it needs, what's still missing, and where to find each
+  missing thing (on the forest floor, cutting bushes, from Blightlings...).
+- **Costs show what you carry.** A recipe that needs 2 sticks when you hold 10 now reads
+  `10/2`, not `2/2`.
+- The satchel's item details say where a material is found.
+- **A bigger journal**, and its first steps now say why you're building.
+
 ## 0.9: Wild Places (2026-10-15)
 
 The Long Vigil and Wild Places in one update: a second region to explore, a forest that

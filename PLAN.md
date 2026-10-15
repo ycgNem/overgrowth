@@ -287,6 +287,37 @@ and run `node e2e/loop.mjs` (ten PASS) and `node e2e/blight.mjs` (three PASS) be
 anything. Commit on `main` and push only when the user asks; after a release add CHANGELOG
 notes and refresh this section. The developer's alias is **ycgNem** (credits, git author).
 
+### 0.9.1 "Steady Ground" (performance and onboarding patch, 2026-10-15, released)
+Milestone 11 itself has not started (no Omens code exists yet). This pass came first:
+- **Frame limit** (Settings, default 60; `Game.tick` skips refreshes; 30 while paused or the
+  window is unfocused; `?debug` runs stay uncapped for the timing scripts).
+- **Quality** now does real work: `core/Quality.js` guesses Low/Medium/High from the GPU name
+  on a first boot and stores it. `TextureLib(renderer, detail)` loads the leaf atlases' normal
+  maps at half size on Medium and every atlas and ground map at half size on Low (about
+  170 MB less video memory); Low also gets 3 point lights instead of 6, aniso 4, shadows every
+  third frame, no far-LOD shadows, plain PCF (Medium too), a resolution floor of 0.5, and
+  `Pools.setScale` shortens draw distances (Medium 0.8, Low 0.6) with `Sky.fogBoost` hiding
+  the line.
+- **Hitches**: the sky's environment map is baked into one reused 64 px cube and prefiltered
+  into the same target (`Sky.envCube`; it allocated a 256 px target every bake: 20-45 ms
+  spikes). `Game.precompile` compiles new materials in the background when chunks load or
+  blooms sprout (a bloom's pods were a 300 ms stall on first sight).
+- **CPU/GC**: `World.near` fills an array instead of being a generator (callers on hot paths
+  pass scratch arrays); chunk keys are numbers (`World.key`); the water depth window key is a
+  bitmask; forage doesn't cast shadows; only trees' far LODs cast. The terrain draws after
+  everything else opaque (`renderOrder = 1`) so the depth test skips ground under plants.
+- **Ground relief**: the terrain's parallax march follows whichever layer covers the pixel
+  (litter, turf, humus, moss, gravel, mud: `pid` in `makeTerrainMaterial`), still one march a
+  pixel, with its self-shadow on that layer only.
+- **Onboarding/UI**: a "Your vigil" card on the first new run (`Game.showIntro`, How to Play on
+  the pause menu); a satchel chip by the belt that glows when a defence can be crafted
+  (`HUD.satchelChip`); recipe tooltips with have/need per ingredient, what's missing and where
+  to find it (`whereToFind` in `ItemDB.js`, read from the loot tables); costs show what you
+  carry (`10/2`); a bigger journal.
+- New scripts: `e2e/hitch.mjs` (long frames with per-system blame), `e2e/alloc.mjs` (garbage
+  per frame by function), `e2e/scene.mjs` (draws per pass, objects, memory), `e2e/fps.mjs`
+  (frame limit check). Measured: sprinting p50 7.3 → 6.0 ms, p95 12.5 → 10.5, p99 26.9 → 17.8.
+
 ### Milestone 11: Omens (release 0.10), step by step
 1. **Nightly omens.** A table `OMENS` (new `defense/Omens.js`): id, name, glyph, banner line
    and hooks. Roll one at dawn for the coming night from night 3, about every other night

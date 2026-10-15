@@ -106,12 +106,14 @@ class Block {
 export class Pool {
   // slope: the plant shader's per-instance aSlope; shadow: casts; far: drawn out to this
   // distance only (metres from the camera); lod: lighter geometry drawn from lodDist out
-  constructor(scene, geometry, material, { slope = false, shadow = false, far = Infinity, lod = null, lodDist = Infinity } = {}) {
+  // lodShadow: whether the far copies cast too (only the trees' far shadows are worth drawing)
+  constructor(scene, geometry, material, { slope = false, shadow = false, far = Infinity, lod = null, lodDist = Infinity, lodShadow = true } = {}) {
     this.scene = scene;
     this.src = geometry;
     this.material = material;
     this.slope = slope;
     this.shadow = shadow;
+    this.lodShadow = lodShadow;
     this.far = far;
     this.lod = lod;
     this.lodDist = lod ? lodDist : Infinity;
@@ -215,11 +217,11 @@ export class Pool {
 
   // pack the blocks in view to the front of the GPU buffers: the near plants into the mesh,
   // the far ones into the lighter one (eye: the camera's position)
-  pack(eye) {
+  pack(eye, scale = 1) {
     const mesh = this.mesh;
     if (!mesh) return;
     const A = buffers(mesh, this.slope), B = this.lodMesh ? buffers(this.lodMesh, this.slope) : null;
-    const near = this.lodDist, far = this.far;
+    const near = this.lodDist * scale, far = this.far * scale;
     const near2 = near * near, far2 = far * far;
     for (const b of this.blocks) {
       if (!b.seen) continue;
@@ -285,6 +287,14 @@ export class Pools {
     this.map = new Map();
     this.eye = new THREE.Vector3();
     this.sortedAt = new THREE.Vector3(1e9, 0, 0);
+    this.scale = 1; // draw distances (far and LOD lines) times this: the quality setting
+    this.lodShadows = true; // (off on Low: only the near plants cast)
+  }
+
+  setScale(k) {
+    if (k === this.scale) return;
+    this.scale = k;
+    this.sortedAt.set(1e9, 0, 0); // re-sort everything next frame
   }
 
   get(key, make) {
@@ -303,7 +313,8 @@ export class Pools {
     if (moved) this.sortedAt.copy(eye);
     for (const p of this.map.values()) {
       if (moved && p.ranged) p.dirty = true;
-      const far2 = p.far * p.far;
+      if (p.lodMesh) p.lodMesh.castShadow = p.shadow && p.lodShadow && this.lodShadows;
+      const far2 = (p.far * this.scale) ** 2;
       for (const b of p.blocks) {
         let seen = b.n > 0 && !b.box.isEmpty();
         if (seen && p.far < Infinity) seen = b.box.distanceToPoint(eye) ** 2 < far2;
@@ -313,7 +324,7 @@ export class Pools {
           p.dirty = true;
         }
       }
-      if (p.dirty) p.pack(this.sortedAt);
+      if (p.dirty) p.pack(this.sortedAt, this.scale);
     }
   }
 

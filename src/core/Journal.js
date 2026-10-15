@@ -6,9 +6,9 @@
 const TUTORIAL = [
   { id: 'forage', need: 3, text: (n) => `Pick up things from the forest floor: look down and tap <kbd>E</kbd> (${n}/3)` },
   { id: 'cut', need: 6, text: (n) => `Hack through plants with the machete <kbd>LMB</kbd> (${n}/6)` },
-  { id: 'tower', need: 1, text: () => 'Place your <b>Bow Tower</b> in the clearing: pick it on the belt <kbd>1</kbd>–<kbd>8</kbd>, then <kbd>LMB</kbd>' },
+  { id: 'tower', need: 1, text: () => 'Place your <b>Bow Tower</b> near the Heartwood: it shoots the Blight at night. Pick it on the belt <kbd>1</kbd>–<kbd>8</kbd>, then <kbd>LMB</kbd>' },
   { id: 'trap', need: 1, text: () => 'Set a <b>Spike Trap</b> on the path from a rift <span class="rift">✶</span>' },
-  { id: 'craft', need: 1, text: () => 'Open the satchel <kbd>Tab</kbd> and craft something' },
+  { id: 'craft', need: 1, text: () => 'Open the satchel <kbd>Tab</kbd> and craft a defence (hover a recipe to see what you still need)' },
   { id: 'night', need: 1, text: () => 'Ready? Hold <kbd>E</kbd> at the Heartwood to call the night, or wait for dusk' },
 ];
 

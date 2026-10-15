@@ -1,7 +1,7 @@
 {
   "name": "overgrowth",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "A first-person gather, craft and defend game in a Three.js jungle: forage by day, hold the Heartwood against the Blight by night.",
   "type": "module",
   "scripts": {

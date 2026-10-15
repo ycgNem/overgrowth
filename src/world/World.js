@@ -28,6 +28,8 @@ export const STEP_HEIGHT = 0.55;
 // Distance: trees and big leafy plants swap to a thinned copy past LOD_DIST; small plants and
 // forage stop drawing past their FAR (both per plant, see Pools.js)
 const LOD_DIST = 38;
+// the plants whose shadows still read past LOD_DIST: big crowns
+const TREE_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove']);
 const LOD_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove', 'treeFern', 'banana', 'monstera', 'taro']);
 const FAR = {
   fern: 80, bush: 85, grass: 60, flower: 65, orchid: 50, mushrooms: 45, pebbles: 40, deadFrond: 45, seedling: 50,
@@ -127,6 +129,8 @@ export class World {
     // live outside the chunk system (buildings, the Heartwood).
     this.clearings = [];
     this.extra = { colliders: [], interactables: [], cuttables: [] };
+    this._nearG = []; // scratch for near() in groundHeight and collide
+    this._nearC = [];
     this.foraged = new Set();
     // one instanced mesh per plant variant and forage item for the whole window
     this.pools = new Pools(scene);
@@ -249,8 +253,10 @@ export class World {
     return out;
   }
 
+  // a number, not a string: chunk lookups run thousands of times a frame and every string
+  // key was garbage (chunk coordinates stay well inside +-4096)
   static key(cx, cz) {
-    return `${cx},${cz}`;
+    return (cx + 4096) * 8192 + (cz + 4096);
   }
 
   // ------------------------------------------------------------ streaming
@@ -274,7 +280,7 @@ export class World {
       // forget plans far away to bound memory
       for (const map of [this.plans, this.bigPlans]) {
         for (const k of map.keys()) {
-          const [x, z] = k.split(',').map(Number);
+          const x = Math.floor(k / 8192) - 4096, z = (k % 8192) - 4096;
           if (Math.max(Math.abs(x - cx), Math.abs(z - cz)) > VIEW_RADIUS + 4) map.delete(k);
         }
       }
@@ -819,7 +825,7 @@ export class World {
       bins.get(f.id).push([f, key]);
     });
     for (const [id, list] of bins) {
-      const pool = this.pools.get(`forage:${id}`, () => new Pool(this.scene, forageGeometry(id), forageMat, { shadow: true, far: FORAGE_FAR }));
+      const pool = this.pools.get(`forage:${id}`, () => new Pool(this.scene, forageGeometry(id), forageMat, { shadow: false, far: FORAGE_FAR }));
       const mesh = pool.alloc(list.length);
       blocks.push(mesh);
       list.forEach(([f, key], i) => {
@@ -894,6 +900,7 @@ export class World {
       const pool = this.pools.get(`plant:${bk}`, () => new Pool(this.scene, variant.geometry, def.material, {
         slope: true, shadow: def.shadow, far: FAR[type] ?? Infinity,
         lod: LOD_TYPES.has(type) ? lodGeometry(variant.geometry, def.material) : null, lodDist: LOD_DIST,
+        lodShadow: TREE_TYPES.has(type),
       }));
       const mesh = pool.alloc(list.length);
       blocks.push(mesh);
@@ -1101,6 +1108,9 @@ export class World {
     mesh.castShadow = true;
     mesh.customDepthMaterial = TERRAIN_DEPTH;
     mesh.userData.terrain = true;
+    // the ground's shader is the costliest on screen: drawn after the plants, rocks and
+    // buildings standing on it, the depth test skips every pixel they already cover
+    mesh.renderOrder = 1;
     if (chunk) {
       chunk.terrainMesh = mesh;
       this.wearChunk(chunk);
@@ -1120,22 +1130,29 @@ export class World {
 
   // -------------------------------------------------------------- queries
 
-  *near(x, z, field) {
+  // Everything in `field` in the 3x3 chunks around (x, z), into `out` (cleared first). Hot
+  // callers pass their own array: this runs many times a frame (the player's ground and
+  // collisions, the interact prompt), and as a generator it made ~100 KB of garbage a frame.
+  near(x, z, field, out = []) {
+    out.length = 0;
     const ex = this.extra[field];
-    if (ex) for (const e of ex) if (Math.abs(e.x - x) < 40 && Math.abs(e.z - z) < 40) yield e;
+    if (ex) for (let i = 0; i < ex.length; i++) { const e = ex[i]; if (Math.abs(e.x - x) < 40 && Math.abs(e.z - z) < 40) out.push(e); }
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         const ch = this.chunks.get(World.key(cx + dx, cz + dz));
-        if (ch) yield* ch[field];
+        if (!ch) continue;
+        const list = ch[field];
+        for (let i = 0; i < list.length; i++) out.push(list[i]);
       }
     }
+    return out;
   }
 
   // Terrain height, raised by any walkable structure top under (x, z).
   groundHeight(x, z, feetY = Infinity) {
     let h = terrainHeight(x, z);
-    for (const c of this.near(x, z, 'colliders')) {
+    for (const c of this.near(x, z, 'colliders', this._nearG)) {
       if (c.dead || c.top === Infinity || c.top > feetY + STEP_HEIGHT) continue;
       if (c.type === 'circle') {
         if ((x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r) h = Math.max(h, c.top);
@@ -1151,7 +1168,7 @@ export class World {
 
   // Push a cylinder (pos.x, pos.z, radius) out of anything too tall to step onto.
   collide(pos, radius, feetY, headY) {
-    for (const c of this.near(pos.x, pos.z, 'colliders')) {
+    for (const c of this.near(pos.x, pos.z, 'colliders', this._nearC)) {
       if (c.dead || c.top <= feetY + STEP_HEIGHT) continue;
       if (c.bottom !== undefined && c.bottom > headY) continue;
       if (c.type === 'circle') {

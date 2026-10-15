@@ -435,20 +435,20 @@ kbd {
 #boss .lag { background: #ffe0f0; opacity: 0.7; transition: width 0.7s ease-in 0.3s; }
 
 /* journal: what to do next */
-#journal { position: absolute; left: 22px; top: 70px; max-width: 380px; display: flex; flex-direction: column; gap: 6px; }
+#journal { position: absolute; left: 22px; top: 70px; max-width: 470px; display: flex; flex-direction: column; gap: 6px; }
 #journal .j {
-  font-size: 17px; line-height: 1.25; padding: 6px 12px 7px 30px; position: relative; border-radius: 4px;
+  font-size: 20px; line-height: 1.3; padding: 8px 14px 9px 34px; position: relative; border-radius: 4px;
   background: linear-gradient(90deg, rgba(18,22,14,0.82), rgba(18,22,14,0.25)); border-left: 2px solid var(--brass-dim);
   animation: toastIn 0.35s cubic-bezier(.2,1.3,.4,1);
 }
-#journal .j::before { content: '\25C7'; position: absolute; left: 10px; top: 6px; color: var(--brass); }
+#journal .j::before { content: '\25C7'; position: absolute; left: 12px; top: 9px; color: var(--brass); }
 #journal .j.main { border-left-color: var(--brass); }
 #journal .j.main::before { content: '\25C6'; }
 #journal .j.done { opacity: 0.55; text-decoration: line-through; text-decoration-color: rgba(243,234,210,0.5); }
 #journal .j.done::before { content: '\2713'; color: #8affb0; }
-#journal kbd { font-size: 13px; padding: 0 5px; }
+#journal kbd { font-size: 15px; padding: 1px 6px; }
 #journal .rift { color: #d070ff; }
-#journal .head { font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--brass); margin-bottom: -2px; }
+#journal .head { font-size: 15px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--brass); margin-bottom: -2px; }
 
 #boons { display: flex; gap: 6px; margin-bottom: 8px; }
 #boons span {
@@ -459,3 +459,64 @@ kbd {
 .recipe-group { font-size: 13px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--brass); margin: 8px 0 0; }
 #compass-strip .poi.alert { color: #ff6a50; animation: alertBlink 0.5s steps(2) infinite; }
 @keyframes alertBlink { 50% { opacity: 0.35; } }
+
+/* where a material comes from, under the satchel's detail */
+#inv-detail .where { font-size: 14px; color: var(--ink-dim); margin-top: 4px; }
+
+/* a recipe's tooltip: each ingredient carried / needed, what's missing and where to find it */
+#craft-tip {
+  position: fixed; left: 0; top: 0; z-index: 60; width: 340px; pointer-events: none; opacity: 0;
+  padding: 12px 14px 12px; border-radius: 6px; border: 1px solid rgba(214,169,74,0.35);
+  background: linear-gradient(180deg, rgba(24,28,18,0.97), rgba(14,17,11,0.97)); box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+  color: var(--ink); transition: opacity 0.1s;
+}
+#craft-tip.on { opacity: 1; }
+#craft-tip .hd { display: flex; gap: 10px; align-items: center; }
+#craft-tip .hd img { width: 48px; height: 48px; flex: none; }
+#craft-tip h4 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 600; }
+#craft-tip .k { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+#craft-tip p { margin: 8px 0 8px; font-size: 14px; line-height: 1.3; color: var(--ink-dim); }
+#craft-tip .lbl { font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--brass); margin-bottom: 4px; }
+#craft-tip .row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 2px 8px; padding: 3px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+#craft-tip .row img { width: 24px; height: 24px; }
+#craft-tip .row .nm { font-size: 15px; }
+#craft-tip .row b { font-size: 15px; font-variant-numeric: tabular-nums; }
+#craft-tip .row.have b { color: #9fe08a; }
+#craft-tip .row.miss b, #craft-tip .row.miss .nm { color: #f0a088; }
+#craft-tip .row .from { grid-column: 2 / 4; font-size: 12.5px; color: var(--ink-dim); margin-top: -1px; }
+#craft-tip .ft { margin-top: 8px; font-size: 14px; font-weight: 600; }
+#craft-tip .ft.have { color: #9fe08a; }
+#craft-tip .ft.miss { color: #f0a088; }
+#craft-tip .hint { margin-top: 6px; font-size: 13px; color: var(--brass); }
+
+/* the satchel's key, always beside the belt; it glows when a defence can be crafted */
+#satchel-chip {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: var(--ink-dim);
+  padding: 4px 12px 4px 6px; border-radius: 14px; background: rgba(14,18,10,0.55); border: 1px solid rgba(214,169,74,0.18);
+}
+#satchel-chip kbd { font-size: 14px; }
+#satchel-chip b { color: #b8ffcf; font-weight: 600; }
+#satchel-chip.ready { border-color: rgba(140,255,180,0.55); color: var(--ink); animation: chipGlow 1.8s ease-in-out infinite; }
+@keyframes chipGlow { 50% { box-shadow: 0 0 14px rgba(140,255,180,0.35); } }
+
+/* the opening card: what a run is about */
+#intro {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 7;
+  background: radial-gradient(ellipse at center, rgba(16,30,18,0.55), rgba(4,8,4,0.88)); backdrop-filter: blur(3px);
+}
+#intro .intro-card {
+  width: min(660px, calc(100vw - 32px)); padding: 28px 32px 26px; border-radius: 10px; color: var(--ink);
+  background: linear-gradient(180deg, rgba(30,38,24,0.97), rgba(16,20,12,0.97)); border: 1px solid rgba(214,169,74,0.35);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6); animation: perkIn 0.45s cubic-bezier(.2,1.3,.4,1) backwards;
+}
+#intro .eyebrow { font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--brass); }
+#intro h2 { margin: 6px 0 12px; font-family: var(--display); font-size: 36px; letter-spacing: 0.04em; color: #b8ffcf; }
+#intro .lead { font-size: 18px; line-height: 1.45; margin: 0 0 14px; }
+#intro .g { color: #8affb0; }
+#intro .r { color: #d070ff; }
+#intro ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+#intro li { font-size: 17px; line-height: 1.4; color: var(--ink-dim); }
+#intro li b { color: var(--ink); }
+#intro kbd { font-size: 14px; padding: 0 5px; }
+#intro .tip { margin: 14px 0 18px; font-size: 15px; color: var(--brass); }
+#intro .buttons { justify-content: flex-start; }

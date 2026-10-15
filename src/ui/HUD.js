@@ -2,7 +2,7 @@
 // strip, combat feedback (damage numbers, health bars, hit markers, the boss bar), the
 // journal, and the overlays (satchel + crafting, boons, victory, game over).
 import * as THREE from 'three';
-import { ITEMS, RARITY, KIND } from '../items/ItemDB.js';
+import { ITEMS, RARITY, KIND, whereToFind } from '../items/ItemDB.js';
 import { RECIPES } from '../items/Recipes.js';
 import { HOTBAR } from '../items/Inventory.js';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
@@ -60,7 +60,8 @@ export class HUD {
     this.journalKey = '';
     this.buildHotbar();
     this.buildSatchel();
-    setTimeout(() => this.el.hint.classList.add('hidden'), 45000);
+    // (the satchel chip by the belt stays; this line of keys goes once you're under way)
+    setTimeout(() => this.el.hint.classList.add('hidden'), 90000);
   }
 
   setIcons(icons) {
@@ -324,11 +325,11 @@ export class HUD {
     this.el.promptFill.style.strokeDashoffset = String(100.5 * (1 - progress));
   }
 
-  // "2/3 [icon] 1/1 [icon]" for a recipe-like cost
+  // "10/2 [icon] 0/1 [icon]" for a recipe-like cost: what you carry over what it takes
   costHtml(needs) {
     return Object.entries(needs).map(([id, n]) => {
       const have = this.inv.count(id);
-      return `<span class="${have >= n ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}">${Math.min(have, n)}/${n}</span>`;
+      return `<span class="${have >= n ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}">${have}/${n}</span>`;
     }).join(' ');
   }
 
@@ -500,6 +501,35 @@ export class HUD {
   stats() {
     this.renderHotbar();
     if (this.inventoryOpen) this.renderInventory();
+    this.satchelChip();
+  }
+
+  // the key to the satchel, always beside the belt; when a defence can be crafted it says so
+  satchelChip() {
+    const el = this.chipEl ??= document.getElementById('satchel-chip');
+    if (!el) return;
+    const n = RECIPES.filter((r) => ITEMS[r.out].kind === 'build' && this.inv.canAfford(r.needs)).length;
+    const html = n ? `<kbd>Tab</kbd><span>Satchel · <b>${n} defence${n > 1 ? 's' : ''} ready to craft</b></span>` : '<kbd>Tab</kbd><span>Satchel &amp; crafting</span>';
+    if (html !== this.chipHtml) {
+      this.chipHtml = html;
+      el.innerHTML = html;
+      el.classList.toggle('ready', n > 0);
+    }
+  }
+
+  // The opening card of a new run: what the vigil is and how a day goes. done() when closed.
+  showIntro(done) {
+    const el = document.getElementById('intro'), go = document.getElementById('intro-go');
+    el.classList.remove('hidden');
+    const close = () => {
+      el.classList.add('hidden');
+      go.removeEventListener('click', close);
+      removeEventListener('keydown', key);
+      done?.();
+    };
+    const key = (e) => { if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') { e.preventDefault(); close(); } };
+    go.addEventListener('click', close);
+    addEventListener('keydown', key);
   }
 
   // a cheap screen projection: returns false if behind the camera or off screen
@@ -689,6 +719,7 @@ export class HUD {
   toggleInventory(on = !this.inventoryOpen) {
     this.el.inv.classList.toggle('hidden', !on);
     this.carry = null;
+    if (!on) this.hideTip();
     if (on) this.renderInventory();
   }
 
@@ -740,7 +771,12 @@ export class HUD {
       card.className = 'recipe';
       card.innerHTML = `<img class="out" alt=""><div class="body"><div class="name"></div><div class="needs"></div></div><button>Craft</button>`;
       card.querySelector('button').addEventListener('click', () => this.onCraft?.(r));
-      card.addEventListener('mouseenter', () => this.detail(r.out));
+      card.addEventListener('mouseenter', (ev) => {
+        this.detail(r.out);
+        this.showTip(r, ev);
+      });
+      card.addEventListener('mousemove', (ev) => this.placeTip(ev));
+      card.addEventListener('mouseleave', () => this.hideTip());
       this.el.recipes.appendChild(card);
       this.recipeEls.push({ r, card });
     }
@@ -766,12 +802,11 @@ export class HUD {
       const img = card.querySelector('img.out');
       if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
       card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '');
-      card.querySelector('.needs').innerHTML = Object.entries(r.needs).map(([id, n]) => {
-        const have = this.inv.count(id);
-        return `<span class="${have >= n ? 'have' : 'miss'}" title="${ITEMS[id].name}"><img src="${this.icons[id] || ''}">${Math.min(have, n)}/${n}</span>`;
-      }).join('');
+      card.querySelector('.needs').innerHTML = this.costHtml(r.needs);
       card.querySelector('button').disabled = !ok;
     }
+    // the tooltip follows the satchel as things are crafted or moved
+    if (this.tipRecipe) this.showTip(this.tipRecipe);
     this.el.slots.textContent = `${this.inv.used}/${this.inv.slots.length}`;
     this.el.relics.textContent = this.inv.relicValue;
   }
@@ -785,6 +820,53 @@ export class HUD {
       <div><h3>${def.name}</h3>
       <div class="rar" style="color:${r.color}">${r.name} ${KIND[def.kind].name}${def.kind === 'relic' ? ` · offering ${def.value}` : ''}</div>
       <p>${def.desc}</p>
-      <div class="val">Carrying <b>${have}</b></div></div>`;
+      <div class="val">Carrying <b>${have}</b></div>
+      ${def.kind === 'material' || def.kind === 'scrap' ? `<div class="where">Found ${whereToFind(id)}</div>` : ''}</div>`;
+  }
+
+  // ------------------------------------------------------------- recipe tooltip
+
+  // Hovering a recipe: every ingredient with what you carry against what it takes, what's
+  // still missing, and where to look for it.
+  showTip(r, ev) {
+    if (!this.tipEl) {
+      this.tipEl = document.createElement('div');
+      this.tipEl.id = 'craft-tip';
+      document.body.appendChild(this.tipEl);
+    }
+    this.tipRecipe = r;
+    const out = ITEMS[r.out], rar = RARITY[out.rarity];
+    const missing = [];
+    const rows = Object.entries(r.needs).map(([id, n]) => {
+      const have = this.inv.count(id), ok = have >= n;
+      if (!ok) missing.push(`${n - have} ${ITEMS[id].name}`);
+      return `<div class="row ${ok ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}"><span class="nm">${ITEMS[id].name}</span><b>${have}/${n}</b>
+        ${ok ? '' : `<div class="from">Find: ${whereToFind(id)}</div>`}</div>`;
+    }).join('');
+    this.tipEl.innerHTML = `
+      <div class="hd"><img src="${this.icons[r.out] || ''}"><div><h4>${out.name}${r.n > 1 ? ` ×${r.n}` : ''}</h4>
+        <div class="k" style="color:${rar.color}">${rar.name} ${KIND[out.kind].name}</div></div></div>
+      <p>${out.desc}</p>
+      <div class="lbl">Needs</div>${rows}
+      <div class="ft ${missing.length ? 'miss' : 'have'}">${missing.length ? `Missing: ${missing.join(' · ')}` : 'You have everything. Click Craft.'}</div>
+      ${out.kind === 'build' ? '<div class="hint">Select it on your belt, then left-click near the Heartwood to place it.</div>' : ''}`;
+    this.tipEl.classList.add('on');
+    if (ev) this.placeTip(ev);
+  }
+
+  placeTip(ev) {
+    const t = this.tipEl;
+    if (!t) return;
+    const w = t.offsetWidth, h = t.offsetHeight;
+    // beside the cursor, flipped to the other side near the screen's edges
+    let x = ev.clientX + 18, y = ev.clientY + 14;
+    if (x + w > innerWidth - 8) x = ev.clientX - w - 18;
+    if (y + h > innerHeight - 8) y = Math.max(8, innerHeight - h - 8);
+    t.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  hideTip() {
+    this.tipRecipe = null;
+    this.tipEl?.classList.remove('on');
   }
 }

@@ -124,3 +124,38 @@ export function rollLoot(tableName, rand) {
   for (let i = 0; i < t.rolls; i++) out.push(weighted(rand, t.table));
   return out;
 }
+
+// ------------------------------------------------------------- where things come from
+
+// lying loose on the floor (World.plan's forage), and in the drowned grove's shallows
+const FLOOR = new Set(['stick', 'stone', 'flint', 'mushroom', 'glowcap', 'feather', 'bone', 'bark', 'fiber', 'moss', 'berries', 'vine', 'clay']);
+const GROVE_FLOOR = new Set(['reed', 'eel', 'bog_iron', 'moss', 'clay']);
+const SOURCE_NAMES = {
+  grass: 'cutting grass', fern: 'cutting ferns', bush: 'cutting bushes', banana: 'cutting banana plants', flower: 'cutting flowers',
+  mushrooms: 'mushroom clumps', seedling: 'cutting saplings', trunk: 'chopping tree trunks', rock: 'breaking rocks',
+  scrap: 'scrap heaps', crate: 'supply crates', camp: 'the abandoned camp', ruin: 'ruins', wreck: 'the plane wreck',
+  temple: 'the temple', templeChest: 'temple chests', reeds: 'reed beds', shrine: 'the sunken shrine', bloom: 'Blight Blooms',
+  blightling: 'Blightlings', rotboar: 'Rotboars', wisp: 'Wisps', spitter: 'Spitters', burrower: 'Burrowers', thornback: 'the Thornback',
+};
+
+// Where to look for an item, in a few words ("on the forest floor · breaking rocks"): read
+// from the forage lists and the loot tables, best odds first, so it stays true as they change.
+export function whereToFind(id, max = 3) {
+  // (a tree frees a log every third good blow: Game.hackTree, not a loot table)
+  const out = id === 'log' ? ['chopping trees with the machete'] : [];
+  if (FLOOR.has(id)) out.push('on the forest floor');
+  if (GROVE_FLOOR.has(id) && !FLOOR.has(id)) out.push('in the drowned grove');
+  const odds = [];
+  for (const [name, t] of Object.entries(LOOT)) {
+    const total = t.table.reduce((s, [, w]) => s + w, 0);
+    const w = t.table.find(([i]) => i === id)?.[1] ?? 0;
+    const p = (t.guaranteed?.includes(id) ? 1 : 0) + t.chance * t.rolls * (w / total);
+    if (p > 0.02) odds.push([name, p]);
+  }
+  odds.sort((a, b) => b[1] - a[1]);
+  for (const [name] of odds) {
+    if (out.length >= max) break;
+    out.push(SOURCE_NAMES[name] || name);
+  }
+  return out.join(' · ');
+}

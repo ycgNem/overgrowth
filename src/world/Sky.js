@@ -126,6 +126,11 @@ export class Sky {
     envDome.scale.setScalar(50);
     this.envScene.add(envDome);
     this.pmrem = new THREE.PMREMGenerator(renderer);
+    // The sky is a smooth gradient: a 64 px cube holds all of it. It is baked into this one
+    // cube and prefiltered into the same target every time (fromScene allocated a new 256 px
+    // target per bake: 20-45 ms hitches every second or two through the day).
+    this.envCube = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType, generateMipmaps: false });
+    this.envCam = new THREE.CubeCamera(0.1, 100, this.envCube);
     this.envRT = null;
     // the environment map is re-baked as sky time moves (not on a wall clock), so
     // fast-forwarding never leaves the scene lit by a stale sky and then snaps
@@ -200,7 +205,7 @@ export class Sky {
     // air is in their shade: a deep green haze with less of the sun's glow in it, not a milky veil
     this.scene.fog.color.copy(u.uFog.value).multiplyScalar(1 - 0.4 * cover);
     if (swamp > 0) this.scene.fog.color.lerp(_swampFog.copy(P.swampFog).multiplyScalar(0.25 + 0.75 * day), swamp * 0.7);
-    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002 + swamp * 0.016;
+    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002 + swamp * 0.016 + (this.fogBoost || 0);
 
     // Sun by day, moon by night (same light, swapped direction).
     const moonUp = elev < -0.02;
@@ -256,10 +261,9 @@ export class Sky {
     if (forceEnv || Number.isNaN(this.envTime) || (Math.min(moved, 1 - moved) > 0.0025 && this.envCooldown <= 0)) {
       this.envTime = this._time;
       this.envCooldown = 0.06;
-      const rt = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 100);
-      if (this.envRT) this.envRT.dispose();
-      this.envRT = rt;
-      this.scene.environment = rt.texture;
+      this.envCam.update(this.renderer, this.envScene);
+      this.envRT = this.pmrem.fromCubemap(this.envCube.texture, this.envRT);
+      this.scene.environment = this.envRT.texture;
     }
   }
 }

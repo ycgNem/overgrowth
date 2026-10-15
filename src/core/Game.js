@@ -49,6 +49,7 @@ import { Journal } from './Journal.js';
 import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
 import { difficulty, kitItems } from './Difficulty.js';
 import { MEMORIES, unlocked } from './Memories.js';
+import { bootQuality } from './Quality.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
@@ -132,6 +133,8 @@ export class Game {
     this.bloom = true;
     this.rand = Math.random;
     this.autoRes = true;
+    this.fpsCap = 0; // frames a second at most (0: every display refresh); the menu sets it
+    this.nextFrameAt = 0;
     this.resScale = 1;
     this.res = { avg: 1 / 60, cool: 3, hold: 0, fast: 0, sinceUp: 99 };
     this.resize();
@@ -145,13 +148,20 @@ export class Game {
     this.applyRes();
     this.post.enabled.ao = q !== 'low';
     this.post.enabled.vol = q === 'high';
+    // small plants, forage and the trees' full-detail crowns stop sooner below High (the fog
+    // closes in to hide the line), and the sun's shadows are redrawn less often on Low
+    this.world.pools.setScale(q === 'high' ? 1 : q === 'medium' ? 0.8 : 0.6);
+    this.world.pools.lodShadows = q !== 'low';
+    this.sky.fogBoost = q === 'low' ? 0.006 : 0;
+    this.shadowEvery = q === 'low' ? 3 : 2;
+    this.resFloor = q === 'low' ? 0.5 : 0.6;
     globalUniforms.uPom.value = q === 'low' ? 0 : 1;
     // billboard light shafts only where the ray-marched ones are off
     this.ambient.shaftScale = q === 'high' ? 0 : 1;
     for (const m of [...this.litter.meshes, ...this.groundCover.meshes, ...this.grass.meshes]) m.visible = q !== 'low';
     const sh = this.sky.sun.shadow, size = q === 'low' ? 1024 : 2048;
-    // soft contact-hardening shadows above Low (see installSoftShadows); Low keeps plain PCF
-    sh.radius = q === 'low' ? 1 : 2.5;
+    // soft contact-hardening shadows on High (see installSoftShadows); the others keep plain PCF
+    sh.radius = q === 'high' ? 2.5 : 1;
     if (sh.mapSize.x !== size) {
       sh.mapSize.set(size, size);
       sh.map?.dispose();
@@ -175,10 +185,11 @@ export class Game {
     r.cool -= dt;
     r.hold -= dt;
     if (r.cool > 0) return;
-    if (r.avg > 1 / 48 && this.resScale > 0.6) {
+    const floor = this.resFloor || 0.6;
+    if (r.avg > 1 / 48 && this.resScale > floor) {
       // a drop soon after a step up: that step was too far
       if (r.sinceUp < 5) r.hold = 45;
-      this.resScale = Math.max(0.6, this.resScale - 0.1);
+      this.resScale = Math.max(floor, this.resScale - 0.1);
       r.cool = 2;
       r.fast = 0;
       this.applyRes();
@@ -211,7 +222,10 @@ export class Game {
     let loaded = 0;
     await loadModels(() => progress(0.03 + (++loaded / MODEL_NAMES.length) * 0.12, 'Carving the Heartwood…'));
     progress(0.15, 'Gathering leaves…');
-    const lib = await new TextureLib(this.renderer).load((p) => progress(0.15 + p * 0.15, 'Gathering leaves…'));
+    // the texture sizes follow the quality the game boots with (a change applies on restart);
+    // a first boot guesses it from the graphics card
+    this.bootQuality = this.debug ? 'high' : bootQuality(this.renderer);
+    const lib = await new TextureLib(this.renderer, this.bootQuality).load((p) => progress(0.15 + p * 0.15, 'Gathering leaves…'));
     setDetailTextures(lib);
     progress(0.3, 'Growing the plants…');
     await nextFrame();
@@ -251,7 +265,9 @@ export class Game {
     this.enemies = new Enemies(this.scene);
     this.buildings = new Buildings(this.scene, this.world);
     this.ghost = new BuildGhost(this.scene);
-    this.lights = new LightPool(this.scene, 6);
+    // every lit pixel loops over all of these: Low keeps three (fixed for the run, since a
+    // change recompiles every shader)
+    this.lights = new LightPool(this.scene, this.bootQuality === 'low' ? 3 : 6);
     this.weather = new Weather(this.scene);
     this.projectiles = new Projectiles(this.scene);
     this.blooms = new Blooms(this.scene);
@@ -367,7 +383,23 @@ export class Game {
     progress(1, 'Ready');
     this.running = true;
     this.timer = new THREE.Timer();
-    this.renderer.setAnimationLoop((ts) => this.frame(ts));
+    this.renderer.setAnimationLoop((ts) => this.tick(ts));
+  }
+
+  // Frame limit: on a fast display the browser asks for a frame every refresh (144 a second
+  // on a 144 Hz screen) and the GPU draws every one of them flat out. Frames come on a
+  // schedule instead, at most fpsCap a second (0 = every refresh). Paused, or behind another
+  // window, nothing needs more than 30. (?debug runs draw every frame: e2e timings.)
+  tick(ts) {
+    const idle = !this.debug && ((this.paused && !this.title) || !document.hasFocus());
+    const cap = idle ? Math.min(this.fpsCap || 30, 30) : this.fpsCap;
+    if (cap > 0) {
+      const step = 1000 / cap;
+      // (a millisecond early still counts: refreshes jitter around the step)
+      if (ts < this.nextFrameAt - 1) return;
+      this.nextFrameAt = Math.max(this.nextFrameAt + step, ts - step * 0.5);
+    }
+    this.frame(ts);
   }
 
   // ------------------------------------------------------------- title
@@ -516,7 +548,44 @@ export class Game {
     const w = this.waves;
     if (this.loaded) this.hud.banner(`Day ${w.night}`, 'The Heartwood remembers you.');
     else this.hud.banner('Day 1', 'Gather from the forest, craft defences, guard the Heartwood.');
+    // the first new run explains itself before the day starts
+    let seen = true;
+    try { seen = localStorage.getItem('og.intro') === '1'; } catch { /* storage blocked */ }
+    if (!this.loaded && !this.debug && !seen) {
+      try { localStorage.setItem('og.intro', '1'); } catch { /* storage blocked */ }
+      this.showIntro();
+    }
     if (w.phase === 'day') setTimeout(() => { if (!this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(); }, 2500);
+  }
+
+  // the "Your vigil" card (a new run's first, and How to play on the pause menu)
+  showIntro(done) {
+    this.modal = 'intro';
+    this.input.unlock();
+    this.hud.showIntro(() => {
+      this.modal = null;
+      if (done) done();
+      else if (!this.debug) this.input.lock();
+    });
+  }
+
+  // Shaders for everything in the scene, compiled off the main thread where the browser can
+  // (KHR_parallel_shader_compile), so a material first seen mid-run doesn't stall a frame: a
+  // Blight Bloom's pods coming into view were a 300 ms hitch. Asked for when chunks load and
+  // blooms sprout; at most once a second.
+  precompile() {
+    const now = performance.now();
+    if (this.compiling || now - (this.compiledAt || 0) < 1000) {
+      this.compileAgain = true;
+      return;
+    }
+    this.compiling = true;
+    this.compiledAt = now;
+    this.compileAgain = false;
+    this.renderer.compileAsync(this.scene, this.camera).catch(() => {}).finally(() => {
+      this.compiling = false;
+      if (this.compileAgain) setTimeout(() => this.precompile(), 1000);
+    });
   }
 
   // Put the player beside the Heartwood, facing it.
@@ -635,8 +704,8 @@ export class Game {
 
   // ------------------------------------------------------------- actions
 
-  forwardXZ() {
-    return new THREE.Vector2(-Math.sin(this.player.yaw), -Math.cos(this.player.yaw));
+  forwardXZ(out = new THREE.Vector2()) {
+    return out.set(-Math.sin(this.player.yaw), -Math.cos(this.player.yaw));
   }
 
   get playerAlive() {
@@ -746,7 +815,7 @@ export class Game {
     for (const it of this.world.near(p.x, p.z, 'interactables')) {
       if (it.done || it.kind !== 'break') continue;
       const dx = it.x - p.x, dz = it.z - p.z, dy = it.y - (p.y + 1);
-      const d = Math.hypot(dx, dz);
+      const d = Math.sqrt(dx * dx + dz * dz);
       if (d - it.r > REACH * 0.8 || Math.abs(dy) > 2) continue;
       if (d > 0.4 && (dx * fwd.x + dz * fwd.y) / d < 0.4) continue;
       if (d < bd) { bd = d; best = it; }
@@ -919,12 +988,13 @@ export class Game {
 
   findInteractable() {
     const p = this.player.pos;
-    const fwd = this.forwardXZ();
+    const fwd = this.forwardXZ(this._fwd ??= new THREE.Vector2());
+    this._nearI ??= [];
     let best = null, bs = -Infinity;
-    for (const it of this.world.near(p.x, p.z, 'interactables')) {
+    for (const it of this.world.near(p.x, p.z, 'interactables', this._nearI)) {
       if (it.done) continue;
       const dx = it.x - p.x, dz = it.z - p.z, dy = it.y - (p.y + 1);
-      const d = Math.hypot(dx, dz);
+      const d = Math.sqrt(dx * dx + dz * dz);
       // buildings can be worked from a few steps back, so you can watch an upgrade land
       const far = it.kind === 'building' ? 3.5 : 1.4;
       if (d > it.r + far || Math.abs(dy) > 2.2) continue;
@@ -1066,6 +1136,7 @@ export class Game {
       return this.world.staticCircles(x - 4, z - 4, x + 4, z + 4).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2.6);
     };
     const list = this.blooms.sprout(n, this.base, this.rand, blocked);
+    this.precompile();
     const guards = Blooms.guardsFor(n);
     list.forEach((b, i) => {
       for (let k = 0; k < guards; k++) {
@@ -1832,7 +1903,9 @@ export class Game {
     if (input.hit('KeyM')) this.audio.toggleMute();
 
     const pos = this.player.pos;
+    const chunks = this.world.chunks.size;
     this.world.update(pos.x, pos.z, dt);
+    if (this.world.chunks.size > chunks) this.precompile();
     this.litter.update(pos.x, pos.z);
     this.groundCover.update(pos.x, pos.z);
     // blades clear out from under anything built since
@@ -2001,7 +2074,7 @@ export class Game {
     this.post.exposure = Math.pow(2, this.shade * 0.6 * this.sky.state.day + 0.4 * this.sky.state.night);
     if (canopyBox[3] > 0) canopyBox[3] = 0.35 + 0.2 * this.sky.state.day;
     this.frameNo++;
-    this.renderer.shadowMap.needsUpdate = this.frameNo % 2 === 0 || this.sky.timeScale > 2;
+    this.renderer.shadowMap.needsUpdate = this.frameNo % (this.shadowEvery || 2) === 0 || this.sky.timeScale > 2;
     this.cullWorld();
     this.post.render(realDt, this.machete);
     this.tickRes(realDt);

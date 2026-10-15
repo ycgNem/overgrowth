@@ -18,9 +18,13 @@ function setup(tex, { srgb, repeat = true, aniso = 8 }) {
 }
 
 export class TextureLib {
-  constructor(renderer) {
+  // detail: the quality the game booted with. The leaf atlases and their normal maps are most
+  // of the video memory (about 245 MB at full size): Medium loads the atlases' normal maps at
+  // half size, Low every atlas and ground map (about 170 MB less, for integrated graphics).
+  constructor(renderer, detail = 'high') {
     // 16x: the ground is mostly seen at grazing angles, where 8x smears it into streaks
-    this.aniso = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+    this.aniso = Math.min(detail === 'low' ? 4 : 16, renderer.capabilities.getMaxAnisotropy());
+    this.detail = detail;
     this.surface = {};
     this.atlas = {};
     this.cells = {};
@@ -34,23 +38,38 @@ export class TextureLib {
     let done = 0;
     const total = SURFACES.length * 2 + ATLASES.length * 2 + 1;
     const tick = () => progress(++done / total);
-    const tex = (file, opts) => loader.loadAsync(BASE + file).then((t) => {
+    const low = this.detail === 'low', mid = this.detail === 'medium';
+    // a texture's image at half size (flip: an <img> that WebGL would have flipped on upload;
+    // a bitmap ignores flipY, so the flip happens here instead)
+    const halve = async (t, flip) => {
+      const src = t.image;
+      t.image = await createImageBitmap(src, {
+        resizeWidth: Math.max(1, src.width >> 1), resizeHeight: Math.max(1, src.height >> 1), resizeQuality: 'high',
+        imageOrientation: flip ? 'flipY' : 'from-image', premultiplyAlpha: 'none', colorSpaceConversion: 'none',
+      });
+      if (flip) t.flipY = false;
+      src.close?.();
+      return t;
+    };
+    const tex = (file, opts, half = false) => loader.loadAsync(BASE + file).then((t) => (half ? halve(t, true) : t)).then((t) => {
       tick();
       return setup(t, { ...opts, aniso: this.aniso });
     });
     for (const s of SURFACES) {
-      jobs.push(Promise.all([tex(`${s}.jpg`, { srgb: true }), tex(`${s}_n.jpg`, { srgb: false })])
+      jobs.push(Promise.all([tex(`${s}.jpg`, { srgb: true }, low), tex(`${s}_n.jpg`, { srgb: false }, low)])
         .then(([map, nmap]) => { this.surface[s] = { map, nmap }; }));
     }
     const manifest = fetch(BASE + 'atlas.json').then((r) => r.json()).then((j) => { tick(); this.cells = j; });
     for (const a of ATLASES) {
       const map = bitmaps.loadAsync(BASE + `${a}.webp`).then((bmp) => {
-        tick();
         const t = new THREE.Texture(bmp);
         t.flipY = false;
+        return low ? halve(t, false) : t;
+      }).then((t) => {
+        tick();
         return setup(t, { srgb: true, repeat: false, aniso: this.aniso });
       });
-      jobs.push(Promise.all([map, tex(`${a}_n.jpg`, { srgb: false, repeat: false })])
+      jobs.push(Promise.all([map, tex(`${a}_n.jpg`, { srgb: false, repeat: false }, low || mid)])
         .then(([m, n]) => { this.atlas[a] = { map: m, nmap: n }; }));
     }
     jobs.push(manifest);

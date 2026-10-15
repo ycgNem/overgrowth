@@ -82,6 +82,8 @@ const SETTINGS = {
   quality: { key: 'og.quality', def: 'high' },
   bloom: { key: 'og.bloom', def: '1' },
   autores: { key: 'og.autores', def: '1' },
+  // 60 a second unless asked: on a 144 Hz screen the GPU otherwise draws 144 frames a second
+  fps: { key: 'og.fps', def: '60' },
   sensitivity: { key: 'og.sensitivity', def: '1' },
   invertY: { key: 'og.invertY', def: '0' },
   volume: { key: 'og.volume', def: '1' },
@@ -209,13 +211,24 @@ export class Menu {
     info.innerHTML = `${phase} · ${difficulty(g.difficulty).name}${tonight}`;
     this.setItems([
       { id: 'resume', label: 'Resume', primary: true, act: () => this.cb.onResume() },
-      { id: 'guide', label: 'Field Guide', gap: true, act: () => this.open('guide') },
+      { id: 'howto', label: 'How to Play', gap: true, act: () => this.howTo() },
+      { id: 'guide', label: 'Field Guide', act: () => this.open('guide') },
       { id: 'settings', label: 'Settings', act: () => this.open('settings') },
       { id: 'controls', label: 'Controls', act: () => this.open('controls') },
       { id: 'quit', label: 'Quit to Title', gap: true, act: () => this.open('quit') },
     ]);
     this.close(true);
     this.select(0, { quiet: true });
+  }
+
+  // the opening card again, over the game; closing it resumes play
+  howTo() {
+    const g = this.game;
+    this.hidePause();
+    g.showIntro(() => {
+      g.setPaused(false);
+      if (!g.debug) g.input.lock();
+    });
   }
 
   hidePause() {
@@ -583,12 +596,14 @@ export class Menu {
   pageSettings() {
     this.head('Settings', 'Tune the forest');
     const g = this.game;
-    const q = readSetting('quality');
+    const q = readSetting('quality'), fps = readSetting('fps');
     this.html(`
       <div class="set-group"><h4>Display</h4>
-        <div class="set-row"><label>Quality<small>Shadows, grass density and effects</small></label>
+        <div class="set-row"><label>Quality<small>Shadows, distance, textures</small></label>
           <div class="seg" id="s-quality">${['low', 'medium', 'high'].map((v) => `<button data-v="${v}" class="${v === q ? 'sel' : ''}">${v}</button>`).join('')}</div></div>
         <div class="set-row"><label>Steady frame rate<small>Draws a little softer when frames run slow</small></label><button class="toggle${readSetting('autores') === '1' ? ' on' : ''}" id="s-autores" aria-label="Steady frame rate"></button></div>
+        <div class="set-row"><label>Frame limit<small>Fewer frames run the graphics card cooler</small></label>
+          <div class="seg" id="s-fps">${[['30', '30'], ['60', '60'], ['120', '120'], ['0', 'Off']].map(([v, l]) => `<button data-v="${v}" class="${v === fps ? 'sel' : ''}">${l}</button>`).join('')}</div></div>
         <div class="set-row"><label>Glow<small>Bloom on fire, spores and the Heartwood</small></label><button class="toggle${readSetting('bloom') === '1' ? ' on' : ''}" id="s-bloom" aria-label="Glow"></button></div>
       </div>
       <div class="set-group"><h4>Controls</h4>
@@ -599,15 +614,19 @@ export class Menu {
         <div class="set-row"><label>Volume</label><div class="slider"><input type="range" class="fancy" id="s-vol" min="0" max="1" step="0.01" value="${readSetting('volume')}"><output></output></div></div>
         <div class="set-row"><label>Title music</label><button class="toggle${readSetting('music') === '1' ? ' on' : ''}" id="s-music" aria-label="Title music"></button></div>
       </div>`);
-    const seg = $('#s-quality', this.body);
-    for (const b of seg.querySelectorAll('button')) {
-      b.addEventListener('click', () => {
-        this.audio.ui();
-        for (const o of seg.querySelectorAll('button')) o.classList.toggle('sel', o === b);
-        writeSetting('quality', b.dataset.v);
-        g.setQuality(b.dataset.v);
-      });
-    }
+    const segment = (sel, name, apply) => {
+      const seg = $(sel, this.body);
+      for (const b of seg.querySelectorAll('button')) {
+        b.addEventListener('click', () => {
+          this.audio.ui();
+          for (const o of seg.querySelectorAll('button')) o.classList.toggle('sel', o === b);
+          writeSetting(name, b.dataset.v);
+          apply(b.dataset.v);
+        });
+      }
+    };
+    segment('#s-quality', 'quality', (v) => g.setQuality(v));
+    segment('#s-fps', 'fps', (v) => { g.fpsCap = Number(v); });
     const toggle = (sel, name, apply) => {
       const t = $(sel, this.body);
       t.addEventListener('click', () => {
@@ -646,6 +665,8 @@ export class Menu {
     const g = this.game;
     g.bloom = readSetting('bloom') === '1';
     g.autoRes = readSetting('autores') === '1';
+    // (?debug runs keep every frame: the e2e timings measure frames flat out)
+    g.fpsCap = g.debug ? 0 : Number(readSetting('fps'));
     this.audio.volume = Number(readSetting('volume'));
   }
 

@@ -107,8 +107,9 @@ export class Water {
     const cx = world.cx, cz = world.cz;
     if (!Number.isFinite(cx)) return;
     // only rebuild when the window moves or a chunk inside it appears or disappears
-    let keys = '';
-    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) keys += world.chunks.has(`${cx + dx},${cz + dz}`) ? '1' : '0';
+    // (a bit per chunk of the 5x5 window, not a string: this runs every frame)
+    let keys = 0;
+    for (let dz = -2, bit = 1; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++, bit *= 2) if (world.chunks.has(world.constructor.key(cx + dx, cz + dz))) keys += bit;
     if (cx === this.window.cx && cz === this.window.cz && keys === this.window.keys) return;
     this.window = { cx, cz, keys };
     const N = WIN * RES, H = this.heights;
@@ -116,7 +117,7 @@ export class Water {
     H.fill(half(50));
     for (let dz = -2; dz <= 2; dz++) {
       for (let dx = -2; dx <= 2; dx++) {
-        const ch = world.chunks.get(`${cx + dx},${cz + dz}`);
+        const ch = world.chunks.get(world.constructor.key(cx + dx, cz + dz));
         if (!ch || !ch.heights) continue;
         const W = RES + 3; // the chunk keeps a one-sample border
         const ox = (dx + 2) * RES, oz = (dz + 2) * RES;
