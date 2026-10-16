@@ -2,13 +2,18 @@
 // strip, combat feedback (damage numbers, health bars, hit markers, the boss bar), the
 // journal, and the overlays (satchel + crafting, boons, victory, game over).
 import * as THREE from 'three';
-import { ITEMS, RARITY, KIND, whereToFind } from '../items/ItemDB.js';
-import { RECIPES } from '../items/Recipes.js';
-import { HOTBAR } from '../items/Inventory.js';
+import { ITEMS, RARITY, KIND, whereToFind, weightOf, PACKS } from '../items/ItemDB.js';
+import { RECIPES, BENCHES, BENCH_IDS, AT_NAMES } from '../items/Recipes.js';
+import { HOTBAR, LADEN, HARD_CAP, transfer } from '../items/Inventory.js';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
 import { describeWave } from '../defense/Waves.js';
+import { AFFIXES, affixRim } from '../defense/Enemies.js';
+import { ROOTS, BUILD_DEFS } from '../defense/Towers.js';
+
+// the kind of damage a defence does, on its craft card (the Blight resist some, fear others)
+const DTYPE = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce' };
 
 const $ = (s) => document.querySelector(s);
 const DEG = Math.PI / 180;
@@ -28,8 +33,10 @@ export class HUD {
       cross: $('#crosshair'), toasts: $('#toasts'),
       stamina: $('#stamina'), staminaBar: $('#stamina div'), health: $('#health'), healthBar: $('#health div'), healthText: $('#health span'),
       discover: $('#discover'), fps: $('#fps'),
-      inv: $('#inventory'), grid: $('#inv-grid'), belt: $('#inv-belt'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
-      slots: $('#inv-slots'), relics: $('#inv-relics'),
+      inv: $('#inventory'), grid: $('#inv-grid'), belt: $('#inv-belt'), safe: $('#inv-safe'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
+      slots: $('#inv-slots'), relics: $('#inv-relics'), packName: $('#inv-pack'), weight: $('#inv-weight'),
+      tabs: $('#inv-tabs'), other: $('#inv-other'), otherGrid: $('#other-grid'), craft: $('#inv-craft'), benchRow: $('#bench-row'),
+      notes: $('#inv-notes'),
       underwater: $('#underwater'), hint: $('#hint'), hotbar: $('#hotbar'), held: $('#held'), ammo: $('#ammo'),
       phase: $('#phase'), phaseTitle: $('#phase .title'), phaseSub: $('#phase .sub'),
       heartBar: $('#heart-bar .fill'), heartLag: $('#heart-bar .lag'), heartText: $('#heart-bar span'),
@@ -51,8 +58,17 @@ export class HUD {
     this.markers = []; // { key, x, z, icon, label, cls }
     this.fpsAcc = { t: 0, n: 0 };
     this.hurtT = 0;
-    this.carry = null; // slot index picked up in the satchel
+    this.carry = null; // { inv, i }: the stack picked up in the satchel (or the other pane)
+    this.otherPane = null; // { title, sub, inv, hidden, kind, actions } while a container or the Coffer is open
+    this.tab = 'craft';
+    this.notes = []; // the pages read this run (core/Story.js NOTES), newest last
+    this.noteSel = null;
+    // what crafting can see: () => { atCamp, benches: {id: level}, src } (Game sets it)
+    this.craftCtx = () => ({ atCamp: false, benches: {}, src: this.inv });
     this.onCraft = null;
+    this.onSalvage = null;
+    this.onFull = null;
+    this.onCloseOther = null;
     this.onUse = null;
     this.onDrop = null;
     this.floats = []; // damage numbers
@@ -305,7 +321,16 @@ export class HUD {
   // ------------------------------------------------------------- feedback
 
   // label: main line; sub: a second, smaller line (costs, alternatives)
+  // the keys named in a hint, as the player has bound them (Settings > Controls): Game sets
+  // keyLabel(code)
+  keys(html) {
+    if (!this.keyLabel || !html) return html;
+    return html.replace(/<kbd>([A-Z]|Tab|Space|Shift)<\/kbd>/g, (m, k) => `<kbd>${this.keyLabel(k.length === 1 ? `Key${k}` : k === 'Shift' ? 'ShiftLeft' : k)}</kbd>`);
+  }
+
   prompt(label, progress = 0, key = 'E', sub = '') {
+    if (this.keyLabel && /^[A-Z]$/.test(key)) key = this.keyLabel(`Key${key}`);
+    sub = this.keys(sub);
     const p = this.el.prompt;
     if (!label) {
       p.classList.remove('show');
@@ -326,9 +351,9 @@ export class HUD {
   }
 
   // "10/2 [icon] 0/1 [icon]" for a recipe-like cost: what you carry over what it takes
-  costHtml(needs) {
+  costHtml(needs, src = this.craftCtx().src) {
     return Object.entries(needs).map(([id, n]) => {
-      const have = this.inv.count(id);
+      const have = src.count(id);
       return `<span class="${have >= n ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}">${have}/${n}</span>`;
     }).join(' ');
   }
@@ -365,7 +390,7 @@ export class HUD {
     const t = document.createElement('div');
     t.className = 'toast msg';
     t.style.setProperty('--rc', color);
-    t.innerHTML = `<div><div class="n">${text}</div></div>`;
+    t.innerHTML = `<div><div class="n">${this.keys(text)}</div></div>`;
     this.el.toasts.appendChild(t);
     while (this.el.toasts.children.length > 6) this.el.toasts.firstChild.remove();
     setTimeout(() => t.remove(), 4100);
@@ -379,10 +404,20 @@ export class HUD {
     d.classList.add('show');
   }
 
-  banner(title, sub, cls = '') {
+  // line2: { text, color }, a second line in its own colour (tonight's Sign under a boss)
+  banner(title, sub, cls = '', line2 = null) {
     const b = this.el.banner;
     b.querySelector('b').textContent = title;
     b.querySelector('span').textContent = sub;
+    let l2 = b.querySelector('i.line2');
+    if (!l2) {
+      l2 = document.createElement('i');
+      l2.className = 'line2';
+      b.appendChild(l2);
+    }
+    l2.textContent = line2?.text || '';
+    l2.style.color = line2?.color || '';
+    l2.style.display = line2 ? '' : 'none';
     b.className = cls;
     void b.offsetWidth;
     b.classList.add('show');
@@ -478,8 +513,9 @@ export class HUD {
   statsHtml(s) {
     const lines = [
       s.nights ? `You held the Heartwood for <b>${s.nights}</b> night${s.nights === 1 ? '' : 's'} and felled <b>${s.kills}</b> Blight.` : `The Blight took the Heartwood on the first night. You felled <b>${s.kills}</b> of them.`,
-      `<small>${s.built} built · ${s.upgraded} upgraded · ${s.boons} boon${s.boons === 1 ? '' : 's'}${s.bosses ? ` · ${s.bosses} Thornback${s.bosses === 1 ? '' : 's'} slain` : ''}</small>`,
+      `<small>${s.built} built · ${s.upgraded} upgraded · ${s.boons} boon${s.boons === 1 ? '' : 's'}${s.bosses ? ` · ${s.bosses} boss${s.bosses === 1 ? '' : 'es'} slain` : ''}</small>`,
     ];
+    if (s.score != null) lines.push(`<small>${s.daily ? 'Daily vigil · ' : ''}Score <b>${s.score.toLocaleString()}</b>${s.best?.score ? ` · best ${s.best.score.toLocaleString()}` : ''}</small>`);
     if (s.best) lines.push(`<small>Best: ${s.best.nights} night${s.best.nights === 1 ? '' : 's'}</small>`);
     return lines.join('');
   }
@@ -508,13 +544,64 @@ export class HUD {
   satchelChip() {
     const el = this.chipEl ??= document.getElementById('satchel-chip');
     if (!el) return;
-    const n = RECIPES.filter((r) => ITEMS[r.out].kind === 'build' && this.inv.canAfford(r.needs)).length;
+    const ctx = this.craftCtx();
+    const n = RECIPES.filter((r) => ITEMS[r.out].kind === 'build' && this.recipeState(r, ctx).ok).length;
     const html = n ? `<kbd>Tab</kbd><span>Satchel · <b>${n} defence${n > 1 ? 's' : ''} ready to craft</b></span>` : '<kbd>Tab</kbd><span>Satchel &amp; crafting</span>';
     if (html !== this.chipHtml) {
       this.chipHtml = html;
       el.innerHTML = html;
       el.classList.toggle('ready', n > 0);
     }
+  }
+
+  // A torn page, read: the paper card over the game. done() when it's put away.
+  showNote(n, done) {
+    const el = document.getElementById('note');
+    el.querySelector('.eyebrow').textContent = n.map ? 'A map' : 'A torn page';
+    el.querySelector('h2').textContent = n.title;
+    el.querySelector('.text').textContent = n.text;
+    el.querySelector('.sign').textContent = `· ${n.who} ·`;
+    el.classList.toggle('map', !!n.map);
+    el.classList.remove('hidden');
+    const go = el.querySelector('button');
+    const close = () => {
+      el.classList.add('hidden');
+      go.removeEventListener('click', close);
+      removeEventListener('keydown', key, true);
+      done?.();
+    };
+    const key = (e) => {
+      if (['Enter', 'Space', 'Escape', 'KeyE'].includes(e.code)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        close();
+      }
+    };
+    go.addEventListener('click', close);
+    addEventListener('keydown', key, true);
+  }
+
+  // An ending: { eyebrow, title, lead, stats, buttons: [{ label, primary, fn }] }
+  showEnding(o) {
+    const el = document.getElementById('ending');
+    el.querySelector('.eyebrow').textContent = o.eyebrow || '';
+    el.querySelector('h1').textContent = o.title;
+    el.querySelector('.lead').innerHTML = o.lead || '';
+    el.querySelector('.stats').innerHTML = o.stats ? this.statsHtml(o.stats) : '';
+    el.dataset.kind = o.kind || '';
+    const bt = el.querySelector('.buttons');
+    bt.innerHTML = '';
+    for (const b of o.buttons) {
+      const e = document.createElement('button');
+      e.textContent = b.label;
+      if (b.primary) e.className = 'primary';
+      e.addEventListener('click', () => {
+        el.classList.add('hidden');
+        b.fn();
+      });
+      bt.appendChild(e);
+    }
+    el.classList.remove('hidden');
   }
 
   // The opening card of a new run: what the vigil is and how a day goes. done() when closed.
@@ -564,27 +651,33 @@ export class HUD {
     }
     // health bars over hurt enemies and damaged buildings nearby
     let n = 0;
-    const bar = (pos, frac, cls) => {
+    // glyph: an elite's affix over its bar; shield: what's left of a Shielded elite's crust
+    const bar = (pos, frac, cls, glyph = '', shield = 0, color = '') => {
       if (!this.project(pos, camera, sp)) return;
       let el = this.bars[n];
       if (!el) {
         el = document.createElement('div');
-        el.innerHTML = '<div></div>';
+        el.innerHTML = '<div></div><i></i><b></b>';
         this.el.floaters.appendChild(el);
         this.bars[n] = el;
       }
       n++;
-      el.className = `ebar ${cls}`;
+      const c = `ebar ${cls}`;
+      if (el.className !== c) el.className = c;
       el.style.display = '';
       el.style.transform = `translate(${sp.x}px, ${sp.y}px)`;
       el.firstChild.style.width = `${Math.max(0, frac) * 100}%`;
+      el.children[1].style.width = `${Math.max(0, shield) * 100}%`;
+      if (el.children[2].textContent !== glyph) el.children[2].textContent = glyph;
+      if (glyph) el.children[2].style.color = color;
     };
     for (const e of enemies) {
       if (n >= 28) break;
-      if (e.dying || e.barT <= 0 || e.def.boss) continue;
-      if (Math.hypot(e.pos.x - player.x, e.pos.z - player.z) > 45) continue;
+      if (e.dying || e.def.boss || (e.barT <= 0 && !e.affix)) continue;
+      if (Math.hypot(e.pos.x - player.x, e.pos.z - player.z) > (e.affix ? 30 : 45)) continue;
       _p.set(e.pos.x, e.pos.y + (e.def.chest * 2 + 0.35) * e.def.scale, e.pos.z);
-      bar(_p.clone(), e.hp / e.maxHp, '');
+      const af = e.affix && AFFIXES[e.affix];
+      bar(_p.clone(), e.hp / e.maxHp, af ? 'elite' : '', af ? af.glyph : '', e.shield > 0 ? e.shield / e.maxShield : 0, af ? `#${affixRim(e.affix).toString(16).padStart(6, '0')}` : '');
     }
     for (const b of buildings) {
       if (n >= 36) break;
@@ -602,7 +695,7 @@ export class HUD {
     const key = lines.map((l) => l.html + l.done + l.main).join('|');
     if (key === this.journalKey) return;
     this.journalKey = key;
-    this.el.journal.innerHTML = lines.length ? `<div class="head">Journal</div>${lines.map((l) => `<div class="j${l.main ? ' main' : ''}${l.done ? ' done' : ''}">${l.html}</div>`).join('')}` : '';
+    this.el.journal.innerHTML = lines.length ? `<div class="head">Journal</div>${lines.map((l) => `<div class="j${l.main ? ' main' : ''}${l.done ? ' done' : ''}">${this.keys(l.html)}</div>`).join('')}` : '';
   }
 
   frame(dt, s) {
@@ -614,6 +707,13 @@ export class HUD {
     this.el.healthBar.style.width = `${(s.hp / s.maxHp) * 100}%`;
     this.el.health.classList.toggle('low', s.hp / s.maxHp < 0.3);
     this.el.healthText.textContent = Math.ceil(s.hp);
+    // laden or encumbered: say so under the stamina bar, with the weight
+    const bd = this.inv.burden, bel = (this.el.burden ??= $('#burden'));
+    const bt = bd === 'light' ? '' : `${bd === 'laden' ? 'Laden' : 'Encumbered'} · ${this.inv.weight.toFixed(1)}/${this.inv.capacity} kg`;
+    if (bel && bel.textContent !== bt) {
+      bel.textContent = bt;
+      bel.className = bd;
+    }
     this.el.underwater.style.opacity = s.underwater ? '1' : '0';
     this.hurtT = Math.max(0, this.hurtT - dt * 1.6);
     this.el.hurt.style.opacity = String(Math.max(this.hurtT, s.hp / s.maxHp < 0.3 ? 0.35 + Math.sin(performance.now() / 300) * 0.1 : 0));
@@ -637,6 +737,18 @@ export class HUD {
     this.el.phase.classList.toggle('night', w.phase === 'night');
     if (this.el.phaseTitle.textContent !== title) this.el.phaseTitle.textContent = title;
     if (this.el.phaseSub.textContent !== sub) this.el.phaseSub.textContent = sub;
+    // tonight's Sign, in its colour, under the line
+    const S = w.signTonight, st = S ? `${S.glyph} ${S.name}` : '';
+    if (!this.el.phaseSign) {
+      this.el.phaseSign = document.createElement('div');
+      this.el.phaseSign.className = 'phase-sign';
+      this.el.phaseSub.after(this.el.phaseSign);
+    }
+    if (this.el.phaseSign.textContent !== st) {
+      this.el.phaseSign.textContent = st;
+      this.el.phaseSign.style.color = S?.color || '';
+      this.el.phaseSign.title = S?.desc || '';
+    }
     const hf = `${(s.base.hp / s.base.maxHp) * 100}%`;
     if (this.el.heartBar.style.width !== hf) {
       this.el.heartBar.style.width = hf;
@@ -647,8 +759,10 @@ export class HUD {
 
     // boss
     const boss = s.boss;
-    this.el.boss.classList.toggle('hidden', !boss);
+    this.el.boss.classList.toggle('hidden', !boss || s.waves.phase === 'over');
     if (boss) {
+      const n = boss.def.name.startsWith('The') ? boss.def.name : `The ${boss.def.name}`;
+      if (this.el.bossName.textContent !== n) this.el.bossName.textContent = n;
       const f = `${Math.max(0, boss.hp / boss.maxHp) * 100}%`;
       if (this.el.bossFill.style.width !== f) {
         this.el.bossFill.style.width = f;
@@ -729,46 +843,81 @@ export class HUD {
     return !this.el.inv.classList.contains('hidden');
   }
 
-  toggleInventory(on = !this.inventoryOpen) {
+  // other: a container or the Coffer shown beside the satchel ({ title, sub, inv, hidden, kind,
+  // actions: [{ label, key, fn }] }), or null for the satchel alone
+  toggleInventory(on = !this.inventoryOpen, other = null) {
     this.el.inv.classList.toggle('hidden', !on);
     this.carry = null;
+    const had = this.otherPane;
+    this.otherPane = on ? other : null;
+    if (had && had !== this.otherPane) this.onCloseOther?.(had);
+    this.tab = this.otherPane ? 'other' : 'craft';
     if (!on) this.hideTip();
     if (on) this.renderInventory();
   }
 
+  makeSlot(parent, inv, i) {
+    const s = document.createElement('div');
+    s.className = 'slot';
+    s.innerHTML = '<img alt=""><span class="count"></span><svg class="search" viewBox="0 0 40 40"><circle cx="20" cy="20" r="15"/></svg>';
+    s.addEventListener('mouseenter', () => {
+      const it = inv().slots[i];
+      if (it && !this.isHidden(inv(), i)) this.detail(it.id);
+    });
+    s.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      this.slotClick(inv(), i, ev);
+    });
+    s.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    parent.appendChild(s);
+    return s;
+  }
+
+  isHidden(inv, i) {
+    const o = this.otherPane;
+    return !!(o && o.inv === inv && o.hidden?.has(i));
+  }
+
+  slotClick(inv, i, ev) {
+    const o = this.otherPane;
+    const mine = inv === this.inv;
+    if (this.isHidden(inv, i)) return;
+    const s = inv.slots[i];
+    if (ev.button === 2) {
+      if (!mine || !s) return;
+      // right-click: use a consumable, salvage a defence, drop one of anything else
+      if (ITEMS[s.id].kind === 'use') this.onUse?.(i);
+      else if (ITEMS[s.id].kind === 'build') this.onSalvage?.(i);
+      else this.onDrop?.(i);
+      return;
+    }
+    if (this.carry === null) {
+      if (!s) return;
+      // shift-click (or a click in the container) sends the whole stack across
+      if (o && (ev.shiftKey || !mine)) {
+        const n = transfer(inv, i, mine ? o.inv : this.inv);
+        if (!n) this.onFull?.(mine ? o : null);
+        this.renderInventory();
+        return;
+      }
+      this.carry = { inv, i };
+    } else {
+      const c = this.carry;
+      this.carry = null;
+      if (c.inv === inv) inv.move(c.i, i);
+      else if (!transfer(c.inv, c.i, inv, i)) this.onFull?.(mine ? null : o);
+    }
+    this.renderInventory();
+  }
+
   buildSatchel() {
     this.slotEls = [];
-    const make = (i, parent) => {
-      const s = document.createElement('div');
-      s.className = 'slot';
-      s.innerHTML = '<img alt=""><span class="count"></span>';
-      s.addEventListener('mouseenter', () => {
-        const it = this.inv.slots[i];
-        if (it) this.detail(it.id);
-      });
-      s.addEventListener('mousedown', (ev) => {
-        ev.preventDefault();
-        if (ev.button === 2) {
-          // right-click: use a consumable / drop one of anything else
-          const it = this.inv.slots[i];
-          if (it && ITEMS[it.id].kind === 'use') this.onUse?.(i);
-          else if (it) this.onDrop?.(i);
-          return;
-        }
-        if (this.carry === null) {
-          if (this.inv.slots[i]) this.carry = i;
-        } else {
-          this.inv.move(this.carry, i);
-          this.carry = null;
-        }
-        this.renderInventory();
-      });
-      s.addEventListener('contextmenu', (ev) => ev.preventDefault());
-      parent.appendChild(s);
-      this.slotEls[i] = s;
-    };
-    for (let i = 0; i < HOTBAR; i++) make(i, this.el.belt);
-    for (let i = HOTBAR; i < this.inv.slots.length; i++) make(i, this.el.grid);
+    const inv = () => this.inv;
+    for (let i = 0; i < HOTBAR; i++) this.slotEls[i] = this.makeSlot(this.el.belt, inv, i);
+    for (let i = this.inv.packStart; i < this.inv.safeStart; i++) this.slotEls[i] = this.makeSlot(this.el.grid, inv, i);
+    for (let i = this.inv.safeStart; i < this.inv.slots.length; i++) this.slotEls[i] = this.makeSlot(this.el.safe, inv, i);
+    this.otherEls = [];
+    this.otherInv = null;
     // recipes, in groups
     let group = null;
     this.recipeEls = [];
@@ -782,7 +931,7 @@ export class HUD {
       }
       const card = document.createElement('div');
       card.className = 'recipe';
-      card.innerHTML = `<img class="out" alt=""><div class="body"><div class="name"></div><div class="needs"></div></div><button>Craft</button>`;
+      card.innerHTML = '<img class="out" alt=""><div class="body"><div class="name"></div><div class="needs"></div><div class="meta"></div><div class="at"></div></div><button>Craft</button>';
       card.querySelector('button').addEventListener('click', () => this.onCraft?.(r));
       card.addEventListener('mouseenter', (ev) => {
         this.detail(r.out);
@@ -793,47 +942,233 @@ export class HUD {
       this.el.recipes.appendChild(card);
       this.recipeEls.push({ r, card });
     }
+    this.el.tabs.addEventListener('mousedown', (ev) => {
+      const t = ev.target.closest('[data-tab]');
+      if (!t) return;
+      this.tab = t.dataset.tab;
+      this.renderInventory();
+    });
+    this.el.other.querySelector('.acts').addEventListener('mousedown', (ev) => {
+      const b = ev.target.closest('button[data-i]');
+      if (!b) return;
+      this.otherPane?.actions?.[+b.dataset.i]?.fn();
+      this.renderInventory();
+    });
+  }
+
+  // Can recipe r be made here and now? { ok, where, afford, note }
+  recipeState(r, ctx = this.craftCtx()) {
+    const lvl = r.lvl || 1;
+    let where = true, note = '';
+    if (r.at !== 'field') {
+      const have = ctx.benches?.[r.at] ?? 0;
+      const name = AT_NAMES[r.at];
+      if (!ctx.atCamp) {
+        where = false;
+        note = `At camp · ${name}`;
+      } else if (have < 1) {
+        where = false;
+        note = `Build the ${name} first`;
+      } else if (have < lvl) {
+        where = false;
+        note = `Needs the ${name} at level ${lvl}`;
+      } else note = name;
+    }
+    const afford = ctx.src.canAfford(r.needs);
+    return { ok: where && afford, where, afford, note };
+  }
+
+  setSlot(el, s, hidden = false, locked = false) {
+    el.classList.toggle('empty', !s || hidden);
+    el.classList.toggle('hidden-item', hidden);
+    el.classList.toggle('locked', locked);
+    const img = el.querySelector('img');
+    const src = s && !hidden ? this.icons[s.id] || '' : '';
+    if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+    el.querySelector('.count').textContent = s && !hidden && s.n > 1 ? s.n : '';
+    el.style.setProperty('--rc', s && !hidden ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
+  }
+
+  renderWeight() {
+    const inv = this.inv, w = inv.weight, cap = inv.capacity;
+    const el = this.el.weight;
+    const k = Math.min(1, w / (cap * HARD_CAP));
+    el.querySelector('i').style.width = `${(k * 100).toFixed(1)}%`;
+    el.querySelector('.mark.laden').style.left = `${(LADEN / HARD_CAP) * 100}%`;
+    el.querySelector('.mark.full').style.left = `${(1 / HARD_CAP) * 100}%`;
+    const b = inv.burden;
+    el.dataset.burden = b;
+    const txt = b === 'encumbered' ? 'Encumbered: no sprint, slow and loud' : b === 'laden' ? 'Laden: a little slower, tires faster' : 'Light';
+    el.querySelector('.txt').innerHTML = `<b>${w.toFixed(1)}</b> / ${cap} kg · ${txt}`;
   }
 
   renderInventory() {
-    this.inv.slots.forEach((s, i) => {
+    const inv = this.inv;
+    inv.slots.forEach((s, i) => {
       const el = this.slotEls[i];
-      el.classList.toggle('empty', !s);
-      el.classList.toggle('carry', this.carry === i);
-      el.classList.toggle('sel', i === this.inv.selected);
-      const img = el.querySelector('img');
-      const src = s ? this.icons[s.id] || '' : '';
-      if (img.getAttribute('src') !== src) img.setAttribute('src', src);
-      el.querySelector('.count').textContent = s && s.n > 1 ? s.n : '';
-      el.style.setProperty('--rc', s ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
+      if (!el) return;
+      const ok = inv.usable(i);
+      el.style.display = ok ? '' : 'none';
+      this.setSlot(el, s, false, !ok);
+      el.classList.toggle('carry', this.carry?.inv === inv && this.carry.i === i);
+      el.classList.toggle('sel', i === inv.selected);
     });
-    for (const { r, card } of this.recipeEls) {
-      const def = ITEMS[r.out];
-      const ok = this.inv.canAfford(r.needs);
-      card.classList.toggle('ok', ok);
-      card.style.setProperty('--rc', RARITY[def.rarity].color);
-      const img = card.querySelector('img.out');
-      if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
-      card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '');
-      card.querySelector('.needs').innerHTML = this.costHtml(r.needs);
-      card.querySelector('button').disabled = !ok;
+    this.renderWeight();
+    // the right side: the open container / Coffer, or crafting
+    const o = this.otherPane;
+    const tabs = [];
+    if (o) tabs.push(['other', o.title]);
+    tabs.push(['craft', 'Craft']);
+    if (this.notes.length) tabs.push(['notes', `Notes <small>${this.notes.length}</small>`]);
+    const th = tabs.map(([k, t]) => `<button data-tab="${k}" class="${this.tab === k ? 'on' : ''}">${t}</button>`).join('');
+    if (this.el.tabs.innerHTML !== th) this.el.tabs.innerHTML = th;
+    this.el.other.classList.toggle('hidden', this.tab !== 'other' || !o);
+    this.el.craft.classList.toggle('hidden', this.tab !== 'craft');
+    this.el.notes.classList.toggle('hidden', this.tab !== 'notes');
+    if (o && this.tab === 'other') this.renderOther();
+    if (this.tab === 'notes') this.renderNotes();
+    const ctx = this.craftCtx();
+    if (this.tab === 'craft') {
+      // the camp's benches, and whether they count from here
+      const benches = BENCH_IDS.map((id) => {
+        const b = BENCHES[id], lv = ctx.benches?.[id] ?? 0;
+        return `<span class="${lv ? 'built' : ''}">${b.glyph} ${b.name} ${lv ? `<b>${'●'.repeat(lv)}${'○'.repeat(3 - lv)}</b>` : '<i>not built</i>'}</span>`;
+      }).join('');
+      const where = ctx.atCamp ? '<em class="camp">In camp: the benches and the Coffer count</em>' : '<em>Away from camp: only recipes marked Anywhere</em>';
+      const bh = `${benches}${where}`;
+      if (this.el.benchRow.innerHTML !== bh) this.el.benchRow.innerHTML = bh;
+      for (const { r, card } of this.recipeEls) {
+        const def = ITEMS[r.out];
+        const st = this.recipeState(r, ctx);
+        card.classList.toggle('ok', st.ok);
+        card.classList.toggle('away', !st.where);
+        card.style.setProperty('--rc', RARITY[def.rarity].color);
+        const img = card.querySelector('img.out');
+        if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
+        card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '');
+        card.querySelector('.needs').innerHTML = this.costHtml(r.needs, ctx.src);
+        // a defence: what it draws from the roots against what's free, and its damage type
+        const bd = def.kind === 'build' && BUILD_DEFS[r.out];
+        let meta = '';
+        if (bd && ctx.roots) {
+          const k = ROOTS[r.out] || 1, over = ctx.roots.used + k > ctx.roots.cap;
+          meta = `<span class="roots${over ? ' over' : ''}">❦ ${k} root${k > 1 ? 's' : ''} · ${ctx.roots.used}/${ctx.roots.cap}</span>${DTYPE[bd.kind] ? `<span class="dtype t-${DTYPE[bd.kind].toLowerCase()}">${DTYPE[bd.kind]}</span>` : ''}`;
+        }
+        const me = card.querySelector('.meta');
+        if (me.innerHTML !== meta) me.innerHTML = meta;
+        const at = card.querySelector('.at');
+        at.textContent = r.at === 'field' ? 'Anywhere' : st.note;
+        at.classList.toggle('bad', !st.where);
+        card.querySelector('button').disabled = !st.ok;
+      }
     }
     // the tooltip follows the satchel as things are crafted or moved
     if (this.tipRecipe) this.showTip(this.tipRecipe);
-    this.el.slots.textContent = `${this.inv.used}/${this.inv.slots.length}`;
-    this.el.relics.textContent = this.inv.relicValue;
+    this.el.slots.textContent = `${inv.used}/${inv.size}`;
+    this.el.relics.textContent = inv.relicValue;
+    this.el.packName.textContent = ITEMS[inv.packId]?.name ?? 'Satchel';
+  }
+
+  // the pages read this run: a list down the side, the chosen one on the right
+  renderNotes() {
+    const el = this.el.notes;
+    if (!this.noteSel || !this.notes.includes(this.noteSel)) this.noteSel = this.notes[this.notes.length - 1];
+    const list = this.notes.map((n, i) => `<button data-n="${i}" class="${n === this.noteSel ? 'on' : ''}${n.map ? ' map' : ''}"><b>${n.who}</b><span>${n.title}</span></button>`).join('');
+    const L = el.querySelector('.note-list');
+    if (L.innerHTML !== list) {
+      L.innerHTML = list;
+      L.onmousedown = (ev) => {
+        const b = ev.target.closest('[data-n]');
+        if (!b) return;
+        this.noteSel = this.notes[+b.dataset.n];
+        this.renderNotes();
+      };
+    }
+    const n = this.noteSel;
+    const page = n ? `<h4>${n.title}</h4><p>${n.text}</p><div class="sign">· ${n.who} ·</div>` : '';
+    const P = el.querySelector('.note-page');
+    if (P.innerHTML !== page) P.innerHTML = page;
+  }
+
+  // the open container or Coffer: its slots, the unsearched ones as question marks
+  renderOther() {
+    const o = this.otherPane;
+    if (this.otherInv !== o.inv) {
+      this.otherInv = o.inv;
+      this.el.otherGrid.innerHTML = '';
+      this.otherEls = [];
+      o.inv.slots.forEach((_, i) => { this.otherEls[i] = this.makeSlot(this.el.otherGrid, () => this.otherPane?.inv ?? o.inv, i); });
+    }
+    this.el.otherGrid.classList.toggle('big', o.inv.slots.length > 24);
+    const head = this.el.other.querySelector('.t');
+    if (head.textContent !== o.title) head.textContent = o.title;
+    const sub = this.el.other.querySelector('.other-sub');
+    if (sub.innerHTML !== (o.sub || '')) sub.innerHTML = o.sub || '';
+    const acts = (o.actions || []).map((a, i) => `<button data-i="${i}">${a.key ? `<kbd>${a.key}</kbd> ` : ''}${a.label}</button>`).join('');
+    const ae = this.el.other.querySelector('.acts');
+    if (ae.innerHTML !== acts) ae.innerHTML = acts;
+    o.inv.slots.forEach((s, i) => {
+      const el = this.otherEls[i];
+      const hidden = !!o.hidden?.has(i);
+      this.setSlot(el, s, hidden, !o.inv.usable(i));
+      el.classList.toggle('searching', o.searching === i);
+      el.classList.toggle('carry', this.carry?.inv === o.inv && this.carry.i === i);
+      if (o.searching === i) el.querySelector('.search circle').style.strokeDashoffset = String(94.2 * (1 - (o.prog || 0)));
+    });
+  }
+
+  // a sound written out (Settings > Captions): a line at the foot of the screen, a few at most
+  caption(text) {
+    const box = (this.capBox ??= (() => {
+      const d = document.createElement('div');
+      d.id = 'captions';
+      document.getElementById('hud').appendChild(d);
+      return d;
+    })());
+    const line = document.createElement('div');
+    line.textContent = `[ ${text} ]`;
+    box.appendChild(line);
+    while (box.children.length > 3) box.firstChild.remove();
+    setTimeout(() => line.classList.add('out'), 2600);
+    setTimeout(() => line.remove(), 3200);
+  }
+
+  // a day walker heard you: an ear on the crosshair, for a moment
+  heard() {
+    const el = (this.el.heard ??= (() => {
+      const d = document.createElement('div');
+      d.id = 'heard';
+      d.innerHTML = '<span>◉</span> Heard';
+      this.el.hud.appendChild(d);
+      return d;
+    })());
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+  }
+
+  // a slot in the open container was just searched: flash it in its rarity's colour
+  revealFlash(i) {
+    const el = this.otherEls?.[i];
+    if (!el) return;
+    el.classList.remove('reveal');
+    void el.offsetWidth;
+    el.classList.add('reveal');
   }
 
   detail(id) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
     const have = this.inv.count(id);
+    const pack = PACKS[id];
+    const extra = def.kind === 'relic' ? ` · offering ${def.value}` : '';
     this.el.detail.innerHTML = `
       <img src="${this.icons[id] || ''}">
       <div><h3>${def.name}</h3>
-      <div class="rar" style="color:${r.color}">${r.name} ${KIND[def.kind].name}${def.kind === 'relic' ? ` · offering ${def.value}` : ''}</div>
+      <div class="rar" style="color:${r.color}">${r.name} ${KIND[def.kind].name}${extra} · ${weightOf(id)} kg</div>
       <p>${def.desc}</p>
-      <div class="val">Carrying <b>${have}</b></div>
+      <div class="val">Carrying <b>${have}</b>${have > 1 ? ` · ${(have * weightOf(id)).toFixed(1)} kg` : ''}${pack ? ` · carries ${pack.cap} kg` : ''}</div>
+      ${def.kind === 'build' ? '<div class="where">Right-click in the satchel to salvage it for parts.</div>' : ''}
       ${def.kind === 'material' || def.kind === 'scrap' ? `<div class="where">Found ${whereToFind(id)}</div>` : ''}</div>`;
   }
 
@@ -850,8 +1185,9 @@ export class HUD {
     this.tipRecipe = r;
     const out = ITEMS[r.out], rar = RARITY[out.rarity];
     const missing = [];
+    const ctx = this.craftCtx(), st = this.recipeState(r, ctx);
     const rows = Object.entries(r.needs).map(([id, n]) => {
-      const have = this.inv.count(id), ok = have >= n;
+      const have = ctx.src.count(id), ok = have >= n;
       if (!ok) missing.push(`${n - have} ${ITEMS[id].name}`);
       return `<div class="row ${ok ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}"><span class="nm">${ITEMS[id].name}</span><b>${have}/${n}</b>
         ${ok ? '' : `<div class="from">Find: ${whereToFind(id)}</div>`}</div>`;
@@ -861,7 +1197,8 @@ export class HUD {
         <div class="k" style="color:${rar.color}">${rar.name} ${KIND[out.kind].name}</div></div></div>
       <p>${out.desc}</p>
       <div class="lbl">Needs</div>${rows}
-      <div class="ft ${missing.length ? 'miss' : 'have'}">${missing.length ? `Missing: ${missing.join(' · ')}` : 'You have everything. Click Craft.'}</div>
+      <div class="ft ${missing.length || !st.where ? 'miss' : 'have'}">${missing.length ? `Missing: ${missing.join(' · ')}` : !st.where ? st.note : 'You have everything. Click Craft.'}</div>
+      ${r.at === 'field' ? '' : `<div class="hint">Made at the ${AT_NAMES[r.at]}${(r.lvl || 1) > 1 ? ` (level ${r.lvl})` : ''}, anywhere in camp. Draws on the Coffer too.</div>`}
       ${out.kind === 'build' ? '<div class="hint">Select it on your belt, then left-click near the Heartwood to place it.</div>' : ''}`;
     this.tipEl.classList.add('on');
     if (ev) this.placeTip(ev);

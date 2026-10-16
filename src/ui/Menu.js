@@ -6,9 +6,12 @@
 // Guide, lifetime records, settings, controls, credits). Pause: the same frame over the frozen
 // game, with Resume and a way back to the title.
 import { version } from '../../package.json';
-import { ENEMY_TYPES } from '../defense/Enemies.js';
-import { BUILD_DEFS } from '../defense/Towers.js';
-import { describeWave } from '../defense/Waves.js';
+import { ENEMY_TYPES, DAMAGE_TYPES, AFFIXES } from '../defense/Enemies.js';
+import { ROOTS, BUILD_DEFS, GRAFTS, PALETTE } from '../defense/Towers.js';
+import { BLIGHT_PALETTE } from '../defense/Enemies.js';
+import { BINDABLE, keyName } from '../core/Input.js';
+import { describeWave, SIGNS } from '../defense/Waves.js';
+import { NOTES, SEALS, RADIO_PARTS, loadNotes } from '../core/Story.js';
 import { ITEMS } from '../items/ItemDB.js';
 import { RECIPES } from '../items/Recipes.js';
 import { PERKS } from '../core/Perks.js';
@@ -16,6 +19,8 @@ import { DIFFICULTIES, DIFFICULTY_IDS, difficulty, KITS, KIT_IDS, kitItems } fro
 import { loadBest, loadRecords } from '../core/Save.js';
 import { MEMORIES, unlocked } from '../core/Memories.js';
 import { renderPortraits } from './Portraits.js';
+import { ACHIEVEMENTS, loadEarned } from '../core/Achievements.js';
+import { DAILY, dailyLabel } from '../core/Seed.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -48,13 +53,18 @@ const BLIGHT = [
     tip: 'It hangs back behind the pack and goes for your towers. Bow towers pick Spitters out first; run one down with the machete and it barely fights.',
   },
   {
+    id: 'husk', kind: 'Day hunter', from: 3,
+    lore: "What's left of the things the forest took and didn't finish with: bark grown over bone, walking the old camps and wrecks by day. Blind, but it hears a sprint, a heavy pack or a crate smashed open from far off.",
+    tip: "Walk, don't run, near the places worth searching, and prise crates open instead of smashing them. They sink back into the soil at dusk, and they carry good salvage.",
+  },
+  {
     id: 'wisp', kind: 'Flyer', from: 4,
     lore: 'Drifting lights of spore and spite. They float over walls and traps alike, straight for the Heartwood, and keen as they come.',
     tip: 'Bow towers, Tesla totems and embers reach them. Mortars, walls and traps do nothing.',
   },
   {
     id: 'thornback', kind: 'Heart-eater', from: 5,
-    lore: 'Something old and armoured that the Blight woke under the forest. It rises every fifth night, shakes the ground with its slams and calls Blightlings out of the soil.',
+    lore: 'Something old and armoured that the Blight woke under the forest. It rises on the fifth night (and every fifth after the tenth), shakes the ground with its slams and calls Blightlings out of the soil.',
     tip: 'Its slams flatten buildings near it. Snares only slow it. Burn it, shoot it, and keep it moving.',
   },
   {
@@ -62,9 +72,15 @@ const BLIGHT = [
     lore: 'An armoured grub as long as a man, plated in crust and built to dig. Put a wall in its way and it simply goes under, a ridge of earth racing toward the Heart.',
     tip: "Nothing can touch it underground. A Glowcap Lantern's light drags it up, dazed, and everything hits it harder there.",
   },
+  {
+    id: 'rot_mother', kind: 'Brood queen', from: 10,
+    lore: "Whatever Dr. Vane became, down in the soil under the old camp. Swollen, slow and endlessly hungry, she drags a belly full of eggs toward the Heart and lays as she walks.",
+    tip: 'Her eggs hatch three Blightlings each in a few seconds. Burn them (fire hurts them most) or cut them as they fall, and let the towers work on her.',
+  },
 ];
-const DEFENCES = ['bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'glow_lantern', 'barricade', 'vine_snare', 'spike_trap'];
+const DEFENCES = ['bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'glow_lantern', 'barricade', 'vine_snare', 'spike_trap', 'heartseed'];
 const ROLES = {
+  heartseed: 'Ward · pushes back the Rot',
   bow_tower: 'Long range · single target', spore_mortar: 'Artillery · splash & slow', tesla_totem: 'Chain lightning',
   ember_brazier: 'Close range · burning', glow_lantern: 'Light · exposes the Blight', barricade: 'Wall · reroutes the Blight', vine_snare: 'Trap · roots in place', spike_trap: 'Trap · hidden spikes',
 };
@@ -72,8 +88,10 @@ const ROLES = {
 const CONTROLS = [
   ['Movement', [['Move', '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>'], ['Sprint', '<kbd>Shift</kbd>'], ['Jump', '<kbd>Space</kbd>'], ['Look', 'Mouse']]],
   ['Fighting', [['Swing the machete', '<kbd>LMB</kbd>'], ['Draw and loose the sling', 'Hold <kbd>LMB</kbd>'], ['Use or throw what you hold', '<kbd>RMB</kbd>'], ['Choose from the belt', '<kbd>1</kbd>–<kbd>8</kbd> · wheel']]],
-  ['Building', [['Place a defence', '<kbd>LMB</kbd>'], ['Rotate', '<kbd>R</kbd>'], ['Pack it up again', '<kbd>F</kbd>'], ['Upgrade or repair', 'Hold <kbd>E</kbd>']]],
-  ['The forest', [['Gather, search, offer', '<kbd>E</kbd>'], ['Rake up forage', 'Hold <kbd>E</kbd>'], ['Satchel and crafting', '<kbd>Tab</kbd>'], ['Hurry the day along', 'Hold <kbd>T</kbd>'], ['Sound on / off', '<kbd>M</kbd>'], ['Pause', '<kbd>Esc</kbd>']]],
+  ['Building', [['Place a defence', '<kbd>LMB</kbd>'], ['Rotate', '<kbd>R</kbd>'], ['Pack it up again', '<kbd>F</kbd>'], ['Upgrade or repair', 'Hold <kbd>E</kbd>'], ['Graft onto a tower', 'Hold <kbd>G</kbd>'], ["Fit the radio, set the heart", 'Hold <kbd>F</kbd> at the bench']]],
+  ['The forest', [['Gather, offer, open the Coffer', '<kbd>E</kbd>'], ['Rake up forage', 'Hold <kbd>E</kbd>'], ['Search a crate or cache', 'Hold <kbd>E</kbd>'], ['Satchel and crafting', '<kbd>Tab</kbd>'], ['Hurry the day along', 'Hold <kbd>T</kbd>'], ['Sound on / off', '<kbd>M</kbd>'], ['Pause', '<kbd>Esc</kbd>']]],
+  ['Capture', [['Free camera (fly with WASD, Space / C, wheel for speed, P holds time)', '<kbd>F8</kbd>'], ['Hide the HUD', '<kbd>F9</kbd>']]],
+  ['Satchel and containers', [['Take a find', 'Click'], ['Take everything', '<kbd>R</kbd>'], ['Move a stack across', '<kbd>Shift</kbd>-click'], ['Salvage a defence', 'Right-click it'], ['Shut it again', '<kbd>E</kbd> · <kbd>Tab</kbd>']]],
 ];
 
 // ------------------------------------------------------------------ settings, remembered
@@ -89,6 +107,10 @@ const SETTINGS = {
   invertY: { key: 'og.invertY', def: '0' },
   volume: { key: 'og.volume', def: '1' },
   music: { key: 'og.music', def: '1' },
+  captions: { key: 'og.captions', def: '0' },
+  shake: { key: 'og.shake', def: '1' },
+  bob: { key: 'og.bob', def: '1' },
+  cb: { key: 'og.cb', def: '0' },
 };
 function readSetting(name) {
   try {
@@ -119,7 +141,8 @@ export class Menu {
     this.sel = -1;
     this.page = null; // the open page's name
     this.pinned = false; // opened by a click (stays) rather than by hovering Continue (follows the selection)
-    this.diff = save?.difficulty || 'warden';
+    // a first vigil starts on Verdant (with the guided first night); after that, Warden
+    this.diff = save?.difficulty || (loadRecords().runs ? 'warden' : 'verdant');
     this.kit = 'starter';
     this.guideTab = 'blight';
     this.guidePick = { blight: 'blightling', defences: 'bow_tower' };
@@ -176,7 +199,7 @@ export class Menu {
   showTitle() {
     this.mode = 'title';
     this.el.classList.remove('ingame');
-    $('#brand-sub').textContent = 'Hold the Heartwood';
+    $('#brand-sub').textContent = DAILY ? `Daily vigil · ${dailyLabel()}` : 'Hold the Heartwood';
     $('.pause-info')?.remove();
     const s = this.save;
     const items = [];
@@ -184,6 +207,10 @@ export class Menu {
       items.push({ id: 'continue', label: 'Continue', sub: `Day ${s.night} · ${difficulty(s.difficulty).name} · ${ago(s.at)}`, primary: true, act: () => this.cb.onContinue(), preview: 'continue' });
     }
     items.push({ id: 'new', label: 'New Game', primary: !s, act: () => this.open('new') });
+    // the daily vigil: today's forest, the same for everyone (a page load with its own seed)
+    items.push(DAILY
+      ? { id: 'daily', label: 'The usual forest', sub: 'Leave the daily vigil', act: () => { location.search = ''; } }
+      : { id: 'daily', label: 'Daily vigil', sub: "Today's forest, the same for everyone: Warden, the starter kit, no Memories", act: () => { location.search = '?daily'; } });
     items.push({ id: 'guide', label: 'Field Guide', gap: true, act: () => this.open('guide') });
     items.push({ id: 'records', label: 'Records', act: () => this.open('records') });
     items.push({ id: 'settings', label: 'Settings', act: () => this.open('settings') });
@@ -280,6 +307,7 @@ export class Menu {
     addEventListener('keydown', (e) => {
       if (this.mode !== 'title' && this.mode !== 'pause') return;
       if (this.el.classList.contains('leaving')) return;
+      if (this.page === 'settings' && this.pinned && this.settingsKey(e)) return;
       const n = this.items.length;
       if (e.code === 'ArrowDown' || e.code === 'KeyS') {
         e.preventDefault();
@@ -302,6 +330,41 @@ export class Menu {
         this.pickDiff(DIFFICULTY_IDS[(k + DIFFICULTY_IDS.length) % DIFFICULTY_IDS.length]);
       }
     });
+  }
+
+  // Settings with the arrow keys (and so the gamepad): up and down pick a row, left and right
+  // change it (a slider steps, a choice moves along, a switch flips), Enter flips a switch
+  settingsKey(e) {
+    const rows = [...this.body.querySelectorAll('.set-row')].filter((r) => r.querySelector('button, input, select'));
+    if (!rows.length || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Space'].includes(e.code)) return false;
+    e.preventDefault();
+    let i = rows.findIndex((r) => r.classList.contains('padfocus'));
+    const mark = (k) => {
+      for (const r of rows) r.classList.remove('padfocus');
+      rows[k].classList.add('padfocus');
+      rows[k].scrollIntoView({ block: 'nearest' });
+    };
+    if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+      mark(i < 0 ? 0 : (i + (e.code === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length);
+      this.audio.ui();
+      return true;
+    }
+    if (i < 0) return true;
+    const row = rows[i], dir = e.code === 'ArrowLeft' ? -1 : 1;
+    const range = row.querySelector('input[type=range]'), sel = row.querySelector('select');
+    const btns = [...row.querySelectorAll('button')];
+    if (range && e.code !== 'Enter') {
+      range.value = String(Number(range.value) + dir * Number(range.step || 1));
+      range.dispatchEvent(new Event('input', { bubbles: true }));
+      range.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (sel && e.code !== 'Enter') {
+      sel.selectedIndex = Math.max(0, Math.min(sel.options.length - 1, sel.selectedIndex + dir));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (btns.length > 1 && e.code !== 'Enter') {
+      const on = Math.max(0, btns.findIndex((b) => b.classList.contains('on') || b.classList.contains('sel') || b.classList.contains('active')));
+      btns[Math.max(0, Math.min(btns.length - 1, on + dir))].click();
+    } else if (btns.length) btns[0].click();
+    return true;
   }
 
   // ---------------------------------------------------------------- pages
@@ -405,7 +468,7 @@ export class Menu {
       const d = DIFFICULTIES[id];
       const pct = (v) => `${Math.round(v * 100)}%`;
       return `<button class="diff-card" data-id="${id}">
-        ${id === 'warden' ? '<span class="tag">Intended</span>' : ''}
+        ${id === 'warden' ? '<span class="tag">Intended</span>' : id === 'verdant' && !loadRecords().runs ? '<span class="tag">Your first vigil</span>' : ''}
         <div class="g">${d.glyph}</div><h3>${d.name}</h3><p>${d.blurb}</p>
         <ul><li>Blight health <b>${pct(d.hp)}</b></li><li>Blight numbers <b>${pct(d.count)}</b></li><li>Heartwood <b>${Math.round(500 * d.heart)} HP</b></li></ul>
       </button>`;
@@ -486,7 +549,7 @@ export class Menu {
 
   pageGuide() {
     this.head('Field Guide', 'What waits in the forest');
-    this.html(`<div class="tabs">${[['blight', 'The Blight'], ['defences', 'Defences'], ['boons', 'Boons']].map(([id, label]) => `<button class="tab${this.guideTab === id ? ' sel' : ''}" data-tab="${id}">${label}</button>`).join('')}</div><div id="guide-body"></div>`);
+    this.html(`<div class="tabs">${[['blight', 'The Blight'], ['defences', 'Defences'], ['boons', 'Boons'], ['expedition', 'The Expedition']].map(([id, label]) => `<button class="tab${this.guideTab === id ? ' sel' : ''}" data-tab="${id}">${label}</button>`).join('')}</div><div id="guide-body"></div>`);
     for (const t of this.body.querySelectorAll('.tab')) {
       t.addEventListener('click', () => {
         this.audio.ui();
@@ -507,6 +570,18 @@ export class Menu {
           const lock = p.memory && !this.memories().has(p.memory) ? MEMORIES.find((m) => m.id === p.memory) : null;
           return `<div class="boon-card${lock ? ' locked' : ''}"><div class="g">${p.glyph}</div><h4>${p.name}</h4><p>${p.desc}</p>${lock ? `<small>Memory: ${lock.name}</small>` : ''}</div>`;
         }).join('')}</div>`;
+      return;
+    }
+    if (tab === 'expedition') {
+      root.innerHTML = this.expeditionBody();
+      for (const b of root.querySelectorAll('.page-entry')) {
+        b.addEventListener('click', () => {
+          this.audio.ui();
+          const q = NOTES.find((n) => n.id === b.dataset.id);
+          for (const o of root.querySelectorAll('.page-entry')) o.classList.toggle('sel', o === b);
+          $('.page-read', root).innerHTML = `<h4>${q.title}</h4><p>${q.text}</p><div class="sign">· ${q.who} ·</div>`;
+        });
+      }
       return;
     }
     const pics = this.portraits();
@@ -531,6 +606,25 @@ export class Menu {
     show(this.guidePick[tab]);
   }
 
+  // The Expedition: the pages found over every vigil, and the story's mechanics in brief
+  expeditionBody() {
+    const got = loadNotes();
+    const icons = this.game.hud.icons || {};
+    const ico = (id) => (icons[id] ? `<img src="${icons[id]}" alt="">` : '');
+    const pages = NOTES.map((n) => got.has(n.id)
+      ? `<button class="page-entry" data-id="${n.id}"><b>${n.who}</b>${n.title}</button>`
+      : '<div class="page-entry locked"><b>?</b>A page not yet found</div>').join('');
+    return `<p class="p-lead" style="margin-top:-4px">1931: the Vane Expedition came for the temple's golden idol. Their torn pages turn up in crates, packs and caches. Read them all and you'll know what happened here.</p>
+      <div class="pages"><div class="page-list">${pages}</div><article class="page-read"><p class="dim">${got.size} of ${NOTES.length} pages found. Pick one to read it again.</p></article></div>
+      <div class="exp-grid">
+        <div class="exp-card"><div class="g">◈</div><h4>The seals</h4><p>${Object.values(SEALS).map((s) => s.name).join(', ')}: the temple's top altar, the drowned shrine, a standing stone in the ruins. Set a relic in one and the rift it held sleeps for two nights. The idol in the Sun Seal (or any gold mask) closes one for good.</p></div>
+        <div class="exp-card"><div class="g">⚚</div><h4>Grafts</h4><p>Set the Thornback's heart into the Workbench and towers take grafts: one at tier 2, two at tier 3. Hold <kbd>G</kbd> on a tower. ${Object.entries(GRAFTS).map(([id, g]) => `<span class="chip">${ico(id)}${ITEMS[id].name}: ${g.say}</span>`).join(' ')}</p></div>
+        <div class="exp-card"><div class="g">✺</div><h4>The Rot</h4><p>From the dawn after night 5 the ground round every rift starts to die, a little further each day. On it the Blight run faster and towers fire slower. Firepots and braziers burn it back; a Heartseed sapling pushes it out for good.</p></div>
+        <div class="exp-card"><div class="g">✈</div><h4>Hollis's radio</h4><p>At the Tinker's Bench (hold <kbd>F</kbd>): ${RADIO_PARTS.map(([id, n]) => `${n > 1 ? `${n} × ` : ''}${ITEMS[id].name}`).join(', ')}. Each part calls a supply drop at noon, and the Husks come for it too. Mend it all and a plane comes after the tenth night.</p></div>
+        <div class="exp-card"><div class="g">☾</div><h4>Signs</h4><p>Every other night from the fourth, the forest answers: ${Object.values(SIGNS).map((s) => `<b style="color:${s.color}">${s.glyph} ${s.name}</b> ${s.desc}`).join(' ')}</p></div>
+      </div>`;
+  }
+
   blightDetail(id, pic, locked) {
     const b = BLIGHT.find((x) => x.id === id), def = ENEMY_TYPES[id];
     const bar = (label, v, max, shown) => `<div class="stat foe"><span>${label}</span><div class="bar"><b style="width:${Math.max(6, Math.min(100, Math.sqrt(v / max) * 100))}%"></b></div><em>${shown}</em></div>`;
@@ -543,7 +637,19 @@ export class Menu {
       <h3 class="g-name">${def.name}</h3><div class="g-kind">${b.kind} · from night ${b.from}${def.flying ? ' · flies' : ''}</div>
       <p class="g-lore">${b.lore}</p>
       <div class="g-stats">${bar('Health', def.hp, 1800, def.hp)}${bar('Bite', def.dmg, 40, def.dmg)}${bar('Speed', def.speed, 3.6, def.speed.toFixed(1))}${bar('Reach', def.reach, 3.7, `${def.reach} m`)}</div>
-      <div class="g-tip"><b>Field note</b>${b.tip}</div>`;
+      ${this.resistLine(def)}
+      <div class="g-tip"><b>Field note</b>${b.tip}</div>
+      ${id === 'blightling' ? `<div class="g-tip elite"><b>Elites</b>From night 5 (night 2 on Blightborn, never on Verdant) some Blight come marked, with more health and one quirk: ${Object.values(AFFIXES).map((a) => `<span style="color:#${a.rim.toString(16).padStart(6, '0')}">${a.glyph} ${a.name}</span> ${a.desc}`).join(' · ')}.</div>` : ''}`;
+  }
+
+  // what hurts it and what it shrugs off (pierce: bows, spikes; blunt: mortar, sling; fire;
+  // arc: the totem)
+  resistLine(def) {
+    const r = def.resist || {};
+    const weak = Object.entries(r).filter(([, k]) => k > 1).map(([t, k]) => `${DAMAGE_TYPES[t]} +${Math.round((k - 1) * 100)}%`);
+    const tough = Object.entries(r).filter(([, k]) => k < 1).map(([t, k]) => `${DAMAGE_TYPES[t]} −${Math.round((1 - k) * 100)}%`);
+    if (!weak.length && !tough.length) return '';
+    return `<div class="g-resist">${weak.length ? `<span class="w">Weak to ${weak.join(', ')}</span>` : ''}${tough.length ? `<span class="t">Shrugs off ${tough.join(', ')}</span>` : ''}</div>`;
   }
 
   defenceDetail(id, pic) {
@@ -555,7 +661,8 @@ export class Menu {
     if (d.range) stats.push(bar('Range', d.range, 30, `${d.range} m`));
     if (d.rate) stats.push(bar('Rate', 1 / d.rate, 1.8, `${(1 / d.rate).toFixed(1)}/s`));
     stats.push(bar('Toughness', d.hp, 320, d.hp));
-    const flags = [d.expose && `Blight take +${Math.round((d.expose - 1) * 100)}% in its light`, d.expose && 'Unearths Burrowers', d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
+    const dtype = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce', wall: 'Pierce' }[d.kind];
+    const flags = [dtype && `${dtype} damage`, ROOTS[id] && `${ROOTS[id]} root${ROOTS[id] > 1 ? 's' : ''}`, d.expose && `Blight take +${Math.round((d.expose - 1) * 100)}% in its light`, d.expose && 'Unearths Burrowers', d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
     return `<div class="g-portrait" style="--glow:rgba(214,169,74,0.2)"><img src="${pic}" alt=""></div>
       <h3 class="g-name">${it.name}</h3><div class="g-kind">${ROLES[id]}</div>
       <p class="g-lore">${it.desc}</p>
@@ -580,11 +687,19 @@ export class Menu {
       ${rec('⚒', r.built, 'Built')}
       ${rec('⚔', best.kills, 'Most felled in a run')}
       ${rec('↻', r.runs, 'Vigils begun')}
+      ${rec('★', (best.score || 0).toLocaleString(), 'Best score')}
+      ${rec('☼', r.dailyBest, 'Best daily vigil (nights)')}
       ${rec('☣', `${BLIGHT.filter((b) => seen.has(b.id)).length}/${BLIGHT.length}`, 'Blight known')}
     </div>
     <div class="p-sep"></div>
     <div class="p-eyebrow">Bestiary</div>
     <div class="seen-row">${BLIGHT.map((b) => `<img class="${seen.has(b.id) ? '' : 'locked'}" src="${pics[b.id] || ''}" title="${seen.has(b.id) ? ENEMY_TYPES[b.id].name : 'Unknown'}" alt="">`).join('')}</div>
+    <div class="p-sep"></div>
+    <div class="p-eyebrow">Achievements · ${Object.keys(loadEarned()).length}/${ACHIEVEMENTS.length}</div>
+    <div class="achievements">${(() => {
+      const got = loadEarned();
+      return ACHIEVEMENTS.map((a) => `<div class="ach${got[a.id] ? ' got' : ''}" title="${got[a.id] ? `Earned ${new Date(got[a.id]).toLocaleDateString()}` : 'Not yet'}"><div class="g">${a.glyph}</div><div><h4>${a.name}</h4><p>${a.desc}</p></div></div>`).join('');
+    })()}</div>
     <div class="p-sep"></div>
     <div class="p-eyebrow">Memories of the Heartwood</div>
     <p class="p-lead" style="margin:6px 0 14px;font-size:18px">What you've lived through stays with you: each memory adds something to every vigil after it.</p>
@@ -611,6 +726,12 @@ export class Menu {
       <div class="set-group"><h4>Controls</h4>
         <div class="set-row"><label>Mouse sensitivity</label><div class="slider"><input type="range" class="fancy" id="s-sens" min="0.2" max="3" step="0.05" value="${readSetting('sensitivity')}"><output></output></div></div>
         <div class="set-row"><label>Invert look</label><button class="toggle${readSetting('invertY') === '1' ? ' on' : ''}" id="s-invert" aria-label="Invert look"></button></div>
+      </div>
+      <div class="set-group"><h4>Accessibility</h4>
+        <div class="set-row"><label>Captions<small>Sounds that matter, written out: the horn, a roar, the Heartwood bitten</small></label><button class="toggle${readSetting('captions') === '1' ? ' on' : ''}" id="s-captions" aria-label="Captions"></button></div>
+        <div class="set-row"><label>Screen shake<small>Hits, slams and the machete biting</small></label><button class="toggle${readSetting('shake') === '1' ? ' on' : ''}" id="s-shake" aria-label="Screen shake"></button></div>
+        <div class="set-row"><label>Head bob<small>The sway of walking and running</small></label><button class="toggle${readSetting('bob') === '1' ? ' on' : ''}" id="s-bob" aria-label="Head bob"></button></div>
+        <div class="set-row"><label>Colour-blind Blight<small>Amber and blue outlines, and a blue/orange placement ghost</small></label><button class="toggle${readSetting('cb') === '1' ? ' on' : ''}" id="s-cb" aria-label="Colour-blind Blight"></button></div>
       </div>
       <div class="set-group"><h4>Sound</h4>
         <div class="set-row"><label>Volume</label><div class="slider"><input type="range" class="fancy" id="s-vol" min="0" max="1" step="0.01" value="${readSetting('volume')}"><output></output></div></div>
@@ -644,6 +765,10 @@ export class Menu {
     toggle('#s-showfps', 'showFps', (on) => g.hud.showFps(on || g.debug));
     toggle('#s-invert', 'invertY', (on) => { if (g.player) g.player.invertY = on; });
     toggle('#s-music', 'music', (on) => this.audio.music(on && this.mode === 'title'));
+    toggle('#s-captions', 'captions', (on) => { g.captions = on; });
+    toggle('#s-shake', 'shake', (on) => { if (g.player) g.player.shakeK = on ? 1 : 0; });
+    toggle('#s-bob', 'bob', (on) => { if (g.player) g.player.motion = on ? 1 : 0; });
+    toggle('#s-cb', 'cb', (on) => { PALETTE.cb = BLIGHT_PALETTE.cb = on; g.enemies?.repaint(); });
     const slider = (sel, name, fmt, apply) => {
       const s = $(sel, this.body), out = s.nextElementSibling;
       const sync = () => {
@@ -672,6 +797,8 @@ export class Menu {
     g.fpsCap = g.debug ? 0 : Number(readSetting('fps'));
     g.hud.showFps(g.debug || readSetting('showFps') === '1');
     this.audio.volume = Number(readSetting('volume'));
+    g.captions = readSetting('captions') === '1';
+    PALETTE.cb = BLIGHT_PALETTE.cb = readSetting('cb') === '1';
   }
 
   applyLoaded() {
@@ -679,11 +806,46 @@ export class Menu {
     g.setQuality(readSetting('quality'));
     g.player.invertY = readSetting('invertY') === '1';
     g.player.sensitivity = Number(readSetting('sensitivity'));
+    g.input.padLook = Number(readSetting('sensitivity'));
+    g.player.shakeK = readSetting('shake') === '1' ? 1 : 0;
+    g.player.motion = readSetting('bob') === '1' ? 1 : 0;
   }
 
   pageControls() {
+    this.body.innerHTML = '';
     this.head('Controls', 'In the hand and underfoot');
-    this.html(`<div class="keys-grid">${CONTROLS.map(([group, rows]) => `<h4>${group}</h4>${rows.map(([what, keys]) => `<div class="key-row"><span>${what}</span><span>${keys}</span></div>`).join('')}`).join('')}</div>`);
+    const inp = this.game.input;
+    this.html(`<div class="p-eyebrow">Keys <small>click one, then press the key you want · <button class="linkish" id="keys-reset">reset all</button></small></div>
+      <div class="rebind">${BINDABLE.map(([code, what]) => `<div class="key-row"><span>${what}</span><button class="bind${inp.bound(code) !== code ? ' moved' : ''}" data-code="${code}"><kbd>${keyName(inp.bound(code))}</kbd></button></div>`).join('')}</div>
+      <div class="p-sep"></div>
+      <div class="keys-grid">${CONTROLS.map(([group, rows]) => `<h4>${group}</h4>${rows.map(([what, keys]) => `<div class="key-row"><span>${what}</span><span>${this.game.hud.keys(keys)}</span></div>`).join('')}`).join('')}
+      <h4>Gamepad <small>(partial: the satchel and crafting need a mouse)</small></h4>
+      <div class="key-row"><span>Move · look</span><span>Left stick · right stick</span></div>
+      <div class="key-row"><span>Swing · use</span><span>RT · LT</span></div>
+      <div class="key-row"><span>Jump · gather · pack up · satchel</span><span>A · X · B · Y</span></div>
+      <div class="key-row"><span>Belt · sprint · rotate · graft · hurry</span><span>LB/RB · L3 · R3 · d-pad up · down</span></div>
+      <div class="key-row"><span>Pause</span><span>Start</span></div></div>`);
+    for (const b of this.body.querySelectorAll('button.bind')) {
+      b.addEventListener('click', () => {
+        this.audio.ui();
+        for (const o of this.body.querySelectorAll('button.bind')) o.classList.remove('wait');
+        b.classList.add('wait');
+        b.querySelector('kbd').textContent = '…';
+        const take = (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          removeEventListener('keydown', take, true);
+          if (e.code !== 'Escape') inp.rebind(b.dataset.code, e.code);
+          this.pageControls();
+        };
+        addEventListener('keydown', take, true);
+      });
+    }
+    $('#keys-reset', this.body)?.addEventListener('click', () => {
+      inp.resetBinds();
+      this.audio.ui();
+      this.pageControls();
+    });
   }
 
   pageCredits() {

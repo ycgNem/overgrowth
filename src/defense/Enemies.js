@@ -14,7 +14,7 @@
 // and burns away to ash.
 import * as THREE from 'three';
 import { cloneModel, part } from '../assets/Models.js';
-import { setFlash, setRim, setDissolve } from '../art/merge.js';
+import { setFlash, setRim, setDissolve, setTint } from '../art/merge.js';
 import { terrainHeight } from '../world/WorldGen.js';
 import { clamp, damp, angleDelta } from '../utils/math.js';
 import { GOAL_RADIUS } from './Base.js';
@@ -37,32 +37,80 @@ export const ENEMY_TYPES = {
   blightling: {
     name: 'Blightling', model: 'blightling', hp: 40, speed: 3.5, radius: 0.55, dmg: 8, rate: 1.0, reach: 1.4, windup: 0.32,
     aggro: 7, chest: 0.6, loot: 'blightling', gait: 10, swing: 0.7, scale: 1.35, pounce: true,
+    resist: { fire: 1.25 },
   },
   rotboar: {
     name: 'Rotboar', model: 'rotboar', hp: 240, speed: 2.2, radius: 0.95, dmg: 22, rate: 1.5, reach: 1.9, windup: 0.5,
     aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5, towerAggro: 4.5,
+    resist: { pierce: 0.7, blunt: 1.2, fire: 1.3 },
   },
   wisp: {
     name: 'Blight Wisp', model: 'wisp', hp: 55, speed: 3.4, radius: 0.5, dmg: 7, rate: 0.9, reach: 1.2, windup: 0.25,
     aggro: 0, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
+    resist: { blunt: 0.5, arc: 1.25 },
   },
   spitter: {
     name: 'Spitter', model: 'spitter', hp: 60, speed: 2.5, radius: 0.7, dmg: 12, rate: 4.0, reach: 1.3, windup: 0.75,
     aggro: 3, chest: 0.75, loot: 'spitter', gait: 7, swing: 0.45, scale: 1.15,
     // building: the share of dmg a glob does to buildings (towers have to outlast them)
     spit: { range: 13, playerRange: 10, splash: 1.9, puddle: 4, building: 0.75 },
+    resist: { pierce: 1.3, blunt: 0.85 },
   },
   burrower: {
     name: 'Burrower', model: 'burrower', hp: 150, speed: 2.9, radius: 0.75, dmg: 12, rate: 1.3, reach: 1.6, windup: 0.4,
     aggro: 5, chest: 0.45, loot: 'burrower', gait: 9, swing: 0.55, scale: 1.25, burrows: true,
+    resist: { arc: 0.5, blunt: 1.2 },
+  },
+  // walks the forest by day between the old camps and wrecks, hunting by sound (Game.makeNoise,
+  // the player's footsteps); crumbles back into the soil at dusk
+  husk: {
+    name: 'Husk', model: 'husk', hp: 95, speed: 3.2, radius: 0.62, dmg: 12, rate: 1.25, reach: 1.55, windup: 0.42,
+    aggro: 6, chest: 0.75, loot: 'husk', gait: 7, swing: 0.5, scale: 1.6, day: true,
+    resist: { fire: 1.6, pierce: 0.8 },
   },
   thornback: {
     name: 'Thornback', model: 'thornback', hp: 1800, speed: 1.45, radius: 2.0, dmg: 40, rate: 2.2, reach: 3.7, windup: 0.6,
     aggro: 6, chest: 2.6, loot: 'thornback', gait: 3.2, swing: 0.32, scale: 1.4, wallBreaker: 3, heavy: 0.9, boss: true,
+    resist: { pierce: 0.75, blunt: 0.75, arc: 0.75 },
+  },
+  // night 10 (the last before the rescue) and every fifth after: a swollen, rotting matriarch
+  // that lays eggs as she walks
+  rot_mother: {
+    name: 'The Rot Mother', model: 'rot_mother', hp: 5200, speed: 1.0, radius: 2.2, dmg: 45, rate: 2.4, reach: 3.9, windup: 0.7,
+    aggro: 6, chest: 2.4, loot: 'rot_mother', gait: 3, swing: 0.3, scale: 1.45, wallBreaker: 3, heavy: 0.95, boss: true, lays: true,
+    resist: { pierce: 0.8, blunt: 0.8, fire: 1.2 },
+  },
+  // her eggs: they sit and pulse, and hatch three Blightlings unless burned or cut first
+  rot_egg: {
+    name: 'Rot Egg', model: 'rot_egg', hp: 45, speed: 0, radius: 0.5, dmg: 0, rate: 99, reach: 0, windup: 0.1,
+    aggro: 0, chest: 0.35, loot: 'rot_egg', scale: 1.2, egg: 9, heavy: 1,
+    resist: { fire: 1.6, pierce: 0.7 },
   },
 };
 
-const RIM = { blightling: 0xb050ff, rotboar: 0xc070ff, wisp: 0xd080ff, thornback: 0xd060e0, spitter: 0x90ff60, burrower: 0xc890ff };
+// Damage types: what each source does (Towers, Projectiles, the burn) against `resist`.
+export const DAMAGE_TYPES = { pierce: 'Pierce', blunt: 'Blunt', fire: 'Fire', arc: 'Arc' };
+
+// Elite Blight (from night 4; Waves rolls them): one quirk each, more HP, a coloured outline
+// and an icon over the health bar, and better pickings when they fall.
+export const AFFIXES = {
+  swift: { name: 'Swift', glyph: '»', rim: 0x60e0ff, desc: 'a third faster' },
+  thorned: { name: 'Thorned', glyph: '✹', rim: 0xff6040, desc: 'hurts what cuts it' },
+  rooted: { name: 'Rooted', glyph: '▼', rim: 0x90ff60, desc: 'snares and slows barely hold it' },
+  bloated: { name: 'Bloated', glyph: '●', rim: 0xd0ff40, desc: 'bursts into Blightlings' },
+  shielded: { name: 'Shielded', glyph: '◆', rim: 0xffd060, desc: 'a crust only fire and lightning burn through' },
+};
+export const AFFIX_IDS = Object.keys(AFFIXES);
+// the elites' outlines under Colour-blind Blight: blue, orange, white, magenta and yellow,
+// told apart by brightness as well as hue, none of them green
+const AFFIX_CB = { swift: 0x3a8cff, thorned: 0xff7a10, rooted: 0xffffff, bloated: 0xff40d0, shielded: 0xffe040 };
+export const affixRim = (id) => (BLIGHT_PALETTE.cb ? AFFIX_CB[id] : AFFIXES[id]?.rim);
+
+const RIM = { blightling: 0xb050ff, rotboar: 0xc070ff, wisp: 0xd080ff, thornback: 0xd060e0, spitter: 0x90ff60, burrower: 0xc890ff, husk: 0xffa050, rot_mother: 0xe070c0, rot_egg: 0xd0ff70 };
+// Settings > Colour-blind Blight: outlines that stand off the green forest for every kind of
+// colour vision (amber and orange for the ground Blight, sky blue for the flyers and spitters)
+const RIM_CB = { blightling: 0xffb020, rotboar: 0xff7a10, wisp: 0x50c8ff, thornback: 0xffe060, spitter: 0x40a0ff, burrower: 0xffd890, husk: 0xffffff, rot_mother: 0xffe060, rot_egg: 0x50c8ff };
+export const BLIGHT_PALETTE = { cb: false };
 
 // a Spitter's glob of bile, and the burning puddle it leaves
 const globGeo = new THREE.SphereGeometry(0.2, 10, 8);
@@ -83,6 +131,7 @@ export class Enemies {
     this.killsByType = {};
     this.globs = [];
     this.puddles = [];
+    this.types = ENEMY_TYPES; // (for e2e probes)
   }
 
   get alive() {
@@ -93,8 +142,10 @@ export class Enemies {
     return this.list.find((e) => e.def.boss && !e.dying) || null;
   }
 
-  spawn(type, x, z, hpScale = 1) {
-    const def = ENEMY_TYPES[type];
+  // walk: a Wisp that can't fly tonight (the Stillness sign) crawls on the ground instead
+  spawn(type, x, z, hpScale = 1, { walk = false } = {}) {
+    let def = ENEMY_TYPES[type];
+    if (walk && def.flying) def = { ...def, flying: false, altitude: 0, speed: def.speed * 0.8, gait: 8, swing: 0, aggro: 4, chest: 0.4 };
     const obj = cloneModel(def.model, { own: true });
     obj.scale.setScalar(def.scale);
     const gy = terrainHeight(x, z);
@@ -104,7 +155,7 @@ export class Enemies {
       vel: new THREE.Vector3(),
       knock: new THREE.Vector3(),
       yaw: Math.random() * Math.PI * 2,
-      hp: def.hp * hpScale, maxHp: def.hp * hpScale,
+      hp: def.hp * hpScale, maxHp: def.hp * hpScale, hpScale, hatchT: def.egg || 0,
       slow: 1, slowT: 0, rootT: 0, burnT: 0, burnDps: 0, burnTick: 0, stagger: 0,
       phase: Math.random() * 10, attackT: Math.random() * def.rate, windT: 0, windTarget: null, lunge: 0,
       flash: 0, hitT: 0, barT: 0, dying: false, deathT: 0, rise: 1, leap: null, pounceCD: 1 + Math.random() * 2,
@@ -116,7 +167,8 @@ export class Enemies {
     for (const k of ['head', 'jaw', 'tail']) if (e[k]) e[k].userData.rest = e[k].rotation.clone();
     for (const l of e.legs) if (l) l.userData.rest = l.rotation.clone();
     for (const w of e.wings) if (w) w.userData.rest = w.rotation.clone();
-    setRim(obj, 0.5, RIM[type]);
+    setRim(obj, 0.5, (BLIGHT_PALETTE.cb ? RIM_CB : RIM)[type]);
+    if (def.tint) setTint(obj, def.tint, def.tintK);
     setDissolve(obj, 0.9);
     if (type === 'wisp') {
       // a halo round the core, so it reads as a light in the dark rather than flat shards
@@ -137,6 +189,26 @@ export class Enemies {
     if (e.dying || n <= 0) return false;
     // a Glowcap Lantern's light shows up every weak seam
     if (e.litT > 0) n *= e.lit;
+    // what it's made of: a Rotboar's hide turns arrows, a Wisp barely feels a blow
+    let k = (opts.type && e.def.resist?.[opts.type]) || 1;
+    // Bog-iron Heads (a graft) cut straight through hide and bark
+    if (opts.pierceArmour && k < 1) k = 1;
+    n *= k;
+    opts.k = k;
+    // a Shielded elite's crust takes a quarter of most blows; fire and lightning burn it off
+    if (e.shield > 0) {
+      const eff = opts.type === 'fire' || opts.type === 'arc' ? 1 : 0.25;
+      const absorb = Math.min(e.shield, n * eff);
+      e.shield -= absorb;
+      n -= absorb / eff;
+      opts.shield = true;
+      if (n <= 0.01) {
+        e.flash = Math.max(e.flash, 0.6);
+        e.barT = 4;
+        ctx.onDamage?.(e, 0, opts);
+        return false;
+      }
+    }
     e.hp -= n;
     e.flash = opts.source === 'burn' ? Math.max(e.flash, 0.35) : 1;
     e.hitT = 1;
@@ -165,7 +237,29 @@ export class Enemies {
     return false;
   }
 
+  // gone without a fight (no kill, no loot): a Husk at dusk, sinking back into the soil
+  crumble(e) {
+    if (e.dying) return;
+    e.dying = true;
+    e.deathT = 0;
+    e.leap = null;
+  }
+
+  // Make e an elite with this affix
+  makeElite(e, affix) {
+    const a = AFFIXES[affix];
+    if (!a || e.def.boss) return;
+    e.affix = affix;
+    e.maxHp *= 1.4;
+    e.hp = e.maxHp;
+    if (affix === 'swift') e.speedK = 1.35;
+    if (affix === 'shielded') e.shield = e.maxShield = e.maxHp * 0.35;
+    e.obj.scale.multiplyScalar(1.12);
+    setRim(e.obj, 0.6, affixRim(affix));
+  }
+
   slowDown(e, factor, time) {
+    if (e.affix === 'rooted') factor = Math.max(factor, 0.85);
     e.slow = Math.min(e.slow, factor);
     e.slowT = Math.max(e.slowT, time);
   }
@@ -177,6 +271,7 @@ export class Enemies {
 
   root(e, time) {
     if (e.def.flying) return;
+    if (e.affix === 'rooted') return this.slowDown(e, 0.85, time * 0.5);
     if (e.def.boss) this.slowDown(e, 0.5, time);
     else e.rootT = Math.max(e.rootT, time);
   }
@@ -201,6 +296,14 @@ export class Enemies {
 
   // ctx: { field, base, player, playerAlive, buildings, hitPlayer(dmg, e), hitBuilding(b, dmg, e),
   //        hitBase(dmg, e), damageCtx, particles, night, speedMul, onSlam(e), summon(e), onWindup(e) }
+  // the outlines again, after Settings > Colour-blind Blight changes
+  repaint() {
+    for (const e of this.list) {
+      if (e.dying) continue;
+      setRim(e.obj, e.affix ? 0.6 : 0.5, e.affix ? affixRim(e.affix) : (BLIGHT_PALETTE.cb ? RIM_CB : RIM)[e.type]);
+    }
+  }
+
   update(dt, t, ctx) {
     const { field, base, player } = ctx;
     const rimK = 0.08 + 0.3 * (ctx.night ?? 1);
@@ -236,6 +339,7 @@ export class Enemies {
         if (e.slowT <= 0) e.slow = 1;
       }
       e.rootT = Math.max(0, e.rootT - dt);
+      if (e.layT) e.layT = Math.max(0, e.layT - dt);
       e.stagger = Math.max(0, e.stagger - dt);
       if (e.burnT > 0) {
         e.burnT -= dt;
@@ -243,13 +347,14 @@ export class Enemies {
         if (Math.random() < dt * 14) ctx.particles?.embers(this.chest(e).clone(), 1, def.radius);
         if (e.burnTick <= 0) {
           e.burnTick = 0.5;
-          this.damage(e, e.burnDps * 0.5, ctx.damageCtx, null, { source: 'burn' });
+          this.damage(e, e.burnDps * 0.5, ctx.damageCtx, null, { source: 'burn', type: 'fire' });
           if (e.dying) continue;
         }
         if (e.burnT <= 0) e.burnDps = 0;
       }
 
-      if (def.flying) this.updateFlyer(e, dt, t, ctx);
+      if (def.egg) this.updateEgg(e, dt, t, ctx);
+      else if (def.flying) this.updateFlyer(e, dt, t, ctx);
       else this.updateWalker(e, dt, t, ctx);
       if (e.dying) continue;
 
@@ -258,6 +363,26 @@ export class Enemies {
       setDissolve(e.obj, e.rise * 0.85);
     }
     this.updateGlobs(dt, t, ctx);
+  }
+
+  // A Rot egg: it pulses faster and faster, then splits and three Blightlings climb out
+  updateEgg(e, dt, t, ctx) {
+    e.hatchT -= dt;
+    const k = 1 - Math.max(0, e.hatchT) / e.def.egg;
+    const beat = 1 + Math.sin(t * (4 + k * 14) + e.phase) * (0.04 + k * 0.08);
+    e.pos.y = ctx.base.groundAt(e.pos.x, e.pos.z);
+    e.obj.position.set(e.pos.x, e.pos.y - e.rise * 0.6, e.pos.z);
+    e.obj.rotation.set(0, e.yaw, 0);
+    e.obj.scale.set(e.def.scale * beat, e.def.scale * (2 - beat), e.def.scale * beat);
+    if (e.core) e.core.scale.setScalar(1 + k * 0.5 + Math.sin(t * 12) * 0.1 * k);
+    if (e.hatchT > 0) return;
+    this.crumble(e);
+    for (let i = 0; i < 3; i++) {
+      const a = e.phase + (i / 3) * Math.PI * 2;
+      const b = this.spawn('blightling', e.pos.x + Math.cos(a) * 0.8, e.pos.z + Math.sin(a) * 0.8, e.hpScale);
+      b.rise = 0.5;
+    }
+    ctx.onHatch?.(e);
   }
 
   // ---------------------------------------------------------------- walkers
@@ -269,8 +394,9 @@ export class Enemies {
       return;
     }
     e.digCD -= dt;
-    let speed = def.speed * e.slow * (ctx.speedMul ?? 1);
-    if (e.rootT > 0 || e.stagger > 0 || e.rise > 0.35 || e.slamT > 0) speed = 0;
+    // the Rot: Blight walk faster on ground it has taken (world/Rot.js)
+    let speed = def.speed * e.slow * (ctx.speedMul ?? 1) * (e.speedK || 1) * (1 + 0.15 * (ctx.rotAt?.(e.pos.x, e.pos.z) || 0));
+    if (e.rootT > 0 || e.stagger > 0 || e.rise > 0.35 || e.slamT > 0 || e.layT > 0) speed = 0;
 
     // ---- choose what to go for
     const toBase = Math.hypot(base.x - e.pos.x, base.z - e.pos.z);
@@ -278,10 +404,23 @@ export class Enemies {
     let want = null; // desired direction
     let attack = null; // { kind, ref }
     // a bloom's guards see further, but won't be drawn far from it
-    const g = e.guard;
-    const aggro = g ? 10 : def.aggro;
+    const g = e.guard, pat = e.patrol;
+    // day walkers (a bloom's guards, Husks) hear: your footsteps, and anything loud. Heard,
+    // they go to look, and spot you from further off
+    if (g || pat) {
+      let heard = null;
+      const pn = ctx.playerNoise || 0;
+      if (ctx.playerAlive && pn > 0 && toPlayer < pn) heard = player;
+      for (const n of ctx.noises || []) if ((n.x - e.pos.x) ** 2 + (n.z - e.pos.z) ** 2 < n.r * n.r) heard = n;
+      if (heard) {
+        if (!e.alert) ctx.onAlert?.(e);
+        e.alert = { x: heard.x, z: heard.z, t: 7 };
+      } else if (e.alert && (e.alert.t -= dt) <= 0) e.alert = null;
+    }
+    const aggro = (g ? 10 : def.aggro) * (e.alert ? 1.7 : 1);
+    const home = g || pat;
     const seesPlayer = ctx.playerAlive && toPlayer < aggro && Math.abs(player.y - e.pos.y) < 2.5
-      && (!g || Math.hypot(player.x - g.x, player.z - g.z) < g.leash);
+      && (!home || Math.hypot(player.x - home.x, player.z - home.z) < home.leash);
     // Rotboars break off to gore a tower that comes within reach, and stay on it until it falls
     if (def.towerAggro && !seesPlayer && !g) {
       if (e.prey && (e.prey.dead || e.prey.distTo(e.pos.x, e.pos.z) > def.towerAggro * 1.5)) e.prey = null;
@@ -297,6 +436,25 @@ export class Enemies {
     if (seesPlayer) {
       want = { x: (player.x - e.pos.x) / toPlayer, z: (player.z - e.pos.z) / toPlayer };
       if (toPlayer < def.reach * def.scale * 0.8 + 0.4) attack = { kind: 'player' };
+    } else if (e.alert && home && Math.hypot(e.alert.x - home.x, e.alert.z - home.z) < home.leash) {
+      // go and see what that was
+      const dx = e.alert.x - e.pos.x, dz = e.alert.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+      if (dl < 1.5) e.alert = null;
+      want = dl < 1.5 ? { x: 0, z: 0 } : { x: dx / dl, z: dz / dl };
+      speed *= 0.85;
+    } else if (pat) {
+      // walk the round: one waypoint to the next, a pause at each
+      const p = pat.pts[pat.i];
+      const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
+      if (dl < 1.2) {
+        pat.wait = (pat.wait ?? 0) + dt;
+        if (pat.wait > 2 + (pat.i % 2) * 2) {
+          pat.wait = 0;
+          pat.i = (pat.i + 1) % pat.pts.length;
+        }
+        want = { x: 0, z: 0 };
+      } else want = { x: dx / dl, z: dz / dl };
+      speed *= 0.42;
     } else if (g) {
       // prowl round the bloom: amble to a spot near it, pause, pick another
       e.idleT = (e.idleT ?? 0) - dt;
@@ -502,9 +660,13 @@ export class Enemies {
       ctx.onWindup?.(e, 'slam');
     }
     if (e.summonCD <= 0 && e.rise <= 0) {
-      e.summonCD = 14 + Math.random() * 4;
+      e.summonCD = (e.def.lays ? 15 : 14) + Math.random() * 4;
       e.roar = 1;
-      ctx.summon?.(e);
+      // she settles for a few seconds to lay: the towers get a clear shot, and you a chance
+      if (e.def.lays) {
+        ctx.lay?.(e);
+        e.layT = 3;
+      } else ctx.summon?.(e);
     }
     e.roar = Math.max(0, e.roar - dt * 0.8);
   }
@@ -513,7 +675,7 @@ export class Enemies {
   updateFlyer(e, dt, t, ctx) {
     const { base } = ctx;
     const def = e.def;
-    const speed = (e.stagger > 0 || e.rise > 0.4 ? 0.3 : 1) * def.speed * e.slow * (ctx.speedMul ?? 1);
+    const speed = (e.stagger > 0 || e.rise > 0.4 ? 0.3 : 1) * def.speed * e.slow * (ctx.speedMul ?? 1) * (e.speedK || 1);
     const dx = base.x - e.pos.x, dz = base.z - e.pos.z;
     const d = Math.hypot(dx, dz) || 1;
     const ring = GOAL_RADIUS + 0.6;

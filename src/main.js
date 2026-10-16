@@ -30,8 +30,8 @@ function enter() {
     game.hud.show(true);
     game.setPaused(false);
     game.begin();
-    // the pointer lock was refused or dropped on the way in
-    if (!debug && !game.input.locked) menu.showPause();
+    // the pointer lock was refused or dropped on the way in (a gamepad plays without it)
+    if (!debug && !game.input.locked && !game.input.padActive) menu.showPause();
   });
 }
 
@@ -52,7 +52,14 @@ const menu = new Menu(game, {
     if (!game.loaded) game.loadFrom(save);
     enter();
   },
-  onResume: () => game.input.lock(),
+  onResume: () => {
+    game.input.lock();
+    // a gamepad can't take the pointer lock: just carry on
+    if (game.input.padActive) {
+      menu.hidePause();
+      game.setPaused(false);
+    }
+  },
   onQuit: toTitle,
 });
 window.menu = menu; // (and for e2e screenshots)
@@ -68,6 +75,39 @@ game.input.onLockChange = (locked) => {
     game.setPaused(false);
   }
 };
+
+// the gamepad: Start pauses; in a menu it steps through it
+game.input.onPadPause = () => {
+  if (menu.mode === 'play' && !game.paused && !game.modal) {
+    game.setPaused(true);
+    menu.showPause();
+  }
+};
+game.input.menuNav = () => (menu.mode !== 'play' && menu.mode !== 'flying') || game.paused || !!game.modal;
+
+// The overlays that are buttons and cards (boons, the endings, victory, game over) answer the
+// arrow keys and Enter too, so a gamepad (which sends those in a menu) can pick on them
+const OVERLAYS = ['#perks', '#ending', '#victory', '#gameover'];
+let padFocus = 0;
+addEventListener('keydown', (e) => {
+  if (!game.modal) return;
+  const el = OVERLAYS.map((s) => $(s)).find((o) => o && !o.classList.contains('hidden'));
+  if (!el) return;
+  const items = [...el.querySelectorAll('button, .perk')].filter((b) => b.offsetParent && !b.disabled);
+  if (!items.length) return;
+  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.code];
+  const cur = items.findIndex((b) => b.classList.contains('padfocus'));
+  if (step) {
+    padFocus = ((cur < 0 ? 0 : cur + step) + items.length) % items.length;
+    for (const b of items) b.classList.remove('padfocus');
+    items[padFocus].classList.add('padfocus');
+    e.preventDefault();
+  } else if (e.code === 'Enter') {
+    (items[cur] || items.find((b) => b.classList.contains('primary')) || items[0]).click();
+    for (const b of items) b.classList.remove('padfocus');
+    e.preventDefault();
+  }
+});
 
 const again = () => {
   clearSave();
@@ -92,4 +132,12 @@ game.init((p, msg) => menu.progress(p, msg)).then(() => {
 }).catch((err) => {
   console.error(err);
   menu.progress(1, `Something went wrong: ${err.message}`);
+  // a daily or seeded world that won't build: a way back to the usual forest
+  if (params.has('daily') || params.has('seed')) {
+    const a = document.createElement('a');
+    a.href = location.pathname;
+    a.textContent = 'Back to the usual forest';
+    a.style.cssText = 'display:block;margin-top:10px;color:#8affb0;pointer-events:auto';
+    $('#loading-text').after(a);
+  }
 });

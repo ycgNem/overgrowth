@@ -1,5 +1,136 @@
 # Patch notes
 
+## 1.0: The Lost Expedition (2026-10-15)
+
+Four planned updates (Pack and Cache, Hard Ground, The Lost Expedition and The Long Tail) in
+one release. Days are now a scavenging run: you search containers, weigh what to carry and
+get it home before dusk. Defence is a budget you spend, against Blight that look for your
+weak side. A story runs through the ten nights and gives you most of the new tools, and the
+game is finished off with accessibility options, gamepad support, achievements, a daily
+vigil and smaller downloads.
+
+### Pack and Cache: the day is a raid
+- **Weight.** Everything you carry weighs something. Your pack holds 20 kg comfortably:
+  - Past 70% you're **Laden**: a little slower, and sprinting tires you faster.
+  - Past 100% you're **Encumbered**: no sprinting, a slow walk, low jumps and loud feet.
+  - At 130% nothing more goes in.
+  - The weight bar is in the satchel, and every item shows its weight.
+- **The Coffer.** A root-bound chest at camp with 60 slots and no weight limit. Shift-click
+  to move a stack, or store every material in one go. In camp, crafting draws from the
+  satchel and the Coffer together.
+- **Benches.** Towers, walls and packs are made at the Workbench. Braziers, mortars and clay
+  work need the Fire Pit, and totems and scrap work need the Tinker's Bench. Field recipes
+  (traps, poultices, firepots, ammo) still work anywhere. Each bench has three levels, and a
+  bench's level is the highest tier you can upgrade what's made there to.
+- **Containers you search.** Crates, explorer's packs, field lockers, urns, temple
+  reliquaries, sunken chests and new **root caches** hidden in buttress roots:
+  - Opening one shows its slots, and they reveal one by one, slower for rarer things.
+  - Take items one at a time, or everything with R. Leave something and it's still there
+    when you come back.
+  - Locked chests need a **pry bar**, or a long, loud forced opening.
+  - Some containers fill again at dawn.
+- **Dying by day costs your pack.** It drops where you fell as a **lost satchel** with a
+  beacon. Get back to it before the horn or it's gone. Your belt and the **Safe Pouch** stay
+  with you, and dying at night inside the camp drops nothing. Verdant keeps everything;
+  Blightborn drops the belt too.
+- **Backpacks.** The Woven Satchel (20 kg), the Hide Pack (26 kg) and the Explorer's
+  Rucksack (32 kg, two safe slots).
+- **Noise and Husks.** From day 3, Husks (the forest's dead, walking) roam between the old
+  camps and crates in twos and threes. They hunt by sound: sprinting, a heavy pack, breaking
+  a crate and forcing a lock all carry. Their salvage is good.
+- **Salvage.** Break surplus scrap and packed-up defences into parts at the Tinker's Bench
+  (half as much in the field). Packing a defence up by day now returns 60% of its materials.
+
+### Hard Ground: a defence you have to think about
+- **Root capacity.** The Heartwood can feed only so many roots. Each defence draws some (a
+  barricade 1, a bow tower 3, a mortar 4), and **each upgrade tier draws one more**. The cap
+  grows by two each night, with boons, and with relics you bury in the Heartwood. Craft cards
+  show what a defence draws against what's free (red when it won't fit) and its damage type.
+- **Damage types.** Pierce, blunt, fire and arc, and the Blight resist some and fear others.
+  Rotboars shrug off arrows but break under mortar shells, Wisps barely notice blunt hits,
+  Burrowers ground arcs, and Husks go up like kindling. Weak and strong hits show in their own
+  colours.
+- **Elite Blight.** From night 5 (Warden) some Blight come marked: Swift, Shielded, Thorned,
+  Rooted and more, each with an outline and its mark on a plate above its health bar. They're
+  tougher, and they drop better things.
+- **They look for your weak side.** From night 3 the packs lean on the open rift your towers
+  cover least, and you're told which side they're testing.
+- **The surge.** From night 6 a fourth pack pours from every rift at once, growing each night.
+- **The camp sits closer in**, so the tower ring around the Heartwood is free to build on.
+
+### The Lost Expedition: a story in ten nights
+- **Torn pages.** Twelve pages of the 1931 expedition (Dr. Iris Vane, Ruiz, Hollis) are
+  scattered through camps, wrecks and caches. The first one you search always holds one. Read
+  them again in the satchel's **Notes** tab. Two of them are maps that mark a cache.
+- **The seals.** Three seals stand in the temple, the shrine and the ruins. Set a relic in
+  one and the rift it guards sleeps for two nights. Gold closes it for good. A set seal wears a
+  column of the Heartwood's own light.
+- **Grafts.** Set the Thornback's heart into the Workbench and it learns to graft: a lens
+  (+20% range), a resin drip (sets the Blight alight), a coiled spring (faster), bog heads
+  (through armour) and a root anchor (mends itself). A tier 2 tower takes one, a tier 3 two.
+  Grafts only turn up once you can use them.
+- **Hollis's radio.** Mend it at the Tinker's Bench, one part at a time (a lamp lights on the
+  set for each). Every part calls a **supply drop** at noon: a crate on a red flare out in the
+  forest, with Husks already closing in.
+- **The Rot.** From the dawn after night 5 the ground round every live rift starts to die,
+  spreading further each day. On it the plants wither, the Blight run faster, and a tower's
+  roots choke (it breathes out violet spores and fires slower). Fire burns it back, and a
+  **Heartseed** sapling pushes it out for good.
+- **Signs.** Some nights carry a Sign, shown on the day line beforehand and on the night's
+  banner:
+  - **Pale Fog**: your towers see less far.
+  - **Blood Moon**: the Blight run faster and drop double (when you hold the idol).
+  - **Stillness**: the Wisps can't fly.
+  - **The Swarm**: twice the Blightlings, half as tough.
+- **The Rot Mother.** Night 10 now belongs to her: a swollen brood queen who lays eggs as she
+  walks. Burn the eggs or cut them before they hatch. In endless she returns every fifth
+  night with a Thornback at her side.
+- **Two endings.** At first light after night 10 the rescue plane comes: fly out, or stay
+  with the Heartwood. For the true ending, set the golden idol home in the Sun Seal and hold
+  the ten nights. The idol has to answer a Blood Moon in your hands first: carry it and the
+  next Sign night is a Blood Moon.
+
+### The Long Tail
+- **Accessibility.** Captions for the sounds that matter (the horn, a roar, the Heartwood
+  bitten, a Husk creaking), and switches for screen shake, head bob and **colour-blind
+  Blight** (amber and blue outlines, a blue and orange placement ghost).
+- **Rebind any key** on the Controls page. Taking a key another action uses swaps them, so
+  nothing is ever left without a key, and the prompts and the journal name the keys you chose.
+- **Gamepad (partial).** Sticks to move and look, triggers to swing and use, and the bumpers
+  step along the belt. The menus, Settings, the boon picks, the intro and ending cards all
+  work with the d-pad and A/B. The satchel and crafting still need a mouse.
+- **Achievements.** Twenty of them, on the title's Records page, with a toast when one lands.
+- **Daily vigil.** One world a day, the same for everyone (Warden, the starter kit, no
+  Memories), with its own save and best.
+- **Score.** Every vigil is scored (nights, kills, bosses, difficulty). Your best and your
+  daily best are kept in Records.
+- **A guided first night**, and a word the first time something new turns up (an elite, a
+  heavy pack, the Heartwood bitten), told once.
+- **Capture mode** (F8): a free camera for screenshots and trailers. P holds the world still
+  and the wheel sets the speed. F9 hides the HUD on its own.
+- **Smaller downloads.** The Blender models are compressed with meshopt: 11.6 MB → 5.7 MB.
+- **Lighter Blight.** Each creature drew every coloured piece of its body separately: a
+  Blightling cost 24 draws, a Thornback 36. Each moving part is now one draw (8 and 9), so a
+  big night is far cheaper, and the camp, temple and wreck all sit under budget.
+
+### Fixes
+- Slows from the Spore Mortar, snares and roots took no effect. They work again.
+- The boss bar and banner named the Rot Mother "the Thornback".
+- A rare crash compiling a material that had already gone (a Husk crumbling at dawn).
+- The "testing your side" warning now runs on the game clock, so pausing holds it.
+- Spitters and Burrowers no longer hitch the frame the first time they appear.
+- A daily vigil could fail to load on some dates (the drowned grove found nowhere to lie).
+- At the temple altar the idol stayed on its pedestal after you took it, and the altar's
+  search hid the Sun Seal.
+- Capture mode dragged the player along with the camera (picking things up as it flew).
+- The true-ending achievement only appeared at some later dawn; "Heart-eater, Eaten" now needs
+  a Thornback.
+- The first night's tips said your tower was firing when none was built; they now follow
+  the night's clock, and the poultice tip waits until you're hurt.
+- Colour-blind mode now covers the elites' outlines too, and recolours Blight already out.
+- The boss bar no longer sits on top of banners or stays up on the defeat card.
+- A Bloom sprouting was captioned as a hiss.
+
 ## 0.9.2 (2026-10-15)
 
 - **FPS counter.** Turn on **Show FPS** in Settings to see frames a second and frame time in

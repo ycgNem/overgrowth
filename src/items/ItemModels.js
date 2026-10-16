@@ -59,6 +59,10 @@ function mats() {
     bone: std({ color: 0xe4dcc4, roughness: 0.7 }),
     moss: std({ color: 0x55802d, roughness: 1, flatShading: true }),
     thorn: std({ color: 0x9a7a46, roughness: 0.6 }),
+    canvas: std({ color: 0x6e6a44, roughness: 0.9 }),
+    weave: std({ color: 0xa48a52, roughness: 0.95 }),
+    hide: std({ color: 0x6a4a34, roughness: 0.8 }),
+    oilcloth: std({ color: 0x3e4a32, roughness: 0.55 }),
   };
   return M;
 }
@@ -88,7 +92,129 @@ function gearGeometry(teeth = 10, r0 = 0.12, r1 = 0.16, hole = 0.04, depth = 0.0
   return g;
 }
 
+// a pack: a rounded body, a flap and two straps (also the lost satchel in the world)
+function packModel(m, body, flap, w = 0.3, h = 0.36, d = 0.18) {
+  const g = new THREE.Group();
+  const b = new THREE.SphereGeometry(0.5, 12, 8);
+  b.scale(w, h, d);
+  g.add(mesh(b, body, { p: [0, h / 2, 0] }));
+  g.add(mesh(new THREE.BoxGeometry(w * 0.9, 0.03, d * 0.8), flap, { p: [0, h * 0.86, d * 0.12], r: [0.5, 0, 0] }));
+  for (const s of [-1, 1]) g.add(mesh(new THREE.TorusGeometry(h * 0.32, 0.012, 5, 12, Math.PI), m.rope, { p: [s * w * 0.25, h * 0.5, -d * 0.45], r: [0, Math.PI / 2, Math.PI / 2] }));
+  g.add(mesh(new THREE.TorusGeometry(0.03, 0.008, 5, 10), m.brass, { p: [0, h * 0.68, d * 0.5] }));
+  return g;
+}
+
 const builders = {
+  // the expedition: a torn page, the Thornback's heart, the grafts
+  torn_page(m) {
+    const geo = new THREE.PlaneGeometry(0.3, 0.38, 5, 6);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(p.getX(i) * 12) * 0.012 + p.getY(i) * p.getY(i) * 0.15);
+    geo.computeVertexNormals();
+    const g = new THREE.Group();
+    g.add(mesh(geo, new THREE.MeshStandardMaterial({ color: 0xd8c8a0, roughness: 0.9, side: THREE.DoubleSide }), { r: [-1.1, 0, 0.2] }));
+    for (let k = 0; k < 5; k++) g.add(mesh(new THREE.BoxGeometry(0.2 - (k % 2) * 0.06, 0.004, 0.008), m.black, { p: [-0.01, 0.06 - k * 0.045, 0.01 + k * 0.02], r: [-1.1, 0, 0.2] }));
+    return g;
+  },
+  thornback_heart(m) {
+    const g = new THREE.Group();
+    const b = new THREE.SphereGeometry(0.12, 14, 10);
+    b.scale(1, 1.25, 0.9);
+    g.add(mesh(b, new THREE.MeshStandardMaterial({ color: 0x6a2a3a, roughness: 0.4, emissive: 0x3a0818, emissiveIntensity: 1.2 })));
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * TAU;
+      g.add(mesh(new THREE.TorusGeometry(0.11, 0.012, 4, 10, Math.PI), m.bark, { r: [Math.PI / 2, a, 0.3], s: [1, 1.2, 1] }));
+    }
+    g.add(mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.1, 6), m.bark, { p: [0.03, 0.16, 0], r: [0, 0, -0.4] }));
+    g.add(mesh(new THREE.ConeGeometry(0.02, 0.12, 4), m.thorn, { p: [-0.08, 0.1, 0.05], r: [0.3, 0, 0.8] }));
+    return g;
+  },
+  glowcap_lens(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.TorusGeometry(0.11, 0.025, 8, 20), m.brass));
+    g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20), new THREE.MeshStandardMaterial({ color: 0x8ad0ff, roughness: 0.1, emissive: 0x2a6aff, emissiveIntensity: 1.2, transparent: true, opacity: 0.85 }), { r: [Math.PI / 2, 0, 0] }));
+    g.add(mesh(new THREE.BoxGeometry(0.04, 0.12, 0.03), m.brass, { p: [0, -0.16, 0] }));
+    return g;
+  },
+  bog_heads(m) {
+    const g = new THREE.Group();
+    for (let k = 0; k < 3; k++) {
+      const h = new THREE.Group();
+      h.add(mesh(new THREE.ConeGeometry(0.035, 0.12, 4), m.bogIron, { p: [0, 0.06, 0] }));
+      h.add(mesh(new THREE.BoxGeometry(0.09, 0.02, 0.01), m.bogIron, { p: [0, 0.01, 0], r: [0, 0, 0] }));
+      h.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.08, 5), m.bogIron, { p: [0, -0.04, 0] }));
+      h.position.set((k - 1) * 0.09, 0, k * 0.02);
+      h.rotation.z = (k - 1) * 0.3;
+      g.add(h);
+    }
+    return g;
+  },
+  resin_drip(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.1, 10), m.clay));
+    g.add(mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 10), m.resin, { p: [0, 0.045, 0] }));
+    g.add(mesh(new THREE.SphereGeometry(0.02, 6, 5), m.resin, { p: [0.06, -0.08, 0], s: [1, 1.6, 1] }));
+    g.add(mesh(new THREE.TorusGeometry(0.06, 0.008, 4, 10, Math.PI), m.rope, { p: [0, 0.09, 0] }));
+    return g;
+  },
+  coiled_spring(m) {
+    const pts = [];
+    for (let i = 0; i <= 60; i++) {
+      const a = (i / 60) * TAU * 3.5, r = 0.03 + (i / 60) * 0.09;
+      pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
+    }
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.008, 5), m.steel));
+    g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.03, 8), m.brass, { r: [Math.PI / 2, 0, 0] }));
+    return g;
+  },
+  root_anchor(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.SphereGeometry(0.07, 8, 6), m.bark, { s: [1, 1.2, 1] }));
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU;
+      g.add(mesh(new THREE.ConeGeometry(0.025, 0.2, 5), m.bark, { p: [Math.cos(a) * 0.08, -0.08, Math.sin(a) * 0.08], r: [Math.sin(a) * 0.7 + Math.PI, 0, -Math.cos(a) * 0.7] }));
+    }
+    g.add(mesh(new THREE.SphereGeometry(0.03, 6, 5), new THREE.MeshStandardMaterial({ color: 0x8ad060, emissive: 0x3a8a20, emissiveIntensity: 1 }), { p: [0, 0.07, 0.03] }));
+    return g;
+  },
+  pry_bar(m) {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.46, 6), m.bogIron, { r: [0, 0, Math.PI / 2 - 0.15] }));
+    g.add(mesh(new THREE.BoxGeometry(0.07, 0.012, 0.03), m.bogIron, { p: [0.24, 0.05, 0], r: [0, 0, 0.9] }));
+    g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 6), m.rope, { p: [-0.16, -0.02, 0], r: [0, 0, Math.PI / 2 - 0.15] }));
+    return g;
+  },
+  rot_hide(m) {
+    const geo = new THREE.PlaneGeometry(0.42, 0.32, 6, 4);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(p.getX(i) * 9) * 0.02 + Math.cos(p.getY(i) * 11) * 0.015);
+    geo.computeVertexNormals();
+    const g = new THREE.Group();
+    g.add(mesh(geo, new THREE.MeshStandardMaterial({ color: 0x5a3e2c, roughness: 0.85, side: THREE.DoubleSide }), { r: [-Math.PI / 2 + 0.2, 0, 0.3] }));
+    return g;
+  },
+  woven_satchel(m) {
+    return packModel(m, m.weave, m.weave);
+  },
+  hide_pack(m) {
+    return packModel(m, m.hide, m.hide, 0.32, 0.4, 0.2);
+  },
+  rucksack(m) {
+    const g = packModel(m, m.canvas, m.hide, 0.34, 0.44, 0.22);
+    g.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.36, 8), m.canvas, { p: [0, 0.5, -0.02], r: [0, 0, Math.PI / 2] }));
+    return g;
+  },
+  // not an item: a bundle hidden in the roots (World's root caches), and a dropped satchel
+  root_cache(m) {
+    const g = new THREE.Group();
+    const b = new THREE.SphereGeometry(0.5, 10, 7);
+    b.scale(0.5, 0.26, 0.34);
+    g.add(mesh(b, m.oilcloth, { p: [0, 0.12, 0] }));
+    for (const x of [-0.12, 0.1]) g.add(mesh(new THREE.TorusGeometry(0.14, 0.012, 4, 12), m.rope, { p: [x, 0.12, 0], r: [0, Math.PI / 2, 0], s: [1, 0.95, 1.3] }));
+    g.add(mesh(new THREE.BoxGeometry(0.16, 0.1, 0.12), m.woodDark, { p: [0.22, 0.05, 0.08], r: [0, 0.4, 0] }));
+    return g;
+  },
   fiber(m) {
     const g = new THREE.Group();
     for (let i = 0; i < 7; i++) g.add(mesh(new THREE.BoxGeometry(0.02, 0.4, 0.006), m.fiber, { r: [0, i * 0.4, (i - 3) * 0.06] }));

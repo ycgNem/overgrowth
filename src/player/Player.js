@@ -42,6 +42,8 @@ export class Player {
     this.sensitivity = loadSensitivity();
     this.invertY = false;
     this.shake = 0;
+    this.shakeK = 1; // Settings: screen shake on (1) or off (0)
+    this.motion = 1; // Settings: head bob on (1) or off (0)
     this.airTime = 0;
     this.jumpBuffer = 0;
     this.hp = 100;
@@ -50,6 +52,7 @@ export class Player {
     this.speedMul = 1; // boons
     this.moveMul = 1; // this frame only (drawing the slingshot)
     this.staminaRegen = 1;
+    this.burden = 'light'; // 'light' | 'laden' | 'encumbered': what the satchel weighs (Game sets it)
     camera.rotation.order = 'YXZ';
   }
 
@@ -86,18 +89,20 @@ export class Player {
     this.swimming = depth > SWIM_DEPTH;
     this.wading = clamp((WATER_LEVEL - this.pos.y) / 1.0, 0, 1);
 
-    const wantSprint = input.down('ShiftLeft') && f > 0 && !this.swimming;
+    // a heavy pack: laden slows you a little and burns stamina faster, encumbered stops the sprint
+    const laden = this.burden === 'laden', heavy = this.burden === 'encumbered';
+    const wantSprint = input.down('ShiftLeft') && f > 0 && !this.swimming && !heavy;
     this.sprinting = wantSprint && this.stamina > 0.02 && (this.sprinting || this.stamina > 0.15);
     // a full bar is ~8 s (~60 m) of sprinting; it drains only while you actually cover ground
     if (this.sprinting && (this.groundSpeed ?? 0) > 3) {
-      this.stamina = Math.max(0, this.stamina - dt * 0.12);
+      this.stamina = Math.max(0, this.stamina - dt * 0.12 * (laden ? 1.5 : 1));
       this.staminaDelay = 0.9;
     } else {
       this.staminaDelay -= dt;
       if (this.staminaDelay <= 0) this.stamina = Math.min(1, this.stamina + dt * 0.2 * this.staminaRegen);
     }
 
-    let speed = (this.sprinting ? 7.4 : 4.3) * this.speedMul * this.moveMul;
+    let speed = (this.sprinting ? 7.4 : 4.3) * this.speedMul * this.moveMul * (heavy ? 0.74 : laden ? 0.9 : 1);
     if (this.swimming) speed = 2.6;
     else speed *= 1 - this.wading * 0.45;
 
@@ -118,7 +123,7 @@ export class Player {
     else this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
     this.airTime = this.onGround ? 0 : this.airTime + dt;
     if (this.jumpBuffer > 0 && this.airTime < COYOTE && this.vel.y <= 0.01 && !this.swimming) {
-      this.vel.y = 5.8;
+      this.vel.y = heavy ? 4.3 : 5.8;
       this.onGround = false;
       this.airTime = COYOTE;
       this.jumpBuffer = 0;
@@ -181,7 +186,11 @@ export class Player {
       const stride = this.swimming ? 1.6 : 2.0 + 0.6 * this.runK;
       const prev = this.bob;
       this.bob += (hs * dt) / stride;
-      if (Math.floor(this.bob) !== Math.floor(prev) && !this.swimming) audio?.footstep(this.wading > 0.1, this.sprinting);
+      if (Math.floor(this.bob) !== Math.floor(prev) && !this.swimming) {
+        const heavy = this.burden === 'encumbered';
+        audio?.footstep(this.wading > 0.1, this.sprinting, heavy);
+        if (heavy && Math.floor(this.bob) % 4 === 0) audio?.breath(1);
+      }
       this.stepDist += hs * dt;
       if (this.swimming && this.stepDist > 2) {
         this.stepDist = 0;
@@ -199,15 +208,17 @@ export class Player {
     else this.eyeY = Math.abs(eyeTarget - this.eyeY) > 2 ? eyeTarget : damp(this.eyeY, eyeTarget, 18, dt);
 
     // the head dips at each footfall and rides over the stride; it sways toward the planted foot
-    const bobY = (Math.abs(Math.sin(this.bob * Math.PI)) - 0.5) * (0.045 + 0.03 * this.runK) * this.bobAmt;
-    const bobX = Math.sin(this.bob * Math.PI) * (0.03 + 0.012 * this.runK) * this.bobAmt;
+    // a heavy pack: a deeper, plodding sway
+    const hk = this.burden === 'encumbered' ? 1.7 : this.burden === 'laden' ? 1.25 : 1;
+    const bobY = (Math.abs(Math.sin(this.bob * Math.PI)) - 0.5) * (0.045 + 0.03 * this.runK) * this.bobAmt * hk * this.motion;
+    const bobX = Math.sin(this.bob * Math.PI) * (0.03 + 0.012 * this.runK) * this.bobAmt * this.motion;
     const cam = this.camera;
     cam.position.set(this.pos.x + Math.cos(this.yaw) * bobX, this.eyeY + bobY, this.pos.z - Math.sin(this.yaw) * bobX);
-    const sh = this.shake;
+    const sh = this.shake * this.shakeK;
     cam.rotation.set(
       this.pitch + (Math.random() - 0.5) * sh * 0.02,
       this.yaw + (Math.random() - 0.5) * sh * 0.02,
-      Math.sin(this.bob * Math.PI) * (0.005 + 0.004 * this.runK) * this.bobAmt,
+      Math.sin(this.bob * Math.PI) * (0.005 + 0.004 * this.runK) * this.bobAmt * this.motion,
     );
   }
 }

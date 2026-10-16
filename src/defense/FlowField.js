@@ -94,6 +94,8 @@ export class FlowField {
       if ((o.x - this.cx) ** 2 + (o.z - this.cz) ** 2 < (this.goalRadius + 2) ** 2) continue;
       this.stampCircle(this.base, o.x, o.z, o.r + 0.35, BLOCK);
     }
+    // the camp's benches and Coffer (Camp.js)
+    for (const o of this.world.extraStatic || []) this.stampCircle(this.base, o.x, o.z, o.r + 0.2, BLOCK);
   }
 
   stampCircle(arr, x, z, r, value, fn) {

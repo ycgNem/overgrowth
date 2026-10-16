@@ -37,6 +37,24 @@ export const MEMORIES = [
     test: (r) => r.hardWins >= 1,
     reward: "Choose how a vigil starts: the difficulty's own kit, a builder's or a hunter's.",
   },
+  // the expedition's endings, and its pages
+  {
+    id: 'cartographer', glyph: '✎', name: 'The Cartographer', need: 'Read every page of the lost expedition',
+    test: (r) => r.pages >= 12,
+    reward: 'Every vigil starts with a Glowcap Lens to graft.',
+    kit: [['glowcap_lens', 1]],
+  },
+  {
+    id: 'flight', glyph: '✈', name: 'The Last Flight', need: 'Mend the radio and fly out (the escape ending)',
+    test: (r) => r.flights >= 1,
+    reward: 'Every vigil starts with a pry bar and a coiled spring from the wreck.',
+    kit: [['pry_bar', 1], ['coiled_spring', 1]],
+  },
+  {
+    id: 'sealed', glyph: '◈', name: 'The Seals Hold', need: 'Set the golden idol in the Sun Seal and hold ten nights (the true ending)',
+    test: (r) => r.sealed >= 1,
+    reward: 'Every vigil starts knowing how to graft.',
+  },
 ];
 
 // the ids earned so far

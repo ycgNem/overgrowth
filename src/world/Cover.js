@@ -77,9 +77,12 @@ export class Cover {
       if (pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius * 0.9) ** 2)) continue;
       let ki = 0, acc = KINDS[0].share;
       while (ki < KINDS.length - 1 && kindRoll >= acc) acc += KINDS[++ki].share;
+      // on the Rot only the dead fronds are left, greyed and dark
+      const rot = world.rot?.any ? world.rot.at(x, z) : 0;
+      if (rot > 0.45 && KINDS[ki].type !== 'deadFrond') continue;
       const slots = this.kindSlots[ki], K = KINDS[ki];
       const slot = slots[Math.floor(varRoll * slots.length)];
-      out[slot].push(x, g.h, z, g.nx, g.ny, g.nz, yaw, K.scale[0] + (K.scale[1] - K.scale[0]) * sRoll, hue, val, g.shade);
+      out[slot].push(x, g.h, z, g.nx, g.ny, g.nz, yaw, K.scale[0] + (K.scale[1] - K.scale[0]) * sRoll, hue * (1 - rot), val, g.shade * (1 - 0.45 * rot));
     }
     return out.map((a) => new Float32Array(a));
   }

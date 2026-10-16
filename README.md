@@ -13,7 +13,17 @@ morning. Six kinds of Blight come for it, from swarming Blightlings to bile-lobb
 Burrowers that dig under your walls, and what you live through stays with you: lifetime records
 unlock **Memories** that add to every run after. A short walk out lies a second
 region, the **drowned grove**: black water, mangroves and fog, with its own forage, a sunken
-shrine, and from night 4 its own rift. See [PLAN.md](PLAN.md) for the design and roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
+shrine, and from night 4 its own rift.
+
+The day plays like a scavenging raid. You search crates, lockers and root caches, weigh what's
+worth carrying (a heavy pack slows you and the Husks hear you), store it in the **Coffer** at
+camp and craft at the benches. Die out there and your pack stays where you fell. The defence is
+a budget: the Heartwood feeds only so many roots, and every tower and upgrade draws on them.
+Through the ten nights runs the story of a lost 1931 expedition, told in torn pages you find.
+Each part of it gives you something new: seals that put a rift to sleep, grafts for your towers,
+a radio that calls supply drops, and the Rot that creeps out from the rifts. It ends with the
+Rot Mother on night 10 and a choice of two endings. See [PLAN.md](PLAN.md) for the design and
+roadmap, and [CHANGELOG.md](CHANGELOG.md) for patch notes.
 
 The world is built from code and dressed with generated photographs. Terrain, plants and props are
 code-built meshes. Their surfaces (leaf litter, moss, mud, rock, bark, temple stone) and every leaf,
@@ -45,13 +55,21 @@ left walks you through the first day.
 | Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, smashes crates and urns, cuts down Blight Blooms, hits the Blight; every third hit in a row is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
 | Right mouse | Use the held consumable: eat a poultice, throw a firepot, raise orchid salve to mend nearby buildings and the Heartwood |
 | E | Pick up forage (tap; keep holding to rake up everything loose within 3 m). Search camps, wrecks and altars (hold). At a building: repair it if damaged, otherwise upgrade it (hold). At the Heartwood: offer relics for a boon, or call the night (hold) |
-| F (hold) | Pack up a building by day (you get it back) |
+| F (hold) | Pack up a building by day (60% of its materials back). At the Heartwood: bury relics for root capacity. At the Workbench: set the Thornback's heart. At the Tinker's Bench: fit a radio part |
+| G (hold) | Graft the graft you carry onto a tier 2 or 3 tower |
 | 1–8 / mouse wheel | Choose a belt slot. An empty slot means the machete |
 | R | Rotate a barricade before placing it |
 | Tab / I | Satchel: inventory and crafting |
 | T (hold) | Skip daylight |
 | M | Mute |
 | Esc | Pause: resume, the Field Guide, settings, controls, or quit to the title |
+| F8 / F9 | Capture mode (a free camera: WASD, Space/C, wheel for speed, P to hold the world still) / hide the HUD |
+
+Every key can be moved on the **Controls** page. A gamepad works too (partly: the satchel and
+crafting still want a mouse): sticks to move and look, RT to swing, LT to use, A jump, X
+gather, B pack up, Y satchel, the bumpers along the belt, and the d-pad, A and B in the menus,
+Settings and the cards. `?daily` starts the **daily vigil** (one world a day, the
+same for everyone, with its own save); `?seed=<anything>` any other world.
 
 ### Debug mode
 
@@ -67,9 +85,12 @@ game.waves.setNight(5)    // pretend it's night 5 (a boss night)
 game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)   // also 'blightling', 'wisp', 'thornback'
 ```
 
-Debug runs never autosave. The save lives in `localStorage` under `og.save.v1`, the best run
-under `og.best`, lifetime records under `og.records`, and settings under `og.quality`,
-`og.bloom`, `og.autores`, `og.sensitivity`, `og.invertY`, `og.volume` and `og.music`.
+Debug runs never autosave. The save lives in `localStorage` under `og.save.v1` (a daily vigil
+under `og.save.daily.<date>`), the best run under `og.best`, lifetime records under
+`og.records`, achievements under `og.ach`, the pages read under `og.notes`, tips told under
+`og.tips`, key bindings under `og.keys`, and settings under `og.quality`, `og.bloom`,
+`og.autores`, `og.sensitivity`, `og.invertY`, `og.volume`, `og.music`, `og.captions`,
+`og.shake`, `og.bob` and `og.cb`.
 
 ## How it's put together
 
@@ -153,7 +174,11 @@ auto-smoothing by angle, and a GLB exporter. The quickest route is headless Blen
 blender -b --factory-startup -P art/blender/export_new.py -- wisp thornback
 ```
 
-With no names after `--` it rebuilds and exports all of them. Inside a running Blender,
+With no names after `--` it rebuilds and exports all of them. Then compress what changed with
+meshopt (`npm run compress`, or `node art/compress.mjs wisp thornback`): it halves the files,
+and the game's loader decodes them (`gltfLoader()` in `assets/Models.js`). Positions stay
+float; normals and colours are quantized and `art/merge.js` turns them back into floats.
+Inside a running Blender,
 `exec(open(r"<repo>/art/blender/export_all.py").read())` does the same.
 Parts that move in game are separate nodes: `Turret`/`Aim`/`Bolt` on the bow tower,
 `Turret`/`Aim`/`Bellows` on the mortar, `Orb`/`Rings` on the totem, `Flame`/`Coals` on the

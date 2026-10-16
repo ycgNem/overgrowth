@@ -6,7 +6,9 @@ COLL = {'heartwood': 'Heartwood', 'bow_tower': 'BowTower', 'spore_mortar': 'Spor
         'barricade': 'Barricade', 'blightling': 'Blightling', 'rotboar': 'Rotboar', 'wisp': 'Wisp', 'thornback': 'Thornback',
         'ember_brazier': 'EmberBrazier', 'vine_snare': 'VineSnare', 'hand': 'Hand',
         'spitter': 'Spitter', 'burrower': 'Burrower', 'glow_lantern': 'GlowLantern',
-        'crate': 'Crate', 'crate_b': 'CrateB', 'tent': 'Tent', 'wreck': 'Wreck'}
+        'crate': 'Crate', 'crate_b': 'CrateB', 'tent': 'Tent', 'wreck': 'Wreck',
+        'coffer': 'Coffer', 'workbench': 'Workbench', 'firepit': 'Firepit', 'tinker': 'Tinker', 'husk': 'Husk',
+        'rot_mother': 'RotMother', 'rot_egg': 'RotEgg', 'heartseed': 'Heartseed'}
 # OG_OUT overrides the output folder (e.g. to compare before copying over the live models)
 OUT = os.environ.get('OG_OUT', f"{ROOT}/public/models")
 names = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else list(COLL)

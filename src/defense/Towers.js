@@ -35,7 +35,38 @@ export const BUILD_DEFS = {
   vine_snare: { model: 'vine_snare', hp: 6, r: 0.85, pathCost: 0, blocks: false, dmg: 6, rate: 1.4, root: 2.6, grabs: 3, kind: 'snare' },
   // lights the ground: Blight in it take more damage, Burrowers can't stay under in it
   glow_lantern: { model: 'glow_lantern', hp: 160, r: 0.6, range: 10, expose: 1.25, pathCost: 40, blocks: true, kind: 'lantern', light: true },
+  // a cutting of the Heartwood: the Rot pulls back from it (world/Rot.js) and can't spread there
+  heartseed: { model: 'heartseed', hp: 150, r: 0.7, ward: 9, pathCost: 30, blocks: true, kind: 'seed', light: false },
 };
+
+// Grafts: attachments found in containers and supply drops, fitted with G once the Thornback's
+// heart is set in the Workbench. A tower has one slot at tier 2 and two at tier 3.
+export const GRAFTS = {
+  glowcap_lens: { glyph: '◉', color: 0x7ac8ff, say: '+20% range', fits: (d) => !!(d.range && d.dmg) },
+  bog_heads: { glyph: '➶', color: 0xd07a40, say: 'ignores resistances', fits: (d) => !!d.dmg },
+  resin_drip: { glyph: '♨', color: 0xffa030, say: 'sets the Blight burning', fits: (d) => !!d.dmg && d.kind !== 'fire' },
+  coiled_spring: { glyph: '⟳', color: 0xe0c870, say: '+20% fire rate', fits: (d) => !!(d.dmg && d.rate) },
+  root_anchor: { glyph: '⚓', color: 0x8ad060, say: '+30% HP, slowly mends', fits: () => true },
+};
+// Settings: a colour-blind safe palette for the placement ghost (and the Blight: Enemies.js)
+export const PALETTE = { cb: false };
+export const graftSlots = (tier) => (tier >= 3 ? 2 : tier >= 2 ? 1 : 0);
+// a hit from a grafted building: Bog-iron Heads cut through hide, Resin Drip sets it alight
+const graftOpts = (b, opts) => {
+  if (b?.grafts?.includes('bog_heads')) opts.pierceArmour = true;
+  return opts;
+};
+const graftHit = (b, e, enemies) => {
+  if (b?.grafts?.includes('resin_drip') && !e.dying) enemies.ignite(e, 5, 2.5);
+};
+const graftMats = {};
+function graftSprite(id) {
+  graftMats[id] ??= new THREE.SpriteMaterial({ map: glowTexture(), color: GRAFTS[id].color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85 });
+  const s = new THREE.Sprite(graftMats[id]);
+  s.scale.setScalar(0.5);
+  s.name = 'Graft';
+  return s;
+}
 
 // Upgrades: stat multipliers per tier, and what each step costs.
 export const TIER_MUL = {
@@ -58,6 +89,8 @@ export const REPAIRS = {
   tower: { bark: 2, resin: 1 },
 };
 export const TIER_NAMES = { 1: '', 2: 'Overgrown', 3: 'Heartbound' };
+// What each building draws from the Heartwood's roots (Game.rootCap is how many it can feed)
+export const ROOTS = { barricade: 1, spike_trap: 1, vine_snare: 1, glow_lantern: 2, heartseed: 2, bow_tower: 3, ember_brazier: 3, spore_mortar: 4, tesla_totem: 4 };
 
 let trapTemplate = null;
 function buildModel(id) {
@@ -142,6 +175,7 @@ class Building {
     this.tier = 1;
     this.hp = def.hp;
     this.maxHp = def.hp;
+    this.grafts = [];
     this.blocks = def.blocks;
     this.pathCost = def.pathCost;
     this.cooldown = 0.5;
@@ -186,8 +220,9 @@ class Building {
     if (base === undefined) return undefined;
     const m = TIER_MUL[this.tier];
     if (key === 'dmg') return base * m.dmg * (mods.towerDmg || 1);
-    if (key === 'range') return base * m.range * (mods.towerRange || 1);
-    if (key === 'rate') return base * m.rate * (mods.towerRate || 1);
+    if (key === 'range') return base * m.range * (mods.towerRange || 1) * (this.grafts.includes('glowcap_lens') ? 1.2 : 1) * (mods.fogRange || 1);
+    // (standing on the Rot, its roots choke: up to 15% slower)
+    if (key === 'rate') return base * m.rate * (mods.towerRate || 1) * (this.grafts.includes('coiled_spring') ? 0.82 : 1) * (1 + 0.25 * (this.rotK || 0));
     if (key === 'splash') return base * (this.tier >= 3 ? 1.35 : 1) * (mods.mortarSplash || 1);
     if (key === 'chain') return base + (this.tier >= 3 ? 2 : this.tier >= 2 ? 1 : 0);
     if (key === 'thorns') return base * (this.tier === 3 ? 3 : this.tier === 2 ? 2 : 1);
@@ -204,8 +239,64 @@ class Building {
     return UPGRADES[this.id]?.[this.tier + 1] || null;
   }
 
+  // a full repair; the higher the tier, the more it takes
   get repairCost() {
-    return this.def.kind === 'wall' ? REPAIRS.wall : REPAIRS.tower;
+    const base = this.def.kind === 'wall' ? REPAIRS.wall : REPAIRS.tower;
+    const k = 1 + 0.5 * (this.tier - 1);
+    const out = {};
+    for (const [id, n] of Object.entries(base)) out[id] = Math.round(n * k);
+    return out;
+  }
+
+  // Left under 30% at dawn, a building is scarred: 10% less max HP until an orchid salve (or an
+  // upgrade) mends it
+  scar() {
+    if (this.scarred) return false;
+    this.scarred = true;
+    this.maxHp = Math.round(this.maxHp * 0.9);
+    this.hp = Math.min(this.hp, this.maxHp);
+    return true;
+  }
+
+  heal() {
+    this.scarred = false;
+    this.maxHp = Math.round(this.def.hp * TIER_MUL[this.tier].hp * this.hpK);
+    this.hp = this.maxHp;
+  }
+
+  get hpK() {
+    return this.grafts.includes('root_anchor') ? 1.3 : 1;
+  }
+
+  // free graft slots, and whether this graft can go on it
+  get graftRoom() {
+    return graftSlots(this.tier) - this.grafts.length;
+  }
+
+  canGraft(id) {
+    return this.graftRoom > 0 && !!GRAFTS[id]?.fits(this.def) && !this.grafts.includes(id);
+  }
+
+  addGraft(id) {
+    this.grafts.push(id);
+    if (id === 'root_anchor') {
+      const was = this.maxHp;
+      this.maxHp = Math.round(this.maxHp * 1.3);
+      this.hp += this.maxHp - was;
+    }
+    this.dressGrafts();
+  }
+
+  // a bead of light per graft, round the top of the building
+  dressGrafts() {
+    for (const o of this.obj.children.filter((c) => c.name === 'Graft')) this.obj.remove(o);
+    const h = (this.def.muzzle || 1.6) * 0.8;
+    this.grafts.forEach((id, i) => {
+      const s = graftSprite(id);
+      const a = i * 2.4 + 0.6;
+      s.position.set(Math.sin(a) * this.def.r * 0.8, h, Math.cos(a) * this.def.r * 0.8);
+      this.obj.add(s);
+    });
   }
 
   get repairable() {
@@ -214,8 +305,9 @@ class Building {
 
   upgrade() {
     this.tier++;
+    this.scarred = false;
     const frac = this.hp / this.maxHp;
-    this.maxHp = Math.round(this.def.hp * TIER_MUL[this.tier].hp);
+    this.maxHp = Math.round(this.def.hp * TIER_MUL[this.tier].hp * this.hpK);
     this.hp = Math.max(this.maxHp * frac, this.maxHp * 0.6);
     this.popT = 1;
     const old = this.obj.getObjectByName('TierDecor');
@@ -343,8 +435,9 @@ export class Buildings {
 
   // ---------------------------------------------------------------- placement
   // Can `id` go at (x, z)? Returns null if fine, or the reason it can't.
-  check(id, x, z, rot, { base, player }) {
+  check(id, x, z, rot, { base, player, roots }) {
     const def = BUILD_DEFS[id];
+    if (roots && roots.used + (ROOTS[id] || 1) > roots.cap) return `The Heartwood can't feed more roots (${roots.used}/${roots.cap}): upgrade instead, or bury a relic in it`;
     const dBase = Math.hypot(x - base.x, z - base.z);
     if (dBase > BUILD_RADIUS) return 'Too far from the Heartwood';
     if (dBase < GOAL_RADIUS + 1.2 + def.r) return 'Too close to the Heartwood';
@@ -389,6 +482,7 @@ export class Buildings {
         b.obj.scale.setScalar(s);
       }
       if (mods.buildRegen && b.hp < b.maxHp) b.hp = Math.min(b.maxHp, b.hp + b.maxHp * mods.buildRegen * dt);
+      if (b.grafts.length && b.hp < b.maxHp && b.grafts.includes('root_anchor')) b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.004 * dt);
 
       b.recoil = Math.max(0, b.recoil - dt * 3);
       if (b.bellows) b.bellows.scale.z = 1 - b.recoil * 0.4;
@@ -531,7 +625,7 @@ export class Buildings {
     near.sort((p, q) => Math.hypot(p.pos.x - b.x, p.pos.z - b.z) - Math.hypot(q.pos.x - b.x, q.pos.z - b.z));
     for (const e of near.slice(0, 4 + b.tier)) {
       enemies.ignite(e, b.stat('burn', mods) * rainK, b.def.burnTime * (b.tier >= 3 ? 1.5 : 1));
-      enemies.damage(e, b.stat('dmg', mods) * rainK, ctx, null, { source: 'tower' });
+      enemies.damage(e, b.stat('dmg', mods) * rainK, ctx, null, graftOpts(b, { source: 'tower', type: 'fire' }));
       // a gout of flame licks out to the target
       const to = enemies.chest(e).clone();
       for (let k = 0; k < 6; k++) {
@@ -594,12 +688,12 @@ export class Buildings {
       b.grabT = 1;
       for (const e of hits.slice(0, def.grabs)) {
         enemies.root(e, def.root);
-        enemies.damage(e, def.dmg, ctx, null, { source: 'trap' });
+        enemies.damage(e, def.dmg, ctx, null, { source: 'trap', type: 'pierce' });
       }
       particles.leafBurst(new THREE.Vector3(b.x, b.y + 0.4, b.z), 0x4c6a26, 14, b.y);
       audio.snare?.();
     } else {
-      for (const e of hits) enemies.damage(e, def.dmg, ctx, null, { source: 'trap', stagger: 0.3 });
+      for (const e of hits) enemies.damage(e, def.dmg, ctx, null, { source: 'trap', type: 'pierce', stagger: 0.3 });
       particles.chipBurst(new THREE.Vector3(b.x, b.y + 0.3, b.z), 0x6a3a7a, 8, b.y);
       audio.stab?.();
     }
@@ -610,7 +704,7 @@ export class Buildings {
 
   // A homing bolt. With Splitting Shafts the first one splits on impact and a second,
   // weaker bolt seeks the nearest other Blight.
-  bolt(from, target, dmg, ctx, mods, canSplit) {
+  bolt(from, target, dmg, ctx, mods, canSplit, src = null) {
     const { enemies, particles } = ctx;
     const mesh = new THREE.Mesh(boltGeo, boltMat);
     mesh.add(new THREE.Mesh(trailGeo, trailMat));
@@ -622,7 +716,8 @@ export class Buildings {
       hit: () => {
         if (!target.dying) {
           const knock = new THREE.Vector3(to.x - from.x, 0, to.z - from.z).normalize().multiplyScalar(3);
-          enemies.damage(target, dmg, ctx, knock, { source: 'tower', stagger: 0.15 });
+          enemies.damage(target, dmg, ctx, knock, graftOpts(src, { source: 'tower', type: 'pierce', stagger: 0.15 }));
+          graftHit(src, target, enemies);
           particles.chipBurst(to, 0x6a3a7a, 8, target.pos.y);
         }
         if (canSplit && mods.boltSplit) {
@@ -634,7 +729,7 @@ export class Buildings {
           }
           if (next) {
             particles.sparks(to, 0xffe0a0, 4);
-            this.bolt(to.clone(), next, dmg * mods.boltSplit, ctx, mods, false);
+            this.bolt(to.clone(), next, dmg * mods.boltSplit, ctx, mods, false, src);
           }
         }
       },
@@ -671,7 +766,7 @@ export class Buildings {
     const from = b.muzzle(new THREE.Vector3());
     const dmg = b.stat('dmg', mods);
     if (b.def.kind === 'bow') {
-      this.bolt(from, target, dmg, ctx, mods, true);
+      this.bolt(from, target, dmg, ctx, mods, true, b);
       particles.sparks(from, 0xffe0a0, 3);
       audio.bowShot?.();
     } else if (b.def.kind === 'mortar') {
@@ -693,7 +788,8 @@ export class Buildings {
           for (const e of enemies.inRadius(to.x, to.z, splash, { ground: true })) {
             const d = Math.hypot(e.pos.x - to.x, e.pos.z - to.z);
             const knock = new THREE.Vector3(e.pos.x - to.x, 0, e.pos.z - to.z).normalize().multiplyScalar(4);
-            enemies.damage(e, dmg * (1 - 0.5 * d / splash), ctx, knock, { source: 'tower', stagger: 0.2 });
+            enemies.damage(e, dmg * (1 - 0.5 * d / splash), ctx, knock, graftOpts(b, { source: 'tower', type: 'blunt', stagger: 0.2 }));
+            graftHit(b, e, enemies);
             enemies.slowDown(e, b.def.slow * (mods.sporeSlow || 1), b.def.slowTime);
           }
           particles.sporeBurst(to, 0xa0e040, 60, 1.6);
@@ -723,7 +819,8 @@ export class Buildings {
       chain.forEach((e, k) => {
         const p = enemies.chest(e).clone();
         this.arc(prev, p);
-        enemies.damage(e, dmg * Math.pow(0.8, k), ctx, null, { source: 'tower', stagger: 0.25 });
+        enemies.damage(e, dmg * Math.pow(0.8, k), ctx, null, graftOpts(b, { source: 'tower', type: 'arc', stagger: 0.25 }));
+        graftHit(b, e, enemies);
         particles.sparks(p, 0xa0e0ff, 10);
         prev = p;
       });
@@ -885,7 +982,8 @@ export class BuildGhost {
     this.obj.rotation.y = this.rot;
     this.reason = buildings.check(this.id, hit.x, hit.z, this.rot, ctx);
     this.valid = !this.reason;
-    const col = this.valid ? 0x7affa0 : 0xff5040;
+    // (colour-blind safe: blue for yes, orange for no)
+    const col = this.valid ? (PALETTE.cb ? 0x50a8ff : 0x7affa0) : (PALETTE.cb ? 0xff9a20 : 0xff5040);
     setTint(this.obj, col, 0.5);
     this.foot.visible = true;
     this.foot.position.set(hit.x, this.pos.y + 0.08, hit.z);
@@ -895,7 +993,7 @@ export class BuildGhost {
     if (range) {
       this.ring.visible = true;
       fitRing(this.ring.geometry, hit.x, hit.z, range);
-      this.ring.material.color.set(this.valid ? 0x9affb0 : 0xff6060);
+      this.ring.material.color.set(this.valid ? (PALETTE.cb ? 0x70b8ff : 0x9affb0) : (PALETTE.cb ? 0xffa040 : 0xff6060));
     } else this.ring.visible = false;
     // show the reach of every tower already standing, faintly
     let n = 0;

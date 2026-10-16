@@ -17,6 +17,10 @@ const P = {
   swampFog: col('#6f8270'),
 };
 const _swampFog = new THREE.Color();
+// the Signs (Waves.SIGNS): a pale fog off the grove, a blood-red moon
+const PALE_FOG = new THREE.Color('#9aa2ae').multiplyScalar(0.45); // a pale night haze
+const BLOOD_MOON = new THREE.Color('#ff5a48');
+const BLOOD_SKY = new THREE.Color('#6a1008');
 
 const vert = /* glsl */`
 varying vec3 vDir;
@@ -198,6 +202,14 @@ export class Sky {
     u.uZenith.value.copy(P.nightZenith).lerp(P.dayZenith, day).lerp(P.setZenith, twilight * 0.55);
     u.uHorizon.value.copy(P.nightHorizon).lerp(P.dayHorizon, day).lerp(P.setHorizon, twilight * 0.8);
     u.uFog.value.copy(P.nightFog).lerp(P.dayFog, day).lerp(P.setFog, twilight * 0.55);
+    // tonight's sign eases in at dusk and out at dawn (Game sets signFog / signMoon 0..1)
+    const sf = (this.signFog || 0) * night, sm = (this.signMoon || 0) * night;
+    if (sm > 0) {
+      u.uHorizon.value.lerp(BLOOD_SKY, sm * 0.8);
+      u.uZenith.value.lerp(BLOOD_SKY, sm * 0.4);
+      u.uFog.value.lerp(BLOOD_SKY, sm * 0.65);
+    }
+    if (sf > 0) u.uFog.value.lerp(PALE_FOG, sf * 0.75);
     u.uSunColor.value.copy(P.sunDay).lerp(P.sunSet, clamp(twilight * 1.2, 0, 1));
     globalUniforms.uDay.value = day;
 
@@ -205,13 +217,13 @@ export class Sky {
     // air is in their shade: a deep green haze with less of the sun's glow in it, not a milky veil
     this.scene.fog.color.copy(u.uFog.value).multiplyScalar(1 - 0.4 * cover);
     if (swamp > 0) this.scene.fog.color.lerp(_swampFog.copy(P.swampFog).multiplyScalar(0.25 + 0.75 * day), swamp * 0.7);
-    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002 + swamp * 0.016 + (this.fogBoost || 0);
+    this.scene.fog.density = 0.0082 + twilight * 0.004 + night * 0.006 + cover * 0.002 + swamp * 0.016 + (this.fogBoost || 0) + sf * 0.011;
 
     // Sun by day, moon by night (same light, swapped direction).
     const moonUp = elev < -0.02;
     const L = moonUp ? sunDir.clone().negate() : sunDir;
     if (moonUp) {
-      this.sun.color.copy(P.moon);
+      this.sun.color.copy(P.moon).lerp(BLOOD_MOON, sm * 0.85);
       this.sun.intensity = 1.1 * smoothstep(0.0, 0.25, -elev);
     } else {
       this.sun.color.copy(u.uSunColor.value);

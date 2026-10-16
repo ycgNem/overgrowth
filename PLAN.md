@@ -188,6 +188,20 @@ a 1.0.
       round glowing vines on the Heartwood, bark and moss on the Blooms, wilt inside a
       bloom's stain, forage that reads at a glance.
 
+**Replanned 2026-10-15:** milestones 11–14 are now Pack and Cache, Hard Ground, The Lost
+Expedition and 1.0. See "The 0.10–1.0 plan" under Start here. All four were done on
+2026-10-15 and ship together as **release 1.0** (see the 1.0 handoff):
+- **11. Pack and Cache.** Weight and burden, the Coffer, benches with levels, containers you
+  search, root caches, the lost satchel and Safe Pouch, backpacks, Husks and noise, salvage.
+- **12. Hard Ground.** Root capacity (upgrades draw roots too), damage types and resists,
+  elite Blight, packs that lean on your weakest side, the surge from night 6.
+- **13. The Lost Expedition.** Torn pages and the Notes tab, three seals, grafts, Hollis's
+  radio and supply drops, the Rot, Signs, the Rot Mother on night 10, two endings.
+- **14. The Long Tail.** Accessibility, rebinding, the gamepad, achievements, the daily
+  vigil and score, the guided first night, capture mode, meshopt-compressed models.
+
+The old list follows for reference.
+
 11. **Omens (release 0.10): no two runs alike.**
     - **Nightly omens**, announced at dawn: Blood Moon (Blight frenzy, more loot), Pale Fog
       (towers' range shortened), the Swarm (twice the Blightlings, half the health), Stillness
@@ -215,42 +229,60 @@ a 1.0.
 
 - Day 1 is generous: you start with one Bramble Bow Tower, two spike traps and two poultices.
   The tower holds night 1 (9 Blightlings) on its own.
-- Night *n*: Blightlings `6 + 3n`; Rotboars from night 2, `n − 1` (at most 8); Wisps from
-  night 4, `floor((n − 2) × 1.3)`; Spitters from night 3, `floor(n / 3)` (in the second pack,
-  each replacing two Blightlings); Burrowers from night 6, `n − 5` (in the third pack, each
-  replacing three); the Thornback on nights 5 and 10. A wave arrives in three packs. The
-  difficulty's `count` scales all of these but the boss.
-- Enemy HP: +12% a night up to night 6, then +14% a night. The Thornback (1800 HP) comes at 0.7×
-  on night 5 and scales at half the Blight's rate after that. From night 7 the *surge* (a fourth
-  pack from every rift at once) adds `4(n − 6)` Blightlings, `1.5(n − 6)` Rotboars and
-  `(n − 6)/2` Wisps. Tower damage only grows through upgrades and boons.
-- Six rifts: three open from night 1, the drowned grove's tears open on night 4 (its Blight wade
-  in from the water), the fifth on night 7 and the sixth on night 9.
-- Heartwood: 500 HP. Blightling bite 8 per 1 s, Wisp 7, Rotboar 22 per 1.5 s, Burrower 12 per
-  1.3 s, Thornback 40 per 2.2 s plus a slam every 6.5–8.5 s (30 to the Heart, 85 to buildings,
-  26 to you). A Spitter (60 HP) lobs a glob every 4 s: 9 to buildings within 1.9 m, 8 to the
-  Heart, 10 to you, and a puddle that burns you for 6 a second for 4 s. Bow towers pick
-  Spitters out first. Rotboars break off for a tower within reach (`towerAggro` 4.5 m): they,
-  not the Spitters, are what tears a defence down, and the Thornback's slam finishes the traps.
-- Measured with a passive player (`e2e/balance.mjs <night> <setup> [difficulty]`, Heartwood HP
-  left at dawn; Warden 500, Verdant 700, Blightborn 400). Two or three runs each, 0.8 rules
-  with the grove rift, 2026-10-15:
+- Night *n* (`waveFor` in `defense/Waves.js`):
+  - Blightlings: `6 + 3n`.
+  - Rotboars: `n − 1` to night 4, then `n` (at most 7).
+  - Wisps: from night 4, `floor((n − 2) × 1.3)`.
+  - Spitters: from night 3, `floor(n / 3)`, each replacing two Blightlings.
+  - Burrowers: from night 6, `n − 5`, each replacing three.
+  - Bosses: the Thornback on night 5, the Rot Mother on night 10 (0.4× her HP there, two
+    eggs a lay, a 3 s pause to lay). From night 15, every fifth night brings both.
+  - The *surge* (nights 6+), a fourth pack from every rift at once, with `k = n − 5`: `3k`
+    Blightlings, `min(k, 3)` Rotboars, `k/2` Wisps, `k/3` Spitters, `k/2` Burrowers.
+  - The difficulty's `count` scales everything but the bosses.
+- Enemy HP: +19% a night to night 6 (1.95×), then +5% a night. The Thornback comes at 0.7× on
+  night 5, then scales at half the Blight's rate.
+- Resists: Rotboar pierce 0.7, blunt 1.2, fire 1.3; Wisp blunt 0.5, arc 1.25; Spitter
+  pierce 1.3; Burrower arc 0.5, blunt 1.2; Husk fire 1.6, pierce 0.8; Thornback 0.75 to all
+  but fire.
+- Root capacity: `12 + 2(n − 1)`, times the difficulty (Verdant 1.15, Blightborn 0.9), plus
+  buried relics and boons. Each upgrade tier draws one more root.
+- Measured with `e2e/balance.mjs <night> <setup> [difficulty]` (Heartwood HP left at dawn;
+  Warden 500, Verdant 700, Blightborn 400), with Signs off. 1.0 rules, 2026-10-15.
 
-  | Night | Warden | Verdant | Blightborn |
-  | --- | --- | --- | --- |
-  | 3, starter | lost (26–74 before the grove; it varies) | | |
-  | 5 (boss), mid | 356, 179, 275 | | |
-  | 6, mid | 500, 319 | 700 | lost |
-  | 8, mid | lost | | |
-  | 10 (boss), late | 97, 351 | 700 | lost |
+  | Night | Setup | Warden, passive | Warden, active | Verdant | Blightborn |
+  | --- | --- | --- | --- | --- | --- |
+  | 3 | starter | lost | 440 | | |
+  | 5 (Thornback) | cap | 352 | | | |
+  | 6 | cap | 494, 500 | 500 | 700 | lost |
+  | 6 | mid | lost | | | |
+  | 8 | cap | 347, 410 | | 700 | lost |
+  | 8 | full | 459 | | | |
+  | 10 (Rot Mother) | cap | lost ×4 | lost ×2 | 658 | |
+  | 10 (Rot Mother) | full | 339, 438 | 500, 500 | 700 | 197 |
 
-  *starter* is the one bow tower. *mid* is two bow towers, a mortar, a brazier, a Glowcap
-  Lantern, and a barricade plus spike trap per rift. *late* adds a third bow, a totem, a second
-  brazier and a snare per rift, everything upgraded to tier 2. Spawns are random and runs swing
-  by ±150 HP, so read a cell as a range. Night 8 on a *mid* base is meant to fall: past night 6
-  the curve asks you to keep building and to fight (Spitters fold up close, lanterns drag
-  Burrowers up). `NO=<types>` and `NOLANTERN=1` ablate a kind or the lantern, and the `DMG`
-  line says who did the building damage and who finished each building.
+  The setups:
+  - *starter* is the one bow tower.
+  - *cap* is what a sharp player raises on the night's real root cap: bows and mortars
+    first, a barricade and trap per lane, then upgrades (a root each, tier 3 from night 8)
+    and more towers in turn. It ignores that mortars need the Fire Pit and upgrades need
+    materials, so it is a ceiling.
+  - *full* adds what a good run has by night 8–10: a root a night from night 5 for buried
+    relics, and grafts in every free slot.
+  - *mid* is the old fixed base (two bows, a mortar, a brazier, a lantern, a barricade and
+    trap per rift). It spends its roots on walls and traps, which are poor value per root.
+
+  How to read it:
+  - Night 10 is a gear check: without relics and grafts even a full defence falls to the
+    Rot Mother's night. Without her it still falls, so it's the cap, not her.
+  - Night 6 is easy for a full cap, but in play it is always a Sign night (the Swarm or the
+    Blood Moon). With the Sign forced it still held, at 494–500.
+  - `ACTIVE=1` adds a fighting bot. `SIGN=`, `ABL=resist,elite,weak,camp`, `NO=<types>` and
+    `NOLANTERN=1` ablate things. The `DMG` line says who damaged and finished each building.
+  - Runs swing by ±150 HP.
+- Ablations on night 6 with the *mid* base (before the camp moved in): everything off held
+  309; camp-off 190; weak-lane-off 112; all on lost. The benches sat in the tower ring.
+  Moving the camp to d≈7 fixed it.
 
 ## Where things live
 
@@ -281,10 +313,18 @@ a 1.0.
 
 ## Start here (next session, written 2026-10-15)
 
-Read this section, then the 0.9 handoff below it, then `README.md`. Start the dev server with
-the Browser preview (`.claude/launch.json`, name `overgrowth`, port 5188) or `npm run dev`,
-and run `node e2e/loop.mjs` (ten PASS) and `node e2e/blight.mjs` (three PASS) before changing
-anything. Commit on `main` and push only when the user asks; after a release add CHANGELOG
+**1.0 is released** (milestones 11–14 of "The 0.10–1.0 plan" below). Read the **1.0 handoff**
+(the first handoff below), then `README.md`. Its "Open / next" list is where to pick up.
+Start the dev server with the Browser preview (`.claude/launch.json`, name `overgrowth`, port
+5188) or `npm run dev`. Before changing anything, run:
+- `node e2e/loop.mjs` (10 PASS)
+- `node e2e/blight.mjs` (3)
+- `node e2e/pack.mjs` (11)
+- `node e2e/story.mjs` (11)
+- `node e2e/m14.mjs` (8)
+- `node e2e/daily.mjs` (15 dates)
+
+After a Blender export, run `npm run compress`. Commit on `main` and push only when the user asks; after a release add CHANGELOG
 notes and refresh this section. The developer's alias is **ycgNem** (credits, git author).
 
 ### 0.9.1 "Steady Ground" (performance and onboarding patch, 2026-10-15, released)
@@ -318,7 +358,296 @@ Milestone 11 itself has not started (no Omens code exists yet). This pass came f
   per frame by function), `e2e/scene.mjs` (draws per pass, objects, memory), `e2e/fps.mjs`
   (frame limit check). Measured: sprinting p50 7.3 → 6.0 ms, p95 12.5 → 10.5, p99 26.9 → 17.8.
 
-### Milestone 11: Omens (release 0.10), step by step
+### The 0.10–1.0 plan (written 2026-10-15)
+
+The developer asked for three things, and core changes are allowed: **foraging that plays
+like ARC Raiders** (containers you search, a stash, weight and encumbrance, risk on the way
+home), **a harder tower defence**, and **a story whose beats bring in new mechanics**. Every
+step also has to fit the render budget below. The order matters: the satchel rework changes
+how fast you can afford a defence, so the balance pass comes after it and is measured on it.
+
+| Milestone | Release | In one line |
+| --- | --- | --- |
+| 11. Pack and Cache | 0.10 | Weight, a stash at camp, crafting benches, containers you search, a dropped satchel when you die, noise |
+| 12. Hard Ground | 0.11 | Root capacity, damage types, elite Blight, packs that pick your weakest side, new balance targets |
+| 13. The Lost Expedition | 0.12 | The story in six beats; each one adds a mechanic (field notes, seals, grafts, the radio, supply drops, the Rot) |
+| 14. 1.0 | 1.0 | Onboarding, accessibility, achievements, compressed assets, perf targets, capture mode |
+
+Milestone 11 (Omens) from the old plan moves into 13 as the Signs, and the daily vigil and
+endless score move into 14. None of their code exists yet.
+
+#### The render budget (holds for every step below)
+
+Measured on 0.9.1 on this machine (1600×900, High): about 200 draw calls in the main pass,
+forest 8.8 ms GPU, sprint p50 6.0 / p95 10.5 / p99 17.8 ms. The world is 64 m chunks in a
+5×5 window (`VIEW_RADIUS 2`). Trees and big plants swap to thinned LODs at 38 m (`LOD_DIST`),
+small plants stop drawing at 40–90 m (`FAR`), forage at 60 m (`FORAGE_FAR`). Medium and Low
+scale those by 0.8 and 0.6 (`Pools.setScale`) behind fog. Assets: 9.7 MB of GLBs and 17 MB of
+PNG textures, uncompressed. Frames are bound by CPU submission, not fill.
+
+Rules for new content:
+- **Draw calls.** Anything that appears more than a few times (containers, root caches,
+  stations, dropped satchels, Rot patches) is one `InstancedMesh` per type through
+  `world/Pools.js` blocks, not cloned GLBs. Today each crate is a `cloneModel`, so 40 caches
+  across the window would add 40–80 calls. Opened or empty state goes in a per-instance colour
+  or attribute, never a material swap. Keep the main pass under **260 calls**.
+- **Triangles.** Container ≤ 1.5k, camp station ≤ 3k, new Blight ≤ 6k, boss ≤ 10k (the
+  Thornback is 8.6k). Every animated part goes through `art/merge.js` (one draw call, vertex
+  colour, no new textures).
+- **Textures.** No new texture units on the terrain (it is at 16). The Rot and anything else
+  painted on the ground goes into the splat and colour attributes the way `world/Trample.js`
+  does. New surfaces reuse the atlases. A new map is 1024 px at most, with half-size on Low
+  through `TextureLib(renderer, detail)`.
+- **Distance.** Containers and stations draw to 90 m (they are landmarks). Their shadows stop
+  at 25 m. Small props never cast. Loot beams only for rare and up, as today.
+- **Lights.** Never change the number of lights during play. Anything that glows (a supply
+  drop flare, a seal, an elite) asks `fx/LightPool.js`, which has 6 on High and 3 on Low.
+- **Materials.** Elites, resistances and graft looks use the existing tint, rim and emissive
+  uniforms from `merge.js`. No new material per enemy. New shaders are compiled by
+  `Game.precompile` before they are first seen.
+- **UI.** The loot window, stash and benches are DOM over the canvas and reuse the item icons
+  already rendered by `renderItemIcons`. They cost nothing in the 3D pass.
+- **Measure every step.** Run `e2e/gpu.mjs`, `e2e/perf.mjs`, `e2e/scene.mjs` and
+  `e2e/hitch.mjs` before and after, and put the numbers in the handoff. Fail the step if
+  sprint p95 rises more than 1 ms, if a new hitch goes over 50 ms, or if calls go over 260.
+- **Step 0 of milestone 11: a render audit.** Run `scene.mjs` at spawn, in the forest, in the
+  grove and at a POI on all three qualities. List the ten most expensive things that draw
+  (calls, triangles, shadow casters, pixels covered) and what the frame would gain from
+  dropping each. Write it into the handoff so later steps can spend from it.
+
+#### Milestone 11: Pack and Cache (release 0.10)
+
+ARC Raiders' loop is: go out light, search containers, decide what is worth the weight, get
+home with it before something takes it off you. Here the day is the raid, the Heartwood camp
+is home, and dusk is the deadline. Today's satchel has 32 slots, no weight, crafts anything
+anywhere and survives death, so none of those choices exist yet.
+
+1. **Weight and encumbrance.**
+   - Every item gets `wt` in kilograms in `items/ItemDB.js`, with defaults per `KIND`. Rough
+     values: stick 0.3, stone 1, log 4, clay 1.5, bog iron 2, scrap metal 1.5, battery 1,
+     golden idol 6. Built defences are heavy (bow tower 8, mortar 10, barricade 5), so you
+     build near where you made them.
+   - `Inventory.weight` and `Inventory.capacity` (base 20 kg). Three states:
+     - up to 70%: normal;
+     - *Laden* (70–100%): 10% slower, sprint drains 1.5× faster;
+     - *Encumbered* (over 100%): no sprint, 3.2 m/s walk, low jumps, loud footsteps.
+     The hard cap is 130%; past it, pickups stay on the ground (`pickups.canTake`).
+   - Feed the state into `Player.moveMul` and the stamina drain (`player/Player.js`).
+   - The HUD gets a weight bar beside the satchel chip, and weight in every tooltip and slot.
+   - The pack shrinks from 24 to 16 slots. Weight becomes the real limit.
+2. **The Coffer: a stash at camp.**
+   - A root-bound chest beside the Heartwood (`art/blender/coffer.py`, ≤ 1.5k tris, placed by
+     `defense/Base.js`).
+   - Hold E opens a two-pane window, satchel | coffer. Drag a stack, or shift-click it, to move
+     it. "Store all materials" leaves your tools and consumables.
+   - 60 slots, no weight limit, saved with the run (`core/Save.js`).
+   - New `items/Stash.js`. Crafting at camp reads the satchel and the coffer together: make
+     `canAfford` and `remove` take a list of sources.
+3. **Benches: where things get made.**
+   - Recipes gain `at`:
+     - `field` (in the satchel, anywhere): traps, poultice, firepots, ammo, slingshot;
+     - `bench` (the Workbench): towers, barricades, lanterns, backpacks;
+     - `kiln` (the Fire Pit): brazier, mortar, smoked eel, clay work;
+     - `tinker` (the Tinker's Bench): totem, scrap work, salvage.
+   - Each station is a build you place in the clearing. The Workbench starts placed.
+   - Each station has three levels, upgraded with scavenged parts (ARC's workshop). Levels
+     gate tier-3 tower upgrades and the best recipes, which gives rare loot a long-term job.
+     Models are ≤ 3k tris each, as one instanced pool.
+   - The satchel's Craft tab shows every recipe, greys out the ones that need a bench, and
+     says which bench. Tooltips keep `whereToFind`.
+4. **Containers you search.** This replaces the instant spray of loot.
+   - New `world/Containers.js` holds a registry of containers. Contents are rolled the first
+     time one is opened, seeded by its id and the day, and saved, so you can leave things in a
+     crate and come back for them.
+   - The loot window (`ui/LootWindow.js`) shows slots that reveal one at a time. Common items
+     take 0.3 s and legendary ones 1.6 s, each with a flash in its rarity colour and a sound.
+     Then you take items one by one, or press R to take all. Weight is shown live.
+   - Moving or taking a hit closes the window, and the search pauses where it was.
+   - Kinds:
+     - supply crate;
+     - explorer's pack (camp);
+     - field locker (wreck);
+     - clay urn (still smashed open, then searched);
+     - **root cache**: small hidden stashes in buttress roots, new, scattered at the end of
+       `World.plan` so nothing else moves;
+     - temple reliquary;
+     - sunken chest (grove, underwater).
+   - **Locked** ones need a pry bar (a bench recipe: bog iron and a stick) or a long, loud
+     forced open.
+   - Some containers restock at dawn. A searched one shows as darker (instance colour) and its
+     compass marker greys out.
+   - The existing `kind: 'search'` and `'break'` interactables in `world/poi/POI.js` become
+     containers. The scrap heap, cockpit, altar and idol all open the window.
+5. **Dying by day costs your pack.**
+   - Die out in the forest and the satchel's pack drops where you fell, as one *Lost satchel*
+     with a beacon (a sprite and a compass marker, no light). The hotbar's weapons and the
+     Safe Pouch stay with you.
+   - Get back to it before dusk or the Blight trample it. Its contents are gone at the horn.
+   - Dying at night inside the build radius drops nothing: defending must not be punished.
+   - Per difficulty (`keepOnDeath`): Verdant keeps everything, Warden drops the pack,
+     Blightborn drops the hotbar too.
+   - **Safe Pouch**: 1 slot to start, more from better backpacks. It never drops. This is
+     ARC's safe pocket, and it is where a found vacuum tube goes.
+6. **Backpacks.** These are ARC's augments, crafted at the Workbench.
+   - Woven Satchel (start): 20 kg, 16 slots, 1 safe.
+   - Hide Pack: 26 kg, 18 slots, 1 safe (needs bone, vine, frayed rope).
+   - Explorer's Rucksack: 32 kg, 20 slots, 2 safe (needs the camp's rope, brass gear and
+     leather from the Rotboar).
+   - The pack you wear shows on the player's shadow and in the satchel header.
+7. **Noise and day threats.**
+   - `Player.noise` is a radius each frame: walking 4 m, sprinting 14 m, encumbered 12 m,
+     breaking a crate 20 m, forcing a lock 28 m, a firepot 30 m.
+   - Bloom guards hear it and come.
+   - From day 3, a new day Blight, the *Husk*, walks routes between POIs in twos and threes.
+     It is the Blightling model with a bark tint and its own walk, so no new GLB yet. It hunts
+     by noise and drops good salvage.
+   - That puts real risk in the day: an encumbered walk home through Husk country is the ARC
+     moment.
+8. **Salvage.** At the Tinker's Bench, break surplus scrap and packed-up defences into parts,
+   at full yield. In the field you get half (ARC's recycle and salvage). Packing up a
+   defence by day now returns its materials at 60%, not the whole built item, so moving a
+   defence costs something.
+9. **Verify.** Extend `e2e/loop.mjs`: weight blocks a pickup, the coffer stores and crafts from
+   storage, a container reveals and takes, a death drops a lost satchel that can be picked
+   up, and a bench gates a recipe. Then measure against the render budget and run the
+   `indie-critic` agent on a full day.
+
+#### Milestone 12: Hard Ground (release 0.11)
+
+What the numbers say today (Balance section): a *mid* base holds Warden night 6 with
+319–500 HP of 500 left, Verdant holds nights 6 and 10 without a scratch, and late nights
+hold through stacking towers. Defence is too easy from night 4 to 7, and at any time on
+Verdant. A spread of towers solves every night, so what you build matters too little.
+These numbers come from a passive player, and a real player fights, so the true difficulty
+is lower still.
+
+1. **Measure honestly first.**
+   - Add `ACTIVE=1` to `e2e/balance.mjs`: a bot that guards the Heartwood, swings at Blight
+     within 3 m, and slings at Spitters and Wisps.
+   - Re-run the table on the milestone 11 economy, which already makes defences slower to
+     afford. Only then change numbers.
+   - The targets:
+
+   | Night | Base | Warden, passive | Warden, active | Verdant, passive |
+   | --- | --- | --- | --- | --- |
+   | 3 | starter | lost | holds, 150–300 lost | holds |
+   | 6 | mid | loses 150–300 | holds, under 150 lost | loses 50–200 |
+   | 8 | mid | lost | narrowly holds or lost | loses 150–350 |
+   | 10 | late, T2 | lost | holds, 150–350 lost | loses 100–300 |
+   | 10 | late, T3 + grafts | holds narrowly | holds | holds |
+
+2. **Root capacity: a build budget.**
+   - The Heartwood can feed a limited number of roots. Each build has a root cost: barricade
+     and spike trap 1, snare 1, lantern 2, bow 3, brazier 3, mortar 4, totem 5.
+   - The cap is 12 on night 1, plus 2 a night, plus boons, plus relics *rooted* into the Heart
+     (a third choice for a relic, beside favour and healing).
+   - Shown on the placement ghost and the HUD (`defense/Towers.js`). This ends the carpet of
+     towers and makes upgrading or widening a real choice.
+3. **Damage types and resistances.**
+   - Types: pierce (bow, sling, spikes), blunt (mortar, slam), fire (brazier, firepot), arc
+     (totem), and light (lantern, which exposes).
+   - Resistances:
+     - Rotboar: bark hide, −40% pierce, +30% fire;
+     - Wisp: −50% blunt;
+     - Spitter: +30% pierce;
+     - Burrower: −30% arc;
+     - Thornback: −25% to all but fire.
+   - `Enemies.damage` reads `def.resist`. Shown in the Field Guide and as a coloured number when
+     a hit is weak or strong. A mix of towers matters again.
+4. **Elite Blight.**
+   - From night 4 (night 2 on Blightborn), one Blight a pack gets an affix:
+     - *Swift*: +35% speed;
+     - *Thorned*: reflects 20% of melee;
+     - *Rooted*: snares and slows don't hold it;
+     - *Bloated*: bursts into three Blightlings;
+     - *Shielded*: the first 30% of its HP only comes off with fire or arc.
+   - More of them each night. Each affix shows as a rim colour through the existing uniform,
+     with an icon over its HP bar. Elites drop from a better loot table, which ties back into
+     the containers' rarities.
+5. **The Blight learn.**
+   - Pack 2 and the surge favour the rift whose lane has the least tower cover. Score each
+     rift's path by the tower DPS that reaches it, taken from the flow field.
+   - The breather between packs shortens from 16 s to 8 s by night 8.
+   - The dawn banner says which side they tested ("They came from the east, where you were
+     thin").
+6. **Attrition.**
+   - Repairs cost more at higher tiers.
+   - A building under 30% HP at dawn is *scarred* (−10% max HP until mended with orchid salve
+     or a bench part).
+   - Pack-up refunds are already in milestone 11.
+7. **Numbers.** Tune against the table above, in this order: tier multipliers (T3 2.2× damage
+   becomes 2.0×), tower base costs, the HP curve after night 6, elite rate. Record every run in
+   the Balance section.
+8. **Difficulties.** Verdant keeps Root capacity and resistances but no elites. Blightborn adds
+   elites from night 2, two affixes from night 7, and 10% less Root capacity.
+
+#### Milestone 13: The Lost Expedition (release 0.12)
+
+The world already tells most of a story. There is a wreck, an abandoned camp, a temple
+missing its golden idol, and a pocket watch "stopped at 4:17" (4217 is the world seed). Each
+beat below hands the player a new mechanic. Names and lines are placeholders for the
+developer to rewrite.
+
+**The premise.** In 1931 the Vane Expedition flew in to take the temple's golden idol. Its
+members were Dr. Iris Vane, the leader; Teo Ruiz, the guide; Hollis, the pilot; and you, the
+expedition's cartographer. At 4:17 one morning Vane lifted the idol, and the Heartwood's
+seals broke. The plane went down in the storm that followed. You woke at the Heartwood, which
+chose you because you were the only one who never touched the gold. The Blight is the
+forest's own immune system turned septic: it marches on the Heartwood because the Heartwood is
+the last thing still holding the seals.
+
+| Beat | When | What happens | The mechanic it brings |
+| --- | --- | --- | --- |
+| 1. The Cartographer | Day 1–2 | Torn journal pages in containers: Vane's, Ruiz's and Hollis's | **Field Notes.** A lore item (Notes tab). Some pages are maps that mark a hidden *root cache* on the compass for that run. This rewards searching. |
+| 2. The First Seal | Night 4 (the grove opens) | The sunken shrine was the second seal. Its rift is the proof. | **Seals.** Carry a relic to a shrine (temple altar, sunken shrine, a third in the hills) and set it there. That rift goes *dormant* for two nights, or for good with the right relic. Relics now have three uses: favour, root capacity, or a seal. This is a strategic choice for the defence. |
+| 3. The Guide | Night 5 | The Thornback wears Ruiz's satchel strap. He went back for the idol and the forest took him. | **Grafts.** The Thornback drops his *heart*, which unlocks grafting at the Workbench. Grafts are tower attachments found in containers (ARC's weapon mods): Glowcap Lens (+range), Bog-iron Heads (pierce ignores armour), Resin Drip (burns), Coiled Spring (+rate), Root Anchor (+HP). One slot at T2 and two at T3. |
+| 4. The Rot | Night 6–7 | Burrowers come up; the ground around the rifts starts to die. | **The Rot.** Purple creep spreads a little from each rift every night, painted into the splat like the trampled lanes. On it, forage withers and Blight move 15% faster. Burn it back with firepots or braziers, or plant *Heartseed saplings* (a bench recipe) to push it out. This is territory control. |
+| 5. The Pilot's Radio | Day 7–9 | Hollis's last page: the radio in the wreck still works if you can fix it. | **The Radio.** A project over several days: a vacuum tube, two batteries, copper wire and a brass gear, all heavy, fitted at the cockpit. Each fitted part calls a **supply drop**: a crate on a flare somewhere in the forest at noon, which Husks converge on (ARC's contested drop). The finished radio asks the last question. |
+| 6. The Last Night | Night 10 | The rescue plane answers, and the idol is still in your hands. | **The ending choice.** Fly out at dawn (an escape ending; the Heartwood falls behind you), or set the idol back in the temple. That calls the night-10 boss to the temple, and holding it ends the vigil (the true ending, unlocking endless). Each ending is a Memory. |
+
+**After 10: endless.** The Rot Mother at night 15 (a new GLB ≤ 10k tris). She lays
+Blightling eggs that hatch unless they are burned or cut. The surge keeps escalating past
+her.
+
+**Signs**, the old Omens, now framed as the forest reacting to what you did. One is announced
+at dawn from night 3, about every other night, seeded by the night like `rainsOn`, and never
+on a boss night. *Blood Moon* (when you hold the idol): Blight 20% faster, loot rolls twice.
+*Pale Fog*: tower range ×0.7. *The Swarm*: twice the Blightlings at half the HP.
+*Stillness*: Wisps walk. The hooks are in the old milestone 11 notes: the night palette in
+`Sky.js`, a range multiplier in `Towers.js`, counts in `Waves.waveFor`.
+
+**Steps.**
+1. Field Notes (an item kind `note`, a Notes tab in the satchel, a Menu Field Guide page).
+2. Seals (shrines as interactables, a dormant flag on rifts in `defense/Base.js`, saved).
+3. Grafts (graft slots on buildings in `Towers.js`, graft items as loot).
+4. The Rot (`world/Rot.js`, cells like Trample, written by `World.wearChunk`).
+5. The radio and supply drops (an interactable in `buildWreck`; drops are containers with a
+   flare from LightPool).
+6. The endings (two endings in `Game.onVictory`, ending cards, Memories).
+7. Signs.
+8. The Rot Mother.
+
+Each step updates the Field Guide, the journal goals and `e2e/balance.mjs`.
+
+#### Milestone 14: 1.0
+
+The old milestone 12 list stands (guided first night, accessibility, achievements, balance on
+every difficulty, capture mode), with these additions:
+- **Compressed assets**: meshopt on the GLBs (`gltf-transform`) and KTX2/Basis for the
+  textures. That cuts download size and video memory, which matters most on Low.
+- The **daily vigil** (re-seedable `WorldGen`, a date seed, a record per day) and an **endless
+  score**, both from the old milestone 11.
+- Performance targets: p95 under 16.7 ms on High on this machine, Low playable on integrated
+  graphics, calls under 260 everywhere.
+
+#### Where to start (next session)
+
+Milestone 11, step 0 (the render audit), then step 1 (weight). Weight is small and touches
+`ItemDB`, `Inventory`, `Player` and `HUD` only. Once it is in, the rest of the milestone has
+something to push against. Step 4 (containers) is the biggest piece and the one that most
+changes how the game feels.
+
+### Old milestone 11 notes: Omens (now the Signs in milestone 13, the daily vigil and score in 14; kept for the code hooks)
 1. **Nightly omens.** A table `OMENS` (new `defense/Omens.js`): id, name, glyph, banner line
    and hooks. Roll one at dawn for the coming night from night 3, about every other night
    (seeded by the night number like `rainsOn` in `defense/Waves.js`, so a reload keeps the
@@ -359,6 +688,164 @@ Milestone 11 itself has not started (no Omens code exists yet). This pass came f
    - A critic pass with the `indie-critic` agent on a night 6–8 fight (planned for 0.8, not
      run yet); fix what it ranks first.
 6. **Release 0.10.0**: CHANGELOG, PLAN (milestone 11 done, handoff), README.
+
+## Handoff: 1.0 "The Lost Expedition" (2026-10-15)
+
+**State:** milestones 11–14 of "The 0.10–1.0 plan" are built and released together as
+**1.0.0** (`package.json`), committed on `main` and pushed (GitHub Pages deploys from
+`main`). These tests pass against `npm run dev`:
+- `node e2e/loop.mjs` (10 PASS)
+- `node e2e/blight.mjs` (3)
+- `node e2e/pack.mjs` (11)
+- `node e2e/story.mjs` (12)
+- `node e2e/m14.mjs` (8)
+- `node e2e/daily.mjs` (15 dates)
+- `node e2e/boot.mjs` (no errors)
+
+`vite build` is clean.
+
+Performance at 1600×900 on High, against 0.9.2:
+- Sprint (`perf.mjs`): p50 4.6, p95 6.4, p99 9.3 ms (0.9.2: 4.8, 6.9, 9.5).
+- Main-pass draw calls (`calls.mjs`): spawn 195 (0.9.2: 168; the camp adds its benches and
+  Coffer), temple 259 (281), wreck 238 (267).
+- Enemies are 3× cheaper. `flatten` used to keep a multi-material part's `Part_1`, `Part_2`
+  pieces as parts of their own (they match `KEEP`), so a Blightling drew 24 times and a
+  Thornback 36. Now 8 and 9.
+- With 30 Blightlings in view: 185 → 435 calls (0.9.2: 176 → 922). The critic had measured
+  640–890 calls at the night-10 surge before this fix.
+
+The indie-critic reviewed M12+M13 (and later 1.0); its findings and what was done about
+them are below.
+
+**What changed and where**
+- *Milestone 11, Pack and Cache:*
+  - Weight and burden: `Inventory.weight`, `burden`, `LADEN`/`HARD_CAP` in
+    `items/Inventory.js`; `PACKS` in `items/ItemDB.js`.
+  - The Coffer and the benches: `defense/Camp.js` (`SITES` moved in to d≈7 so the 9–14 m
+    tower ring is free), `COFFER_SLOTS`. `Sources` crafts from the satchel and the Coffer
+    together.
+  - Containers: `items/Containers.js` (`REVEAL` by rarity, an `extra` hook for pages).
+  - The rest: lost satchel (`Game` "a lost satchel"), pry bar, Husks (`Game.sproutHusks`,
+    from day 3), noise, salvage (`Game.salvage`). Tested in `e2e/pack.mjs` and `loop.mjs`.
+- *Milestone 12, Hard Ground:*
+  - Roots: `ROOTS` in `defense/Towers.js`. `Game.rootCap` is `12 + 2(n−1)` × difficulty,
+    plus buried relics and boons. `Game.rootsUsed` counts **one more root per upgrade
+    tier**, and upgrading checks it. `craftContext().roots` feeds the craft cards (roots and
+    the damage-type chip, `HUD` `DTYPE`).
+  - `resist` on each enemy type (`Enemies.damage`).
+  - Elites: `AFFIXES`, `makeElite`. The glyph is a plate above the bar (`.ebar b` in
+    `hud.css`).
+  - The weak-lane lean: `Waves.coverage`, with a "testing your side" warning on the wave
+    clock (`testMsg`).
+- *Milestone 13, The Lost Expedition:*
+  - `core/Story.js` (pages, seals, radio parts) and `core/Expedition.js`:
+    - seals, with beams in the Heartwood's colours (`SEAL_HEX`/`FOREVER_HEX`, 45 m edge-faded
+      shells) and the seal stone merged through `flatten` with a `Stone` material;
+    - pages and map marks;
+    - the radio, with a set on the Tinker's Bench whose lamps light per part (`dressRadio`);
+    - supply drops;
+    - `grafting` is a setter on `lootGate` (`items/ItemDB.js`), so grafts drop only once
+      they can be used.
+  - `world/Rot.js`: from dawn 5, 7 m a dawn. `Cover.js` leaves only greyed dead fronds on
+    it. A choked tower fires 25% slower and puffs violet spores (`Game.tickRot`).
+  - Grafts: `GRAFTS` in `Towers.js`.
+  - Signs: `SIGNS`/`signFor` in `defense/Waves.js`, `Sky.signFog`/`signMoon`. Tonight's Sign
+    is on the HUD day line (`Waves.signTonight`, `.phase-sign`) and as a second banner line
+    under a boss or rift banner (`HUD.banner(..., line2)`).
+  - The Rot Mother is **night 10's boss** (0.4× HP there, two eggs a lay, a 3 s pause to
+    lay, `layT`). In endless she comes every fifth night from 15 at full HP, with a Thornback
+    and three eggs.
+  - Endings: `Game.onVictory`/`flyOut`.
+- *Milestone 14, The Long Tail:*
+  - Seeds: `core/Seed.js` (`?daily`, `?seed`).
+  - `core/Achievements.js`, `core/Tips.js` (the guided first night).
+  - Input: rebinding and the gamepad in `core/Input.js` (`BINDABLE`, `PAD`, `poll`).
+  - Captions: `Game.captionAudio`.
+  - Capture mode: `Game.toggleCapture`/`updateCapture` (F8, F9).
+  - Accessibility settings in `Menu` (captions, shake, bob, colour-blind palettes `PALETTE`
+    and `BLIGHT_PALETTE`).
+  - Score: `scoreOf`, `recordBest`.
+- *Compression:*
+  - `art/compress.mjs` (`npm run compress`): meshopt with dedup, weld and reorder.
+    Positions stay float (quantizing them moves offsets into node transforms, and
+    `Models.js` resets the root's position). Normals are quantized to 8 bits and colours
+    to 12 bits.
+  - `merge.js bakeGeometry` turns normals back into floats. `MacheteModel.loadHand`
+    recomputes its normals after deleting the quantized ones: recomputing *into* an Int8
+    attribute clamps, which made NaN and a black screen through the bloom.
+  - `gltfLoader()` in `assets/Models.js` sets the decoder.
+  - 11.6 MB → 5.7 MB. KTX2 is deferred: the textures are already JPG/WebP, and three.js
+    ships no encoder.
+- *Fixes found on the way:*
+  - `Enemies.slowDown` had lost its `e.slow =` line, so every slow did nothing.
+  - The boss banner always said "The Thornback falls".
+  - `Game.compileSafe` replaces `compileAsync`, which crashed on a disposed material.
+
+**The critic's review of M12+M13, and what was done**
+1. Every slow was dead. Fixed.
+2. Defence was too easy at the cap, with free upgrades. Fixed: upgrades draw roots, the
+   cap grows 2 a night (it was 3), and the waves were re-tuned (see Balance).
+3. Seal and drop beams couldn't be seen. Fixed: wide, edge-faded and Heartwood-coloured.
+4. The Rot barely existed. Fixed: it starts sooner and grows faster, the plants die on it,
+   and choked towers show spores.
+5. Story actions were buried in prompts. Fixed: they're the title line, and the radio
+   prop is on the bench.
+6. Signs and elites didn't read. Fixed: the day-line chip, a second banner line, a
+   stronger fog and Blood Moon, and the glyph plate.
+7. Roots were invisible while crafting. Fixed: shown on the craft cards.
+8. First-night hitches. Fixed: Spitter and Burrower added to the warm-up.
+9. Resists were too narrow. Fixed: Rotboar pierce 0.7 and blunt 1.2, Burrower arc 0.5,
+   Husk fire 1.6.
+10. The seal stone was a grey primitive. Fixed: tri-planar stone through `flatten`.
+11. Grafts dropped before they could be used. Fixed: gated.
+12. The warning toast ran on real time. Fixed: it uses the wave clock.
+
+Also from the review:
+- The Rot Mother only appeared from night 15. She's now night 10's boss.
+- The 60% lean and re-picking the weak lane after pack 1 were **not** done (open).
+
+**The critic's 1.0 review ("not yet"), and what was done**
+1. The daily vigil crashed on boot on 8 of 30 dates. Fixed: `grove()` steps its margin from
+   the spawn down and always finds a spot. The error screen links back to the usual forest.
+   `e2e/daily.mjs` boots the dates that failed plus the coming week.
+2. Rebinding could leave an action keyless. Fixed: `Input.rebind` swaps the displaced action
+   onto the old key. `HUD.keys()` rewrites `<kbd>X</kbd>` in prompts, messages, the journal
+   and the static Controls table to the bound keys.
+3. A gamepad player was stuck on the intro card. Fixed:
+   - `menuNav` is on while `game.modal` is set;
+   - the overlays (boons, ending, victory, game over) answer arrows and Enter in `main.js`
+     (`.padfocus`);
+   - Settings rows answer arrows (`Menu.settingsKey`).
+   The satchel is still mouse-only, so it's labelled "partial".
+4. The true ending was a day-1 errand. Fixed: the Sun Seal takes the idol only once
+   `Expedition.moonHeld` is set (the idol carried through a Blood Moon). While the idol is
+   carried and that hasn't happened, `signFor(n, idol, call)` makes the next Sign night a
+   Blood Moon.
+5. The altar's search hid the Sun Seal. Fixed: the idol mesh hides once it leaves the
+   container, the search is relabelled, and the seal scores first while you carry a relic.
+6. Night draw calls. Fixed by the `flatten` change above.
+7. The first-night tips ignored whether a tower existed. Fixed (`checkTips` on the wave
+   clock).
+8. The night-10 pile-up (the Rot Mother, pack 3 and the surge within about 40 s): **not
+   changed**. The `full` bot holds it at 339–500.
+9. Capture mode moved the player. Fixed: streaming follows `capture.pos`.
+10. The true-ending achievement was late. Fixed. "Heart-eater, Eaten" now counts Thornbacks
+    only. "Legend of the Grove" is now 4,000.
+11. The HUD overlapped at the climax. Fixed: the banner drops under the boss bar, and the bar
+    hides on defeat.
+12. The Bloom caption was wrong. Fixed (`audio.raw`).
+13. Colour-blind elites. Fixed: `AFFIX_CB` and `Enemies.repaint`.
+14. Text fixes: the elite start night, and the daily locked to Warden with no Memories.
+    Still open: per-date daily bests, and the idol model is a plain block.
+
+**Open / next**
+- Pad support for the satchel and crafting.
+- Seal and drop beams are now 70 m tall but can still hide under the thickest canopy.
+- The weak-lane lean (above).
+- A night-10 player with grafts, boons and buried relics was not simulated; `cap` has none
+  of those.
+- KTX2 textures.
+- The Rot could get a fungal splat layer instead of the colour multiply.
 
 ## Handoff: 0.9 "Wild Places" (2026-10-15)
 

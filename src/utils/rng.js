@@ -1,5 +1,6 @@
 // Deterministic random helpers. Everything in the world is generated from
 // seeds so the same chunk always looks the same when you walk back to it.
+import { WORLD_SALT } from '../core/Seed.js';
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -19,8 +20,9 @@ export function hash2(x, z, salt = 0) {
   return h >>> 0;
 }
 
+// (the world's salt makes the daily vigil's chunks their own; 0 for the ordinary world)
 export function chunkRng(cx, cz, salt) {
-  return mulberry32(hash2(cx, cz, salt));
+  return mulberry32(hash2(cx, cz, salt ^ WORLD_SALT));
 }
 
 export const range = (rand, a, b) => a + (b - a) * rand();

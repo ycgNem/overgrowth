@@ -5,7 +5,7 @@
 // Frame: the blade runs along +x from x = 0, the spine is +y, the handle lies along -x and
 // the grip's centre is at about x = -0.06. The hand model shares this frame.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { gltfLoader } from '../assets/Models.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../utils/rng.js';
 
@@ -382,7 +382,7 @@ export function buildMachete() {
 // The gloved hand (async). Resolves to a group in the machete's frame, or null.
 export async function loadHand() {
   try {
-    const gltf = await new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/hand.glb`);
+    const gltf = await gltfLoader().loadAsync(`${import.meta.env.BASE_URL}models/hand.glb`);
     const out = new THREE.Group();
     const leatherN = grainNormal('leather'), clothN = grainNormal('cloth');
     gltf.scene.updateMatrixWorld(true);
@@ -392,6 +392,8 @@ export async function loadHand() {
       let geo = o.geometry.clone();
       geo.applyMatrix4(o.matrixWorld);
       geo = boxUV(geo, cloth ? 22 : 34);
+      // fresh float normals (the file's are quantized to 8 bits: recomputing into those clamps)
+      geo.deleteAttribute('normal');
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: cloth ? 0.95 : 0.62, metalness: 0,

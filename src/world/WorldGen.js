@@ -3,8 +3,10 @@
 import * as THREE from 'three';
 import { createNoise2D, fbm, ridged } from '../utils/noise.js';
 import { smoothstep, lerp, clamp } from '../utils/math.js';
+import { WORLD_SEED } from '../core/Seed.js';
 
-export const SEED = 4217;
+// 4217 for every ordinary vigil; the daily vigil's own (core/Seed.js)
+export const SEED = WORLD_SEED;
 export const WATER_LEVEL = 0;
 export const CHUNK_SIZE = 64;
 
@@ -108,26 +110,34 @@ export function grove() {
   GROVE = { x: 1e9, z: 1e9, r: R }; // (while searching)
   const sp = findSpawn(dryHeight, dryNormal);
   const base = findBaseSite(sp, dryHeight, dryNormal);
-  let best = null;
-  for (let i = 0; i < 48; i++) {
-    const a = (i / 48) * TAU;
-    for (const D of [194, 204, 214]) {
-      const x = base.x + Math.cos(a) * D, z = base.z + Math.sin(a) * D;
-      if (Math.hypot(x - sp.x, z - sp.z) < R + 110) continue;
-      // mostly low, wet-able ground, not mountain
-      let low = 0;
-      for (let k = 0; k < 16; k++) {
-        const b = (k / 16) * TAU, rr = R * (k % 2 ? 0.3 : 0.6);
-        const t = sampleTerrain(x + Math.cos(b) * rr, z + Math.sin(b) * rr, dryInfo, true);
-        if (t.h > -0.5 && t.h < 8 && t.mountain < 0.25) low++;
+  // Some worlds (the daily vigil's) put the base near the spawn, so every spot at the full
+  // margin from the spawn can be ruled out: step the margin down, and at worst take the spot
+  // farthest from the spawn, so there is always a grove
+  const search = (margin) => {
+    let best = null;
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * TAU;
+      for (const D of [194, 204, 214]) {
+        const x = base.x + Math.cos(a) * D, z = base.z + Math.sin(a) * D;
+        const fromSpawn = Math.hypot(x - sp.x, z - sp.z);
+        if (margin !== null && fromSpawn < margin) continue;
+        // mostly low, wet-able ground, not mountain
+        let low = 0;
+        for (let k = 0; k < 16; k++) {
+          const b = (k / 16) * TAU, rr = R * (k % 2 ? 0.3 : 0.6);
+          const t = sampleTerrain(x + Math.cos(b) * rr, z + Math.sin(b) * rr, dryInfo, true);
+          if (t.h > -0.5 && t.h < 8 && t.mountain < 0.25) low++;
+        }
+        // across the river from the base scores higher
+        let wet = 0;
+        for (let k = 1; k < 12; k++) if (dryHeight(base.x + (x - base.x) * (k / 12), base.z + (z - base.z) * (k / 12)) < -0.3) wet = 1;
+        const score = margin === null ? fromSpawn : low / 16 + wet * 0.35 - (D - 194) * 0.006;
+        if (!best || score > best.score) best = { x, z, score };
       }
-      // across the river from the base scores higher
-      let wet = 0;
-      for (let k = 1; k < 12; k++) if (dryHeight(base.x + (x - base.x) * (k / 12), base.z + (z - base.z) * (k / 12)) < -0.3) wet = 1;
-      const score = low / 16 + wet * 0.35 - (D - 194) * 0.006;
-      if (!best || score > best.score) best = { x, z, score };
     }
-  }
+    return best;
+  };
+  const best = search(R + 110) || search(R + 60) || search(R + 20) || search(null);
   GROVE = { x: best.x, z: best.z, r: R };
   return GROVE;
 }

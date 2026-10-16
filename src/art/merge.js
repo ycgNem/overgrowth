@@ -30,7 +30,8 @@ export function setDetailTextures(lib) {
   detail.uDetailOn.value = 1;
 }
 // creatures' bone and crust take the stone's pits and cracks (smooth, they read as plastic)
-const SURF = [[/^(Bark|Root)/, 1], [/^(Stone|Rock|Bone|Crust|Horn|Clay)/, 2], [/^Moss/, 3], [/^(Wood|Plank|Char)/, 4]];
+// sawn timber (crates, the camp's benches) takes the wood grain but keeps most of its own hue
+const SURF = [[/^(Bark|Root)/, 1], [/^(Stone|Rock|Bone|Crust|Horn|Clay)/, 2], [/^Moss/, 3], [/^(Wood|Plank|Char)/, 4], [/^(Crate|Timber)/, 5]];
 function surfaceOf(mat) {
   for (const [re, k] of SURF) if (mat.name && re.test(mat.name)) return k;
   return 0;
@@ -123,7 +124,8 @@ if (uDissolve > 0.0) {
     if (vSurf < 1.5) { tex = dTri(tBark, nBark, vObj, w, sn, 0.55, dpx, dpy, dOffset); mean = 0.105; keep = 0.25; }
     else if (vSurf < 2.5) { tex = dTri(tRock, nRock, vObj, w, sn, 0.6, dpx, dpy, dOffset); mean = 0.16; keep = 0.4; }
     else if (vSurf < 3.5) { tex = dTri(tMoss, nMoss, vObj, w, sn, 0.5, dpx, dpy, dOffset); mean = 0.084; keep = 0.0; }
-    else { tex = dTri(tWood, nWood, vObj, w, sn, 0.7, dpx, dpy, dOffset); mean = 0.147; keep = 0.3; }
+    else if (vSurf < 4.5) { tex = dTri(tWood, nWood, vObj, w, sn, 0.7, dpx, dpy, dOffset); mean = 0.147; keep = 0.3; }
+    else { tex = dTri(tWood, nWood, vObj, w, sn, 0.45, dpx, dpy, dOffset); mean = 0.147; keep = 0.8; }
     // the texture's own colour around the model's hue: grain and stains from the photo,
     // overall tone from the vertex colour
     float vl = max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-3);
@@ -164,6 +166,18 @@ function bakeGeometry(geo, mat) {
   if (g.attributes.color_1) g.setAttribute('color', g.attributes.color_1);
   for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(name)) g.deleteAttribute(name);
   if (!g.attributes.normal) g.computeVertexNormals();
+  // the models ship with quantized normals (art/compress.mjs): back to floats, so every part
+  // merges with every other and the matrix below can be applied without clamping
+  const nrm = g.attributes.normal;
+  if (!(nrm.array instanceof Float32Array)) {
+    const f = new Float32Array(nrm.count * 3);
+    for (let i = 0; i < nrm.count; i++) {
+      f[i * 3] = nrm.getX(i);
+      f[i * 3 + 1] = nrm.getY(i);
+      f[i * 3 + 2] = nrm.getZ(i);
+    }
+    g.setAttribute('normal', new THREE.BufferAttribute(f, 3));
+  }
   const n = g.attributes.position.count;
   const col = new Float32Array(n * 3);
   const base = mat.color ? mat.color : _c.set(1, 1, 1);
@@ -231,7 +245,9 @@ export function mergeToGeometry(root) {
 // the part hierarchy and pivots (so code can rotate a turret or swing a leg).
 export function flatten(root, keep = /^$/, { shadow = true, receive = true } = {}) {
   root.updateMatrixWorld(true);
-  const isKept = (o) => o === root || (o.name && keep.test(o.name));
+  // (a multi-material part loads as a group of meshes named Part_1, Part_2...: those merge into
+  // their part, they aren't parts of their own)
+  const isKept = (o) => o === root || (o.name && keep.test(o.name) && !(o.isMesh && /_\d+$/.test(o.name) && o.parent && keep.test(o.parent.name)));
 
   function build(src) {
     const out = new THREE.Group();

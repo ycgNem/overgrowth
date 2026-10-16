@@ -76,6 +76,7 @@ const forageGeo = new Map();
 // a little dirt on everything lying in the leaves (the item models are clean, made for the
 // satchel); Game.highlightForage lights the one you're looking at and puts this back
 export const FORAGE_TINT = new THREE.Color(0.8, 0.76, 0.7);
+export const CACHE_EMPTY = new THREE.Color(0.35, 0.33, 0.3);
 let forageMat = null;
 function forageGeometry(id) {
   if (!forageGeo.has(id)) {
@@ -135,25 +136,30 @@ export class World {
     // one instanced mesh per plant variant and forage item for the whole window
     this.pools = new Pools(scene);
     this.trample = null; // the Blight's worn lanes (Trample.js), set by the game
+    this.rot = null; // the Rot round the rifts (Rot.js), set by the game
   }
 
   // Wear the trampled lanes into a chunk's terrain: churned earth where the Blight walk, the
-  // litter, moss and turf worn off (from the splat the chunk was built with).
+  // litter, moss and turf worn off (from the splat the chunk was built with). The Rot goes on
+  // top: the grass dies back and the ground darkens to a bruised violet.
   wearChunk(ch) {
-    const T = this.trample;
+    const T = this.trample, R = this.rot;
     if (!T || !ch.baseSplat || !ch.terrainMesh) return;
     const N = SEG + 1, step = CS / SEG, x0 = ch.cx * CS, z0 = ch.cz * CS;
     if (!T.overlaps(x0, z0, x0 + CS, z0 + CS)) return;
+    const rotted = R?.any;
     const S = ch.splat, G = ch.grass, C = ch.shade, bS = ch.baseSplat, bG = ch.baseGrass, bC = ch.baseCol;
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
-        const v = j * N + i, t = T.at(x0 + i * step, z0 + j * step);
-        S[v * 4] = bS[v * 4] * (1 - 0.75 * t);
-        S[v * 4 + 1] = bS[v * 4 + 1] * (1 - 0.85 * t);
-        S[v * 4 + 3] = Math.max(bS[v * 4 + 3], t * 0.9);
-        G[v] = bG[v] * (1 - t);
+        const x = x0 + i * step, z = z0 + j * step;
+        const v = j * N + i, t = T.at(x, z), r = rotted ? R.at(x, z) : 0;
+        const w = Math.max(t, r * 0.8);
+        S[v * 4] = bS[v * 4] * (1 - 0.75 * w);
+        S[v * 4 + 1] = bS[v * 4 + 1] * (1 - 0.85 * w);
+        S[v * 4 + 3] = Math.max(bS[v * 4 + 3], w * 0.9);
+        G[v] = bG[v] * (1 - Math.max(t, r));
         const d = 1 - 0.14 * t;
-        C[v * 3] = bC[v * 3] * d; C[v * 3 + 1] = bC[v * 3 + 1] * d; C[v * 3 + 2] = bC[v * 3 + 2] * d;
+        C[v * 3] = bC[v * 3] * d * (1 - 0.3 * r); C[v * 3 + 1] = bC[v * 3 + 1] * d * (1 - 0.62 * r); C[v * 3 + 2] = bC[v * 3 + 2] * d * (1 - 0.12 * r);
       }
     }
     const a = ch.terrainMesh.geometry.attributes;
@@ -209,7 +215,7 @@ export class World {
     World.freeBlocks(ch.dressing);
     ch.dressing = null;
     ch.cuttables = ch.cuttables.filter((c) => !c.dress);
-    ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage');
+    ch.interactables = ch.interactables.filter((i) => i.kind !== 'forage' && !i.dress);
   }
 
   // The ground as rendered at (x, z): the height and normal of the terrain mesh's own
@@ -744,7 +750,19 @@ export class World {
       });
     }
 
-    const plan = { items, forage };
+    // root caches: now and then a bundle someone hid at the foot of a giant and never came back
+    // for (placed last, from their own random stream, so nothing else in the plan moves)
+    const caches = [];
+    const cr = chunkRng(cx, cz, 313);
+    for (const b of big) {
+      if (Math.floor(b.x / CS) !== cx || Math.floor(b.z / CS) !== cz) continue;
+      if (cr() > 0.2) continue;
+      const a = cr() * TAU, d = (1.9 + cr() * 0.8) * Math.min(1.6, b.s);
+      const x = b.x + Math.cos(a) * d, z = b.z + Math.sin(a) * d;
+      if (blocked(x, z, 0.6) || terrainNormal(x, z).y < 0.8) continue;
+      caches.push({ x, y: terrainHeight(x, z), z, ry: -a + (cr() - 0.5) * 0.8 });
+    }
+    const plan = { items, forage, caches };
     this.plans.set(k, plan);
     return plan;
   }
@@ -836,6 +854,24 @@ export class World {
         chunk.interactables.push({
           kind: 'forage', id, key, mesh, instance: i, x: f.x, y: f.y + 0.2, z: f.z, r: 0.5,
           label: `Pick up ${ITEMS[id].name}`, chunk,
+        });
+      });
+      mesh.seal();
+    }
+    // the root caches (searched ones sit darker)
+    if (plan.caches?.length) {
+      const pool = this.pools.get('cache', () => new Pool(this.scene, forageGeometry('root_cache'), forageMat, { shadow: true, far: 90 }));
+      const mesh = pool.alloc(plan.caches.length);
+      blocks.push(mesh);
+      plan.caches.forEach((c, i) => {
+        const id = `${chunk.key}:c${i}`;
+        _q.setFromAxisAngle(_up, c.ry);
+        _m.compose(_p.set(c.x, c.y - 0.04, c.z), _q, _s.setScalar(3.1));
+        mesh.setMatrixAt(i, _m);
+        mesh.setColorAt(i, this.looted.has(id) ? CACHE_EMPTY : FORAGE_TINT);
+        chunk.interactables.push({
+          kind: 'search', container: 'cache', id, mesh, instance: i, x: c.x, y: c.y + 0.3, z: c.z, r: 0.9, dress: true,
+          label: 'Root cache', loot: 'cache', time: 0.8, chunk, done: this.looted.has(id),
         });
       });
       mesh.seal();

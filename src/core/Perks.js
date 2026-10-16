@@ -19,6 +19,7 @@ export const PERKS = [
   { id: 'split', glyph: '⋔', name: 'Splitting Shafts', desc: 'Bow bolts split on impact: a second bolt seeks the nearest other Blight for 60% damage.', apply: (m) => { m.boltSplit = 0.6; } },
   { id: 'lastbloom', glyph: '❀', name: 'Last Bloom', desc: 'Once a night, when the Heartwood falls below 30%, it bursts: heals 25% and blasts Blight within 12 m for 60.', apply: (m) => { m.lastBloom = true; } },
   { id: 'roots', glyph: '⌇', name: 'Grasping Roots', desc: 'At night, every 12 s roots seize the four Blight nearest the Heartwood (within 18 m) for 2.5 s.', apply: (m) => { m.rootPulse = true; } },
+  { id: 'spread', glyph: '⌘', name: 'Spreading Roots', desc: 'The Heartwood can feed 8 more roots: room for more defences.', apply: (m) => { m.roots += 8; } },
   { id: 'harvest', glyph: '⚘', name: 'Harvest Dawn', desc: 'Every dawn each of your towers brings in two building materials.', apply: (m) => { m.harvest = true; } },
   // earned with the Memory "The Thornback's Hide" (core/Memories.js)
   { id: 'emberheart', memory: 'trophy', glyph: '♨', name: 'Ember Heart', desc: 'Blight that bite the Heartwood catch fire: 8 a second for 3 s.', apply: (m) => { m.heartBurn = true; } },
@@ -35,7 +36,7 @@ export function baseMods() {
     macheteDmg: 1, towerRange: 1, towerRate: 1, towerDmg: 1, heartThorns: 0, lootBonus: 0, moveSpeed: 1, staminaRegen: 1,
     buildRegen: 0, mortarSplash: 1, sporeSlow: 1, slingDraw: 1, slingDmg: 1, killHeal: 0, playerArmor: 1,
     boltSplit: 0, lastBloom: false, rootPulse: false, harvest: false, sporeBurst: false,
-    heartBurn: false, dawnMend: false, lanternRange: 1, lanternExpose: 0,
+    heartBurn: false, dawnMend: false, lanternRange: 1, lanternExpose: 0, roots: 0,
   };
 }
 

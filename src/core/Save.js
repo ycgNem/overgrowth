@@ -2,7 +2,10 @@
 // only needs what the player changed: the night, the satchel, the buildings, the Heartwood,
 // boons, and a few counters. The game autosaves at every dawn and every half minute of day;
 // it never saves during a night, so quitting mid-fight sends you back to that morning.
-const KEY = 'og.save.v1';
+import { DAILY } from './Seed.js';
+
+// a daily vigil keeps its own save, so it never touches the ordinary one
+const KEY = DAILY ? `og.save.daily.${DAILY}` : 'og.save.v1';
 const BEST = 'og.best';
 const RECORDS = 'og.records';
 
@@ -34,18 +37,27 @@ export function clearSave() {
 export function writeSave(game) {
   const g = game;
   const data = {
-    v: 1,
+    v: 2,
     at: Date.now(),
     difficulty: g.difficulty,
     night: g.waves.night,
     time: g.sky.time,
     won: g.waves.won,
-    slots: g.inventory.slots.map((s) => (s ? [s.id, s.n] : null)),
+    slots: g.inventory.state(),
+    pack: g.inventory.packId,
+    coffer: g.coffer.state(),
+    camp: g.camp.state(),
+    containers: g.containers.state(),
+    looted: [...g.world.looted],
+    restock: [...g.restockable],
+    lost: g.lost.map((it) => [it.id, +it.x.toFixed(2), +it.z.toFixed(2), it.expires]),
+    lostN: g.lostN,
     selected: g.inventory.selected,
     found: [...g.inventory.found],
     base: { hp: g.base.hp, maxHp: g.base.maxHp },
     player: { hp: g.player.hp, maxHp: g.player.maxHp },
-    buildings: g.buildings.list.filter((b) => !b.dead).map((b) => [b.id, +b.x.toFixed(2), +b.z.toFixed(2), +b.rot.toFixed(3), b.tier, Math.round(b.hp)]),
+    buildings: g.buildings.list.filter((b) => !b.dead).map((b) => [b.id, +b.x.toFixed(2), +b.z.toFixed(2), +b.rot.toFixed(3), b.tier, Math.round(b.hp), b.scarred ? 1 : 0, b.grafts]),
+    rootBonus: g.rootBonus,
     perks: g.perks,
     favour: g.favour,
     boonsTaken: g.boonsTaken,
@@ -55,6 +67,8 @@ export function writeSave(game) {
     done: [...g.doneSet],
     journal: g.journal.state(),
     trample: g.trample?.state(),
+    rot: g.rot?.state(),
+    expedition: g.expedition?.state(),
   };
   try {
     store()?.setItem(KEY, JSON.stringify(data));
@@ -72,9 +86,9 @@ export function loadBest() {
   }
 }
 
-export function recordBest(nights, kills) {
+export function recordBest(nights, kills, score = 0) {
   const b = loadBest();
-  const out = { nights: Math.max(b.nights, nights), kills: Math.max(b.kills, kills) };
+  const out = { nights: Math.max(b.nights, nights), kills: Math.max(b.kills, kills), score: Math.max(b.score || 0, score) };
   try {
     store()?.setItem(BEST, JSON.stringify(out));
   } catch {
@@ -85,7 +99,10 @@ export function recordBest(nights, kills) {
 
 // Lifetime records across every run, for the title's Records page. Nights and kills are
 // banked at each dawn (and when a run ends), so a run quit halfway still counts.
-const EMPTY = { runs: 0, wins: 0, hardWins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, deepest: 0, seen: [] };
+const EMPTY = {
+  runs: 0, wins: 0, hardWins: 0, blightWins: 0, nights: 0, kills: 0, bosses: 0, blooms: 0, built: 0, deepest: 0, flights: 0, sealed: 0, pages: 0,
+  elites: 0, grafts: 0, seals: 0, drops: 0, burns: 0, dailyBest: 0, seen: [],
+};
 
 export function loadRecords() {
   try {

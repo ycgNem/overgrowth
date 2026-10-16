@@ -448,7 +448,7 @@ function* buildTemple(b) {
     b.add(new THREE.CylinderGeometry(0.33, 0.33, 1.0, 10, 1, false, 0, Math.PI), k.plank, [0, 0.55, 0], [0, 0, Math.PI / 2], { parent: chest });
     b.add(worldBox(1.04, 0.08, 0.69, 1), k.bronze, [0, 0.5, 0], [0, 0, 0], { parent: chest });
     b.group.add(chest);
-    b.interact({ kind: 'break', label: 'Temple chest', lx: px, lz: pz, ly: y + 0.5, r: 1.6, loot: 'templeChest', hp: 2, hide: [chest], debris: 0x6a4a2a });
+    b.interact({ kind: 'break', label: 'Temple chest', lx: px, lz: pz, ly: y + 0.5, r: 1.6, loot: 'templeChest', hp: 4, locked: true, hide: [chest], debris: 0x6a4a2a });
   }
   // vines draping down the terraces
   for (let v = 0; v < 22; v++) {
@@ -637,7 +637,7 @@ function buildCrates(b) {
     const p = b.w(px, pz);
     const col = { type: 'box', x: p.x, z: p.z, hx: s / 2, hz: s / 2, rot: b.spec.rot + crate.rotation.y, top: b.spec.y + y + s - 0.05, bottom: b.spec.y - 2 };
     if (!stacked) b.colliders.push(col);
-    b.interact({ kind: 'break', label: 'Supply crate', lx: px, lz: pz, ly: y + s / 2, r: s * 0.9, loot: 'crate', hp: 3, hide: [crate], collider: stacked ? null : col, debris: 0x8a6a40 });
+    b.interact({ kind: 'break', label: 'Supply crate', lx: px, lz: pz, ly: y + s / 2, r: s * 0.9, loot: 'crate', hp: 2, hide: [crate], collider: stacked ? null : col, debris: 0x8a6a40 });
   }
 }
 

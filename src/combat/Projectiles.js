@@ -106,7 +106,7 @@ export class Projectiles {
       if (s.kind === 'stone') {
         if (hit) {
           const knock = new THREE.Vector3(s.vel.x, 0, s.vel.z).normalize().multiplyScalar(s.crit ? 5 : 3);
-          enemies.damage(hit, s.dmg, ctx.damageCtx, knock, { source: 'sling', crit: s.crit, stagger: s.crit ? 0.35 : 0.2 });
+          enemies.damage(hit, s.dmg, ctx.damageCtx, knock, { source: 'sling', type: 'blunt', crit: s.crit, stagger: s.crit ? 0.35 : 0.2 });
           particles.chipBurst(s.pos.clone(), 0x6a3a7a, s.crit ? 14 : 8, hit.pos.y);
           ctx.audio.stoneHit?.(s.crit);
           ctx.onHitmark?.(hit.dying, s.crit);
@@ -149,7 +149,7 @@ export class Projectiles {
     const R = 3.4;
     for (const e of enemies.inRadius(pos.x, pos.z, R)) {
       enemies.ignite(e, 12, 4);
-      enemies.damage(e, 18, ctx.damageCtx, null, { source: 'fire' });
+      enemies.damage(e, 18, ctx.damageCtx, null, { source: 'fire', type: 'fire' });
     }
     // fire is the surest cure for a Bloom
     for (const b of ctx.blooms?.list || []) {
@@ -161,5 +161,7 @@ export class Projectiles {
     ctx.lights?.flash(pos.clone().add(new THREE.Vector3(0, 1, 0)), 0xff8a30, 80, 0.35);
     ctx.audio.firepot?.();
     this.fires.push({ pos: pos.clone(), r: R * 0.8, t: 5, tick: 0 });
+    // and it burns the Rot off the ground (world/Rot.js)
+    ctx.onFire?.(pos, R + 1);
   }
 }

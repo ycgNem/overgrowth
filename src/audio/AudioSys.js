@@ -261,8 +261,14 @@ export class AudioSys {
     this.noiseShot({ f0: 2500, q: 1.5, dec: 0.2, vol: 0.25 });
   }
 
-  footstep(wet, sprint) {
+  // heavy: an encumbered tread, deeper and louder
+  footstep(wet, sprint, heavy = false) {
     if (!this.ctx) return;
+    if (heavy && !wet) {
+      this.noiseShot({ type: 'lowpass', f0: 420 + Math.random() * 120, f1: 110, a: 0.006, dec: 0.16, vol: 0.24 });
+      this.tone({ type: 'sine', f0: 90, f1: 55, dec: 0.12, vol: 0.06 });
+      return;
+    }
     if (wet) {
       this.noiseShot({ f0: 900, f1: 300, q: 0.8, a: 0.02, dec: 0.25, vol: 0.18 });
     } else {
@@ -384,6 +390,19 @@ export class AudioSys {
 
   spawn() {
     this.noiseShot({ type: 'lowpass', f0: 600, f1: 140, a: 0.08, dec: 0.5, vol: 0.12 });
+  }
+
+  // a Husk somewhere near: dry wood creaking, bones rattling (vol 0..1 by distance)
+  huskCreak(vol = 1) {
+    if (!this.ctx || vol <= 0.02) return;
+    this.noiseShot({ f0: 600 + Math.random() * 300, f1: 300, q: 9, a: 0.08, dec: 0.45, vol: 0.18 * vol });
+    for (let i = 0; i < 3; i++) this.noiseShot({ f0: 2400 + Math.random() * 1500, q: 6, a: 0.003, dec: 0.04, vol: 0.06 * vol, delay: 0.25 + i * 0.07 });
+  }
+
+  // laboured breath under a heavy pack
+  breath(vol = 1) {
+    if (!this.ctx) return;
+    this.noiseShot({ f0: 1100, f1: 700, q: 0.7, a: 0.25, dec: 0.5, vol: 0.05 * vol });
   }
 
   wispCry() {

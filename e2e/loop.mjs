@@ -86,6 +86,7 @@ ok(`wave cleared -> day 2 (${JSON.stringify(d2)})`, d2.phase === 'day' && d2.nig
 // 5. upgrade the tower by holding E on it
 const up = await ev(() => {
   const g = window.game, b = g.buildings.list[0];
+  g.camp.setLevel('bench', 2); // tier 2 needs the Workbench at level 2
   for (const [id, n] of Object.entries(b.upgradeCost)) g.give(id, n);
   g.player.spawn(b.x + 3, b.z); g.player.yaw = Math.atan2(-(b.x - (b.x + 3)), 0); g.player.pitch = 0;
   g.inventory.select(7);

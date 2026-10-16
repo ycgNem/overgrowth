@@ -440,3 +440,49 @@ input[type=range].fancy::-moz-range-thumb { width: 14px; height: 14px; border-ra
   #menu .grain, #spores, .sigil-glow, .g-portrait img { animation: none !important; }
   #spores { display: none; }
 }
+
+/* the Field Guide: what a Blight is weak to and what it shrugs off; the elites */
+.g-resist { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 2px; font-size: 14px; letter-spacing: 0.04em; }
+.g-resist .w { color: #ffb070; }
+.g-resist .t { color: #9ab0c8; }
+.g-tip.elite { margin-top: 8px; font-size: 14px; line-height: 1.45; }
+
+/* the Field Guide's Expedition tab */
+.pages { display: grid; grid-template-columns: 240px 1fr; gap: 14px; margin: 10px 0 18px; }
+.page-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.page-entry {
+  text-align: left; padding: 6px 10px; border-radius: 4px; font: inherit; font-size: 15px; color: var(--ink-dim); cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(214,169,74,0.15);
+}
+.page-entry b { display: block; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brass); }
+.page-entry.sel { background: rgba(214,169,74,0.16); border-color: rgba(214,169,74,0.5); color: var(--ink); }
+.page-entry.locked { cursor: default; opacity: 0.45; font-style: italic; }
+.page-read { padding: 16px 20px; border-radius: 4px; color: #3a2c1a; background: linear-gradient(175deg, #e4d6b0, #cdb888); min-height: 160px; max-height: 300px; overflow-y: auto; }
+.page-read h4 { margin: 0 0 8px; font-family: var(--display); font-size: 18px; color: #2e2010; }
+.page-read p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size: 16px; line-height: 1.5; }
+.page-read p.dim { font-style: normal; color: #6a5030; }
+.page-read .sign { margin-top: 8px; text-align: right; font-family: Georgia, serif; color: #6a5030; }
+.exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.exp-card { padding: 12px 14px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(214,169,74,0.18); }
+.exp-card .g { font-size: 22px; color: var(--brass); }
+.exp-card h4 { margin: 2px 0 6px; font-family: var(--display); font-size: 17px; }
+.exp-card p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--ink-dim); }
+.exp-card .chip { display: inline-flex; align-items: center; gap: 4px; margin: 4px 4px 0 0; padding: 2px 6px; border-radius: 3px; background: rgba(0,0,0,0.25); font-size: 13px; }
+.exp-card .chip img { width: 20px; height: 20px; }
+
+/* Records: achievements */
+.achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 8px; }
+.ach { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(214,169,74,0.12); opacity: 0.5; }
+.ach.got { opacity: 1; border-color: rgba(214,169,74,0.45); background: rgba(214,169,74,0.08); }
+.ach .g { font-size: 22px; width: 28px; text-align: center; color: var(--brass); }
+.ach h4 { margin: 0; font-family: var(--display); font-size: 15px; }
+.ach p { margin: 2px 0 0; font-size: 13px; color: var(--ink-dim); line-height: 1.3; }
+
+/* Controls: rebinding */
+.rebind { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; margin: 8px 0 4px; }
+.rebind .key-row { display: flex; justify-content: space-between; align-items: center; font-size: 16px; color: var(--ink-dim); }
+.rebind button.bind { background: none; border: 1px solid rgba(214,169,74,0.25); border-radius: 4px; padding: 2px 6px; cursor: pointer; min-width: 64px; }
+.rebind button.bind:hover { border-color: rgba(214,169,74,0.7); }
+.rebind button.bind.moved kbd { color: #f0c86a; }
+.rebind button.bind.wait { border-color: #f0c86a; animation: chipGlow 1s ease-in-out infinite; }
+button.linkish { background: none; border: none; color: var(--brass); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
