@@ -16,7 +16,7 @@ export const BELT_KINDS = new Set(['build', 'use', 'tool', 'gear']);
 
 export class Inventory {
   // hotbar, pack, safe: slot counts (pack and safe are the most any backpack gives)
-  constructor({ hotbar = HOTBAR, pack = PACK_MAX, safe = SAFE_MAX, capacity = 20, packSize = 16, safeSize = 1 } = {}) {
+  constructor({ hotbar = HOTBAR, pack = PACK_MAX, safe = SAFE_MAX, capacity = 25, packSize = 16, safeSize = 1 } = {}) {
     this.hotbar = hotbar;
     this.packMax = pack;
     this.safeMax = safe;

@@ -91,9 +91,9 @@ export const ITEMS = {
   slingshot: { name: 'Slingshot', kind: 'tool', rarity: 'uncommon', value: 0, desc: 'A forked branch and a vine sling. Hold LMB to draw, release to fire. Shoots stones, or scrap shot for a harder hit. Reaches wisps.' },
   pry_bar: { name: 'Pry Bar', kind: 'gear', rarity: 'uncommon', value: 0, desc: 'A bar of bog iron beaten flat at one end. Opens a locked chest in a moment, quietly. Without it, forcing a lock takes a while and carries a long way.' },
   rot_hide: { name: 'Rotboar Hide', kind: 'material', rarity: 'uncommon', value: 5, desc: 'A slab of tough, bristled hide. Scraped and dried, it makes a pack that carries a load.' },
-  woven_satchel: { name: 'Woven Satchel', kind: 'pack', rarity: 'common', value: 0, desc: 'Plaited fibre over a frame of sticks. It carries 20 kg in 16 pockets, with one safe pouch sewn inside.' },
-  hide_pack: { name: 'Hide Pack', kind: 'pack', rarity: 'uncommon', value: 0, desc: 'Rotboar hide over a bone frame. It carries 26 kg in 18 pockets, with one safe pouch.' },
-  rucksack: { name: "Explorer's Rucksack", kind: 'pack', rarity: 'rare', value: 0, desc: "The expedition's own canvas rucksack, patched with hide and geared to sit high. It carries 32 kg in 20 pockets, with two safe pouches." },
+  woven_satchel: { name: 'Woven Satchel', kind: 'pack', rarity: 'common', value: 0, desc: 'Plaited fibre over a frame of sticks. It carries 25 kg in 16 pockets, with one safe pouch sewn inside.' },
+  hide_pack: { name: 'Hide Pack', kind: 'pack', rarity: 'uncommon', value: 0, desc: 'Rotboar hide over a bone frame. It carries 32 kg in 18 pockets, with one safe pouch.' },
+  rucksack: { name: "Explorer's Rucksack", kind: 'pack', rarity: 'rare', value: 0, desc: "The expedition's own canvas rucksack, patched with hide and geared to sit high. It carries 40 kg in 20 pockets, with two safe pouches." },
   heartseed: { name: 'Heartseed Sapling', kind: 'build', rarity: 'rare', value: 0, model: 'heartseed', desc: 'A cutting of the Heartwood in a ring of stones. Where it stands the Rot pulls back (9 m) and cannot spread.' },
   // ------------------------------------------------------------- the expedition
   torn_page: { name: 'Torn Page', kind: 'note', rarity: 'uncommon', value: 0, desc: "A page torn out of someone's notebook. You read it the moment you pick it up (Satchel, Notes)." },
@@ -110,18 +110,19 @@ export const ITEM_IDS = Object.keys(ITEMS);
 export const stackOf = (id) => ITEMS[id].stack ?? KIND[ITEMS[id].kind].stack;
 
 // kilograms each. Logs, stone, iron and built defences are what fill a pack; feathers, seeds
-// and fibre weigh next to nothing.
-const KIND_WEIGHT = { material: 0.3, scrap: 0.5, relic: 0.5, build: 4, use: 0.3, tool: 0.6, gear: 1, pack: 0 };
+// and fibre weigh next to nothing. Kept light enough that a full day's foraging fits in the
+// starting satchel before it slows you.
+const KIND_WEIGHT = { material: 0.15, scrap: 0.25, relic: 0.3, build: 1.5, use: 0.15, tool: 0.4, gear: 0.6, pack: 0 };
 const WEIGHT = {
-  stick: 0.3, log: 4, stone: 1, flint: 0.4, fiber: 0.1, vine: 0.3, bark: 0.2, resin: 0.3, thorns: 0.1,
-  mushroom: 0.2, glowcap: 0.3, berries: 0.1, clay: 1.5, feather: 0.05, bone: 0.5, moss: 0.1, strange_seeds: 0.05,
-  reed: 0.2, eel: 0.8, bog_iron: 2, ghost_orchid: 0.1, rot_hide: 1.5,
-  scrap_metal: 1.5, rusty_bolts: 0.4, frayed_rope: 0.8, old_bottle: 0.6, tin_can: 0.3, copper_wire: 0.8,
-  brass_gear: 1, battery: 1.5, vacuum_tube: 0.6,
-  compass: 0.8, pocket_watch: 0.5, doubloon: 0.5, jade_figurine: 2, golden_idol: 6, sun_mask: 3,
-  barricade: 2.5, spike_trap: 1, bow_tower: 3, spore_mortar: 4, tesla_totem: 3, ember_brazier: 3.5, glow_lantern: 2, vine_snare: 1,
-  poultice: 0.3, smoked_eel: 0.6, firepot: 0.8, orchid_salve: 0.3, slingshot: 0.5, scrap_shot: 0.15, pry_bar: 1.5,
-  heartseed: 2, torn_page: 0.02, thornback_heart: 2, glowcap_lens: 0.4, bog_heads: 0.8, resin_drip: 0.6, coiled_spring: 0.5, root_anchor: 1,
+  stick: 0.1, log: 1.5, stone: 0.4, flint: 0.15, fiber: 0.05, vine: 0.1, bark: 0.08, resin: 0.12, thorns: 0.05,
+  mushroom: 0.08, glowcap: 0.1, berries: 0.05, clay: 0.6, feather: 0.02, bone: 0.2, moss: 0.05, strange_seeds: 0.02,
+  reed: 0.08, eel: 0.4, bog_iron: 0.8, ghost_orchid: 0.05, rot_hide: 0.6,
+  scrap_metal: 0.6, rusty_bolts: 0.15, frayed_rope: 0.3, old_bottle: 0.25, tin_can: 0.1, copper_wire: 0.3,
+  brass_gear: 0.4, battery: 0.6, vacuum_tube: 0.2,
+  compass: 0.3, pocket_watch: 0.2, doubloon: 0.1, jade_figurine: 0.8, golden_idol: 3, sun_mask: 1.5,
+  barricade: 1.2, spike_trap: 0.5, bow_tower: 1.5, spore_mortar: 2, tesla_totem: 1.5, ember_brazier: 1.8, glow_lantern: 1, vine_snare: 0.5,
+  poultice: 0.15, smoked_eel: 0.3, firepot: 0.4, orchid_salve: 0.15, slingshot: 0.3, scrap_shot: 0.06, pry_bar: 0.8,
+  heartseed: 1, torn_page: 0.01, thornback_heart: 1, glowcap_lens: 0.2, bog_heads: 0.4, resin_drip: 0.3, coiled_spring: 0.2, root_anchor: 0.5,
 };
 export const weightOf = (id) => ITEMS[id].wt ?? WEIGHT[id] ?? KIND_WEIGHT[ITEMS[id].kind] ?? 0.5;
 // things that break when a container they're in is smashed open instead of searched
@@ -131,9 +132,9 @@ export const GRAFT_IDS = ['glowcap_lens', 'bog_heads', 'resin_drip', 'coiled_spr
 
 // Backpacks: what each carries. Wearing one is the satchel's capacity, pack slots and safe pouch.
 export const PACKS = {
-  woven_satchel: { cap: 20, slots: 16, safe: 1 },
-  hide_pack: { cap: 26, slots: 18, safe: 1 },
-  rucksack: { cap: 32, slots: 20, safe: 2 },
+  woven_satchel: { cap: 25, slots: 16, safe: 1 },
+  hide_pack: { cap: 32, slots: 18, safe: 1 },
+  rucksack: { cap: 40, slots: 20, safe: 2 },
 };
 
 // chance: probability of any drop at all; rolls: number of draws.

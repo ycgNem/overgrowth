@@ -1,5 +1,17 @@
 # Patch notes
 
+## 1.0.1: Lighter Loads (2026-10-15)
+
+- **Everything weighs about half as much.** The heavy things lost the most: a log is 1.5 kg
+  (was 4), a stone 0.4 kg (was 1), bog iron, scrap metal and batteries well under a kilo,
+  and built defences 0.5 to 2 kg.
+- **Bigger packs.** The Woven Satchel carries 25 kg (was 20), the Hide Pack 32 kg (was 26)
+  and the Explorer's Rucksack 40 kg (was 32). A full day's foraging now fits before you're
+  encumbered.
+- **Smashed crates spill their loot.** Breaking a crate, urn or chest with the machete used
+  to make it vanish with the loot still locked inside where you couldn't see it. Now
+  everything in it spills out onto the ground where it stood. Fragile things can still break.
+
 ## 1.0: The Lost Expedition (2026-10-15)
 
 Four planned updates (Pack and Cache, Hard Ground, The Lost Expedition and The Long Tail) in

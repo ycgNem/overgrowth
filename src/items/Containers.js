@@ -1,8 +1,8 @@
 // Containers you search: supply crates, packs, lockers, urns, root caches, altars, a lost
 // satchel. What's inside is rolled the first time one is opened and kept (and saved), so you
 // can leave things in a crate and come back for them. Opened by searching, the contents show
-// as question marks and turn up one at a time, the rarer the slower; smashed open, they're all
-// there at once, but fragile things may have broken.
+// as question marks and turn up one at a time, the rarer the slower; smashed open, they spill
+// out onto the ground all at once, but fragile things may have broken.
 import { Inventory } from './Inventory.js';
 import { ITEMS, rollLoot, FRAGILE } from './ItemDB.js';
 

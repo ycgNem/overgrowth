@@ -1073,18 +1073,17 @@ export class Game {
       this.machete.bite(0.6);
       this.makeNoise(14);
       if (best.hp <= 0) {
-        // smashed: the box is gone and what was in it lies in the wreckage, all at once, but
-        // whatever was fragile may have broken; and that carried
+        // smashed: the box is gone and what was in it spills out onto the ground, all at once,
+        // but whatever was fragile may have broken; and that carried
         best.smashed = true;
-        if (best.hide) for (const o of best.hide) o.visible = false;
-        if (best.collider) best.collider.dead = true;
-        best.label0 ??= best.label;
-        best.label = `Smashed ${best.label0.charAt(0).toLowerCase()}${best.label0.slice(1)}`;
         const rec = this.containers.roll(best, this.rand, { smashed: true, bonus: this.mods.lootBonus });
-        if (rec.broke.length) {
-          this.hud.message(`Something broke inside: ${rec.broke.map((id) => ITEMS[id].name).join(', ')}`, '#ff9a7a');
-          rec.broke = null;
-        }
+        if (rec.broke.length) this.hud.message(`Something broke inside: ${rec.broke.map((id) => ITEMS[id].name).join(', ')}`, '#ff9a7a');
+        const spill = at.clone().add(new THREE.Vector3(0, 0.4, 0));
+        for (const s of rec.inv.slots) if (s) for (let k = 0; k < s.n; k++) this.pickups.spawn(s.id, spill, 0.7);
+        this.journal.event('search');
+        this.expedition.opened(best);
+        this.containers.forget(best.id);
+        this.finishContainer(best);
         this.makeNoise(22);
         this.particles.chipBurst(at, best.debris, 30, best.y - 0.6);
         best.loot === 'ruin' ? this.audio.pottery() : this.audio.breakWood();
@@ -1431,8 +1430,11 @@ export class Game {
     if (o.kind !== 'container') return;
     if (!this.containers.empty(o.rec)) return;
     // emptied: it's done (and maybe fills again some dawn)
-    const it = o.it;
-    this.containers.forget(it.id);
+    this.containers.forget(o.it.id);
+    this.finishContainer(o.it);
+  }
+
+  finishContainer(it) {
     if (it.lost) {
       this.removeLost(it);
       return;

@@ -28,11 +28,11 @@ const face = (x, z, d = 1.6, pitch = -0.35) => ev(([x, z, d, pitch]) => {
   return [px, pz];
 }, [x, z, d, pitch]);
 
-// 1. weight: thirty logs is more than a woven satchel carries
+// 1. weight: a dozen logs lades a woven satchel, forty is more than it carries
 const w = await ev(() => {
   const g = window.game, inv = g.inventory;
   const before = inv.burden;
-  g.give('log', 3);
+  g.give('log', 12);
   const laden = inv.burden;
   inv.add('log', 30);
   return { before, laden, after: inv.burden, w: inv.weight, cap: inv.capacity, take: inv.takeable('stone', 1), speed: g.player.burden };
@@ -114,7 +114,7 @@ else {
   ok(`crate prised open: ${o1?.items} finds hidden ${o1?.hidden} -> ${o2?.hidden}, R takes all (left ${o3?.left}), shut it is done: ${done.done}`,
     o1 && o1.hidden === o1.items && o1.items > 0 && o2?.hidden === 0 && o3?.left === 0 && done.done && !done.open);
 
-  // 6. another crate smashed with the machete: everything shows at once
+  // 6. another crate smashed with the machete: it's gone, and everything in it spills out
   const c2 = await ev(() => {
     const g = window.game, near = g.world.near(g.player.pos.x, g.player.pos.z, 'interactables');
     const it = near.find((i) => i.kind === 'break' && i.loot === 'crate' && !i.done && i !== window.__crate);
@@ -130,8 +130,12 @@ else {
       await page.mouse.down(); await page.waitForTimeout(80); await page.mouse.up();
       await page.waitForTimeout(650);
     }
-    const sm = await ev(() => { const r = window.game.containers.get(window.__crate2.id); return { smashed: !!window.__crate2.smashed, hidden: r?.hidden.size, label: window.__crate2.label }; });
-    ok(`smashing a crate opens it all at once (${JSON.stringify(sm)})`, sm.smashed && sm.hidden === 0);
+    const sm = await ev(() => {
+      const g = window.game, c = window.__crate2;
+      const spilled = g.pickups.items.filter((p) => Math.hypot(p.root.position.x - c.x, p.root.position.z - c.z) < 6).length + g.inventory.count('tin_can') + g.inventory.count('frayed_rope') + g.inventory.count('battery');
+      return { smashed: !!c.smashed, done: !!c.done, container: g.containers.has(c.id), spilled };
+    });
+    ok(`smashing a crate spills it all out at once (${JSON.stringify(sm)})`, sm.smashed && sm.done && !sm.container && sm.spilled > 0);
   }
 }
 

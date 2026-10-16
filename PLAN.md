@@ -313,8 +313,20 @@ The old list follows for reference.
 
 ## Start here (next session, written 2026-10-15)
 
-**1.0 is released** (milestones 11–14 of "The 0.10–1.0 plan" below). Read the **1.0 handoff**
-(the first handoff below), then `README.md`. Its "Open / next" list is where to pick up.
+**1.0.1 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
+"Lighter Loads" patch. Read the **1.0 handoff** (the first handoff below), then `README.md`.
+Its "Open / next" list is where to pick up.
+
+### 1.0.1 "Lighter Loads" (2026-10-15, released)
+- Item weights roughly halved, heaviest cut most (`WEIGHT` in `src/items/ItemDB.js`): log
+  1.5, stone 0.4, bog iron 0.8, defences 0.5–2 kg. Packs carry 25 / 32 / 40 kg (`PACKS`).
+  The player had been encumbered after a few logs.
+- Smashing a breakable (`Game.onSwingHit`) now rolls its loot and spills every item as a
+  pickup at the crate, then finishes it like an emptied container (`Game.finishContainer`,
+  split out of `closeOther`; it still restocks at dawn). Before, the model hid but the loot
+  sat in an invisible container.
+- `e2e/pack.mjs` updated for both (12 logs to go laden; the smash check looks for the
+  spill). Its prised-crate check failed once in four runs (a timing flake, not reproduced).
 Start the dev server with the Browser preview (`.claude/launch.json`, name `overgrowth`, port
 5188) or `npm run dev`. Before changing anything, run:
 - `node e2e/loop.mjs` (10 PASS)
@@ -427,7 +439,7 @@ anywhere and survives death, so none of those choices exist yet.
      values: stick 0.3, stone 1, log 4, clay 1.5, bog iron 2, scrap metal 1.5, battery 1,
      golden idol 6. Built defences are heavy (bow tower 8, mortar 10, barricade 5), so you
      build near where you made them.
-   - `Inventory.weight` and `Inventory.capacity` (base 20 kg). Three states:
+   - `Inventory.weight` and `Inventory.capacity` (base 25 kg). Three states:
      - up to 70%: normal;
      - *Laden* (70–100%): 10% slower, sprint drains 1.5× faster;
      - *Encumbered* (over 100%): no sprint, 3.2 m/s walk, low jumps, loud footsteps.
@@ -489,9 +501,9 @@ anywhere and survives death, so none of those choices exist yet.
    - **Safe Pouch**: 1 slot to start, more from better backpacks. It never drops. This is
      ARC's safe pocket, and it is where a found vacuum tube goes.
 6. **Backpacks.** These are ARC's augments, crafted at the Workbench.
-   - Woven Satchel (start): 20 kg, 16 slots, 1 safe.
-   - Hide Pack: 26 kg, 18 slots, 1 safe (needs bone, vine, frayed rope).
-   - Explorer's Rucksack: 32 kg, 20 slots, 2 safe (needs the camp's rope, brass gear and
+   - Woven Satchel (start): 25 kg, 16 slots, 1 safe.
+   - Hide Pack: 32 kg, 18 slots, 1 safe (needs bone, vine, frayed rope).
+   - Explorer's Rucksack: 40 kg, 20 slots, 2 safe (needs the camp's rope, brass gear and
      leather from the Rotboar).
    - The pack you wear shows on the player's shadow and in the satchel header.
 7. **Noise and day threats.**
