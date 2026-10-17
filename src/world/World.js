@@ -117,6 +117,7 @@ export class World {
     this.looted = new Set();
     this.terrainMat = makeTerrainMaterial(flora.lib);
     this.queue = [];
+    this.wearQueue = []; // chunk keys to wear again (wearSoon), a few a frame
     this.cx = NaN;
     this.cz = NaN;
     this.time = 0;
@@ -167,7 +168,20 @@ export class World {
   }
 
   wearAll() {
+    this.wearQueue.length = 0;
     for (const ch of this.chunks.values()) this.wearChunk(ch);
+  }
+
+  // The same, spread over the next frames (World.update), nearest chunks first. All at once it
+  // was a 15-40 ms frame (four times that on a slow machine) at every dawn, and again every few
+  // seconds while a brazier burnt the Rot back. The ground layers wait for it (`wearing`).
+  wearSoon() {
+    const d = (ch) => Math.max(Math.abs(ch.cx - this.cx), Math.abs(ch.cz - this.cz)) || 0;
+    this.wearQueue = [...this.chunks.values()].sort((a, b) => d(a) - d(b)).map((ch) => World.key(ch.cx, ch.cz));
+  }
+
+  get wearing() {
+    return this.wearQueue.length > 0;
   }
 
   // which pooled plants are in view this frame (call before rendering)
@@ -203,12 +217,25 @@ export class World {
   }
 
   // A new day: forage grows back and cut plants regrow in chunks you haven't kept loaded.
+  // Dawn: everything foraged and cut grows back. Each dressed chunk is rebuilt in place, the
+  // nearest first, one a frame (World.update), so nothing vanishes in between and the dawn
+  // doesn't rebuild every chunk on one frame.
   regrow() {
     this.foraged.clear();
     this.cut.clear();
+    for (const ch of this.chunks.values()) if (ch.dressing) ch.regrow = true;
+  }
+
+  // the nearest dressed chunk still waiting to regrow, or null
+  nextRegrow() {
+    let best = null, bd = Infinity;
     for (const ch of this.chunks.values()) {
-      if (ch.dressing) this.dropDressing(ch);
+      if (!ch.regrow) continue;
+      if (!ch.dressing) { ch.regrow = false; continue; }
+      const d = Math.max(Math.abs(ch.cx - this.cx), Math.abs(ch.cz - this.cz));
+      if (d < bd) { bd = d; best = ch; }
     }
+    return best;
   }
 
   dropDressing(ch) {
@@ -291,11 +318,22 @@ export class World {
         }
       }
     }
+    // chunks waiting to be worn again: a millisecond or so of them a frame
+    if (this.wearQueue.length) {
+      const t0 = performance.now();
+      do {
+        const ch = this.chunks.get(this.wearQueue.shift());
+        if (ch) this.wearChunk(ch);
+      } while (this.wearQueue.length && (force || performance.now() - t0 < 1.5));
+    }
     if (force) {
       if (this.building) finish(this.building.steps);
       this.building = null;
       while (this.queue.length) this.build(...this.queue.shift());
-      for (const ch of this.chunks.values()) this.updateDressing(ch);
+      for (const ch of this.chunks.values()) {
+        if (ch.regrow) { this.dropDressing(ch); ch.regrow = false; }
+        this.updateDressing(ch);
+      }
     } else if (this.building || this.queue.length) {
       // one slice of the chunk under construction per frame
       if (!this.building) {
@@ -304,8 +342,14 @@ export class World {
       }
       if (this.building.steps.next().done) this.building = null;
     } else {
-      // one dressing change per frame, so streaming stays smooth
-      for (const ch of this.chunks.values()) if (this.updateDressing(ch)) break;
+      // one dressing change per frame, so streaming stays smooth (a chunk regrowing at dawn
+      // is dropped and rebuilt on the same frame)
+      const rg = this.nextRegrow();
+      if (rg) {
+        this.dropDressing(rg);
+        rg.regrow = false;
+        this.updateDressing(rg);
+      } else for (const ch of this.chunks.values()) if (this.updateDressing(ch)) break;
     }
     this.updateFallers(dt);
     this.animate(dt);

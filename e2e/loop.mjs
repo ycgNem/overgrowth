@@ -54,7 +54,7 @@ ok(`craft barricade by click (${before}->${after.b}, sticks left ${after.s})`, a
 // ...and an Anywhere recipe out in the forest, from the satchel alone (this threw in 1.0.1)
 const away = await ev(async () => {
   const g = window.game, p = g.player.pos, x0 = p.x, z0 = p.z;
-  const { recipeFor } = await import('/src/items/Recipes.js');
+  const { recipeFor } = await import('/src/items/Recipes.ts');
   for (const [id, n] of [['berries', 4], ['fiber', 1], ['moss', 1]]) g.give(id, n);
   p.x += 300; p.z += 300;
   const atCamp = g.craftContext().atCamp, before = g.inventory.count('poultice');

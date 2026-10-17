@@ -1,5 +1,7 @@
 // Items lying in the world: pop out of whatever dropped them, settle,
-// bob with a rarity glow, then fly to the player when close.
+// bob with a rarity glow, then fly to the player when close. One pickup can be a whole stack
+// (n). Something the player put down (`dropped`) never comes by itself: it waits on the ground
+// until they tap E at it (Game.interact, `grab`).
 import * as THREE from 'three';
 import { getItemModel } from './ItemModels.ts';
 import { ITEMS, RARITY } from './ItemDB.ts';
@@ -34,7 +36,10 @@ export interface Pickup {
   phase: number;
   magnet: boolean;
   auto: boolean;
+  n: number;
+  dropped: boolean;
 }
+
 // what pickups need from the world: where the ground is
 interface Ground { groundHeight(x: number, z: number, feetY?: number): number }
 
@@ -54,8 +59,9 @@ export class Pickups {
     this.canTake = () => true;
   }
 
-  // auto: fly to the player even from a distance (loot from searches).
-  spawn(id: string, origin: THREE.Vector3, impulse = 1, auto = false): Pickup {
+  // auto: fly to the player even from a distance (loot from searches). n: how many it holds.
+  // dropped: thrown out by the player (see above).
+  spawn(id: string, origin: THREE.Vector3, impulse = 1, auto = false, n = 1, dropped = false): Pickup {
     const def = ITEMS[id];
     const rarity = RARITY[def.rarity];
     const root = new THREE.Group();
@@ -79,7 +85,7 @@ export class Pickups {
     const item: Pickup = {
       id, root, model, glow, rarity,
       vel: new THREE.Vector3(Math.cos(a) * sp, 4 + Math.random() * 2.5, Math.sin(a) * sp),
-      age: 0, settled: false, ground: 0, phase: Math.random() * 10, magnet: false, auto,
+      age: 0, settled: false, ground: 0, phase: Math.random() * 10, magnet: false, auto, n, dropped,
     };
     this.items.push(item);
     return item;
@@ -88,7 +94,7 @@ export class Pickups {
   // Returns ids collected this frame. this.blocked: something in reach the satchel can't take
   // (the game says why), else null.
   update(dt: number, t: number, playerPos: THREE.Vector3) {
-    const got: { id: string; pos: THREE.Vector3 }[] = [];
+    const got: { id: string; n: number; pos: THREE.Vector3 }[] = [];
     this.blocked = null;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const p = this.items[i];
@@ -96,7 +102,7 @@ export class Pickups {
       const pos = p.root.position;
       const dx = playerPos.x - pos.x, dy = playerPos.y + 0.9 - pos.y, dz = playerPos.z - pos.z;
       const d = Math.hypot(dx, dy, dz);
-      if (!p.magnet && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) {
+      if (!p.magnet && !p.dropped && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) {
         if (this.canTake(p.id)) p.magnet = true;
         else if (d < 2.6) this.blocked = p.id;
       }
@@ -107,7 +113,7 @@ export class Pickups {
         pos.z += (dz / d) * speed * dt * Math.min(1, d * 2);
         p.root.scale.setScalar(Math.max(0.3, Math.min(1, d)));
         if (d < 0.45) {
-          got.push({ id: p.id, pos: pos.clone() });
+          got.push({ id: p.id, n: p.n, pos: pos.clone() });
           this.remove(i);
           continue;
         }
@@ -135,6 +141,26 @@ export class Pickups {
       p.glow.material.opacity = 0.4 + Math.sin(t * 3 + p.phase) * 0.15;
     }
     return got;
+  }
+
+  // The put-down pile nearest (x, z) within r that the player is facing (fx, fz: the look
+  // direction on the ground), or null.
+  pileAt(x: number, z: number, fx: number, fz: number, r = 2.4): Pickup | null {
+    let best: Pickup | null = null, bd = r;
+    for (const p of this.items) {
+      if (!p.dropped || p.magnet) continue;
+      const dx = p.root.position.x - x, dz = p.root.position.z - z, d = Math.hypot(dx, dz);
+      if (d >= bd || (d > 0.6 && (dx * fx + dz * fz) / d < 0.6)) continue;
+      best = p;
+      bd = d;
+    }
+    return best;
+  }
+
+  // pick a put-down pile up: it flies to the player like anything else
+  grab(p: Pickup) {
+    p.dropped = false;
+    p.magnet = true;
   }
 
   remove(i: number) {

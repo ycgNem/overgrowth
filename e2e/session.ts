@@ -9,7 +9,7 @@ const HITCH = Number(process.argv[2] || 40);
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`));
-await page.goto('http://localhost:5188/?debug&t=0.45');
+await page.goto((process.env.BASE ?? 'http://localhost:5188/') + '?debug&t=0.45');
 await page.waitForFunction(() => (window as any).game?.running, null, { timeout: 90000 });
 await page.waitForTimeout(3000);
 await page.evaluate((HITCH: number) => {

@@ -247,7 +247,7 @@ export class Blooms {
 
   // one bloom at (x, z); also used to warm its shaders up at load
   add(x, z, seed = 1) {
-    const b = { x, z, seed, hp: BLOOM_HP, maxHp: BLOOM_HP, dead: false, deathT: 0, hitT: 0, guards: [], ...buildBloom(x, z, seed) };
+    const b = { x, z, seed, hp: BLOOM_HP, maxHp: BLOOM_HP, dead: false, deathT: 0, hitT: 0, guards: [], key: '', cy: 0, ...buildBloom(x, z, seed) };
     b.cy = b.y + 0.8 * SIZE;
     this.scene.add(b.group);
     this.list.push(b);
@@ -269,25 +269,34 @@ export class Blooms {
   // camp, the points of interest and each other.
   /** @param {(x: number, z: number) => boolean} [blocked] somewhere else a bloom mustn't go */
   sprout(n, base, rand = Math.random, blocked = () => false) {
+    for (const s of this.sites(n, base, rand, blocked)) this.add(s.x, s.z, s.seed);
+    return this.list;
+  }
+
+  // Where a new day's blooms go (clearing the old ones), without building them yet: Game adds
+  // them one a frame so the day doesn't start with a stall.
+  /** @param {(x: number, z: number) => boolean} [blocked] */
+  sites(n, base, rand = Math.random, blocked = () => false) {
     this.clear();
     if (!this.enabled) return [];
     const want = Blooms.countFor(n);
+    const out = [];
     const pois = poisAround(Math.floor(base.x / CHUNK_SIZE), Math.floor(base.z / CHUNK_SIZE), 3);
     let tries = 0;
     const a0 = rand() * TAU;
-    while (this.list.length < want && tries++ < 400) {
+    while (out.length < want && tries++ < 400) {
       // spread round the compass, then jitter
-      const a = a0 + (this.list.length / want) * TAU + (rand() - 0.5) * 1.6;
+      const a = a0 + (out.length / want) * TAU + (rand() - 0.5) * 1.6;
       // (inside the Blight's flow field, which reaches 100 m from the Heart)
       const d = 45 + rand() * 45;
       const x = base.x + Math.cos(a) * d, z = base.z + Math.sin(a) * d;
       if (terrainHeight(x, z) < WATER_LEVEL + 0.6 || terrainNormal(x, z).y < 0.88) continue;
       if (Math.hypot(x - base.x, z - base.z) < BASE_CLEAR + 10) continue;
       if (pois.some((p) => Math.hypot(x - p.x, z - p.z) < p.radius + 6)) continue;
-      if (this.list.some((o) => Math.hypot(x - o.x, z - o.z) < 28) || blocked(x, z)) continue;
-      this.add(x, z, Math.floor(rand() * 1e9));
+      if (out.some((o) => Math.hypot(x - o.x, z - o.z) < 28) || blocked(x, z)) continue;
+      out.push({ x, z, seed: Math.floor(rand() * 1e9) });
     }
-    return this.list;
+    return out;
   }
 
   // the nearest living bloom whose body is within r of (x, z)

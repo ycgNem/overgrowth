@@ -55,6 +55,13 @@ function glowSprite(hex, s = 1.4) {
   g.scale.set(s, s, 1);
   return g;
 }
+// a column of light and a flare, for the load-time shader warm-up (Game.init): the beam's
+// shader was first compiled at noon on the day of the first supply drop, mid-frame
+export function warmBeams() {
+  const g = new THREE.Group();
+  g.add(beam(SEAL_HEX), glowSprite(0xff5040, 1.8));
+  return g;
+}
 
 // the Stone Seal, set up in the ruins: a dressed standing stone with a channel of runes. Its
 // material is named Stone so merge.js gives it the ruins' photographed stone, and it is merged

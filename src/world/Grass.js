@@ -8,6 +8,7 @@ import { mulberry32 } from '../utils/rng.js';
 import { smoothstep } from '../utils/math.js';
 import { addWind, addFoliageLighting, addNightFill } from '../art/shaders.js';
 import { CHUNK_SIZE as CS, groundPatch } from './WorldGen.js';
+import { staleCells, refreshCells } from './CellRefresh.ts';
 
 const CELL = 4;
 const RADIUS = 28;
@@ -78,6 +79,8 @@ export class Grass {
   constructor(scene, world) {
     this.world = world;
     this.cells = new Map();
+    this.stale = null; // cells to build again, and those built so far (CellRefresh.ts)
+    this.fresh = null;
     this.cx = null; this.cz = null;
     this.blockers = []; // footprints of buildings: { x, z, r }
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.95, metalness: 0 });
@@ -151,13 +154,14 @@ export class Grass {
     return out.map((a) => new Float32Array(a));
   }
 
-  // the ground changed under the cells (trampled lanes): build them again
+  // the ground changed under the cells (trampled lanes, the Rot): build them again, a few a
+  // frame while the old ones stay drawn (CellRefresh.ts)
   reset() {
-    this.cells.clear();
-    this.cx = null;
+    staleCells(this);
   }
 
   update(px, pz) {
+    if (this.stale && refreshCells(this)) this.cx = null;
     const ci = Math.floor(px / CELL), cj = Math.floor(pz / CELL);
     if (ci === this.cx && cj === this.cz && !this.missing) return;
     this.cx = ci; this.cz = cj;

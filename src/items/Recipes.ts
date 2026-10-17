@@ -6,7 +6,25 @@
 // Camp recipes can be made from anywhere inside the camp once that bench is built, and they
 // draw on the Coffer as well as the satchel. `lvl` is the bench level a recipe needs (1 if
 // unset). `group` sorts them into the satchel's sections.
-export const RECIPES = [
+export type Station = 'field' | 'bench' | 'kiln' | 'tinker';
+export interface CampRecipe {
+  id: string;
+  out: string;
+  n: number;
+  group: string;
+  at: Station;
+  lvl?: number;
+  needs: Record<string, number>;
+}
+export interface Bench {
+  name: string;
+  glyph: string;
+  model: string;
+  blurb: string;
+  levels: (Record<string, number> | null)[];
+}
+
+export const RECIPES: CampRecipe[] = [
   { id: 'barricade', out: 'barricade', n: 1, group: 'Defences', at: 'bench', needs: { stick: 4, thorns: 3, vine: 1 } },
   { id: 'spike_trap', out: 'spike_trap', n: 1, group: 'Defences', at: 'field', needs: { stick: 3, flint: 2 } },
   { id: 'vine_snare', out: 'vine_snare', n: 1, group: 'Defences', at: 'bench', needs: { vine: 4, fiber: 3, stick: 2, thorns: 2 } },
@@ -32,7 +50,7 @@ export const RECIPES = [
 // The camp's benches. Level 0 is not built yet (the Workbench starts at 1). `levels[k]` is
 // what it takes to reach level k + 1, and the level gates the best recipes and the tower
 // upgrades of what's made there (tier t needs level t).
-export const BENCHES = {
+export const BENCHES: Record<'bench' | 'kiln' | 'tinker', Bench> = {
   bench: {
     name: 'Workbench', glyph: '⚒', model: 'workbench',
     blurb: "Towers, walls, lanterns, packs, Heartseed saplings. Set the Thornback's heart in it to learn grafting.",
@@ -49,9 +67,17 @@ export const BENCHES = {
     levels: [{ log: 2, scrap_metal: 4, rusty_bolts: 3 }, { copper_wire: 2, battery: 1, brass_gear: 2 }, { vacuum_tube: 1, battery: 2, pocket_watch: 1 }],
   },
 };
-export const BENCH_IDS = Object.keys(BENCHES);
-export const AT_NAMES = { field: 'Anywhere', bench: 'Workbench', kiln: 'Fire Pit', tinker: "Tinker's Bench" };
+// The Coffer's levels: clad in iron, then bound in brass, each holds more. `levels[k]` is what
+// it takes to reach level k + 2 (it starts at 1); upgraded from its own pane at camp.
+export const COFFER: { names: string[]; slots: number[]; levels: Record<string, number>[] } = {
+  names: ['The Coffer', 'The Iron Coffer', 'The Brassbound Coffer'],
+  slots: [60, 90, 120],
+  // (no brass gears: the radio, the rucksack and the tier-3 towers want every one of those)
+  levels: [{ scrap_metal: 4, rusty_bolts: 4, bog_iron: 2 }, { copper_wire: 3, scrap_metal: 6, rusty_bolts: 4, bog_iron: 3 }],
+};
+export const BENCH_IDS = Object.keys(BENCHES) as (keyof typeof BENCHES)[];
+export const AT_NAMES: Record<Station, string> = { field: 'Anywhere', bench: 'Workbench', kiln: 'Fire Pit', tinker: "Tinker's Bench" };
 
 // which bench a defence is made at (and so which bench's level its upgrades need)
-export const benchOf = (id) => RECIPES.find((r) => r.out === id)?.at ?? 'field';
-export const recipeFor = (id) => RECIPES.find((r) => r.out === id);
+export const benchOf = (id: string): Station => RECIPES.find((r) => r.out === id)?.at ?? 'field';
+export const recipeFor = (id: string) => RECIPES.find((r) => r.out === id);

@@ -260,6 +260,68 @@ export class Inventory {
     this.swap(from, to);
   }
 
+  // Move up to n from slot i into these slots of the same inventory: topping up stacks of the
+  // same item first, then the first empty one. Returns how many moved.
+  shift(i: number, targets: number[], n = Infinity) {
+    const s = this.slots[i];
+    if (!s) return 0;
+    let left = Math.min(n, s.n);
+    const id = s.id;
+    for (const j of targets) {
+      const t = this.slots[j];
+      if (left <= 0) break;
+      if (j === i || !t || t.id !== id) continue;
+      const k = Math.min(left, this.cap(j, id) - t.n);
+      if (k > 0) { t.n += k; left -= k; }
+    }
+    for (const j of targets) {
+      if (left <= 0) break;
+      if (j === i || this.slots[j] || !this.cap(j, id)) continue;
+      const k = Math.min(left, this.cap(j, id));
+      this.slots[j] = { id, n: k };
+      left -= k;
+    }
+    const moved = Math.min(n, s.n) - left;
+    s.n -= moved;
+    if (s.n <= 0) this.slots[i] = null;
+    if (moved) this.changed(id);
+    return moved;
+  }
+
+  // the pack slots the current backpack has
+  packSlots() {
+    const out: number[] = [];
+    for (let i = this.packStart; i < this.packStart + this.packSize; i++) out.push(i);
+    return out;
+  }
+
+  // Tidy slots [from, to): stacks of the same item merged, then grouped by kind and name.
+  sort(from = this.packStart, to = this.packStart + this.packSize) {
+    const items: Stack[] = [];
+    for (let i = from; i < to; i++) {
+      const s = this.slots[i];
+      if (!s || !this.usable(i)) continue;
+      const same = items.find((t) => t.id === s.id && t.n < stackOf(s.id));
+      let n = s.n;
+      if (same) {
+        const k = Math.min(n, stackOf(s.id) - same.n);
+        same.n += k;
+        n -= k;
+      }
+      if (n > 0) items.push({ id: s.id, n });
+      this.slots[i] = null;
+    }
+    const KIND = ['build', 'use', 'tool', 'gear', 'pack', 'material', 'scrap', 'relic'];
+    const rank = (id: string) => { const k = KIND.indexOf(ITEMS[id].kind); return k < 0 ? KIND.length : k; };
+    items.sort((a, b) => rank(a.id) - rank(b.id) || ITEMS[a.id].name.localeCompare(ITEMS[b.id].name) || b.n - a.n);
+    let i = from;
+    for (const it of items) {
+      while (i < to && !this.usable(i)) i++;
+      this.slots[i++] = it;
+    }
+    this.changed();
+  }
+
   get held(): Slot {
     return this.slots[this.selected];
   }
@@ -349,17 +411,35 @@ export function craftFrom(recipe: Recipe, sources: Sources | Inventory[], dest: 
   return true;
 }
 
-// Move the stack in a.slots[i] into b: into slot j if it's free or holds the same item,
-// otherwise wherever b puts it. Only as many as b has room for (slots and weight). Returns how
-// many moved.
-export function transfer(a: Inventory, i: number, b: Inventory, j: number | null = null) {
+// Trade whole stacks between a.slots[i] and b.slots[j] (different inventories), if each slot
+// takes the other's stack and neither side goes over its weight limit. Returns whether it did.
+export function swapAcross(a: Inventory, i: number, b: Inventory, j: number) {
+  const s = a.slots[i], t = b.slots[j];
+  if (!s || !t || a === b) return false;
+  if (b.cap(j, s.id) < s.n || a.cap(i, t.id) < t.n) return false;
+  const ws = weightOf(s.id) * s.n, wt = weightOf(t.id) * t.n;
+  if (b.capacity !== Infinity && b.weight - wt + ws > b.capacity * HARD_CAP + 1e-6) return false;
+  if (a.capacity !== Infinity && a.weight - ws + wt > a.capacity * HARD_CAP + 1e-6) return false;
+  a.slots[i] = t;
+  b.slots[j] = s;
+  a.found.add(t.id);
+  b.found.add(s.id);
+  a.changed(t.id);
+  b.changed(s.id);
+  return true;
+}
+
+// Move the stack in a.slots[i] (or n of it) into b: into slot j if it's free or holds the same
+// item, otherwise wherever b puts it. Only as many as b has room for (slots and weight).
+// Returns how many moved.
+export function transfer(a: Inventory, i: number, b: Inventory, j: number | null = null, n = Infinity) {
   const s = a.slots[i];
   if (!s) return 0;
   if (a === b) {
     if (j !== null) a.move(i, j);
     return 0;
   }
-  let k = Math.min(s.n, b.weightRoom(s.id));
+  let k = Math.min(s.n, n, b.weightRoom(s.id));
   if (k <= 0) return 0;
   const t = j !== null && b.cap(j, s.id) ? b.slots[j] : undefined;
   if (j !== null && b.cap(j, s.id) && (!t || t.id === s.id)) {

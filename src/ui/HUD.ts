@@ -3,27 +3,119 @@
 // journal, and the overlays (satchel + crafting, boons, victory, game over).
 import * as THREE from 'three';
 import { ITEMS, RARITY, KIND, whereToFind, weightOf, PACKS } from '../items/ItemDB.ts';
-import { RECIPES, BENCHES, BENCH_IDS, AT_NAMES } from '../items/Recipes.js';
-import { HOTBAR, LADEN, HARD_CAP, transfer } from '../items/Inventory.ts';
+import { RECIPES, BENCHES, BENCH_IDS, AT_NAMES } from '../items/Recipes.ts';
+import { HOTBAR, LADEN, HARD_CAP, transfer, swapAcross } from '../items/Inventory.ts';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
 import { describeWave } from '../defense/Waves.js';
 import { AFFIXES, affixRim } from '../defense/Enemies.js';
 import { ROOTS, BUILD_DEFS } from '../defense/Towers.ts';
+import type { Inventory, Sources, Slot, Recipe } from '../items/Inventory.ts';
+import type { Building } from '../defense/Towers.ts';
 
 // the kind of damage a defence does, on its craft card (the Blight resist some, fear others)
-const DTYPE = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce' };
+const DTYPE: Record<string, string> = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce' };
 
-const $ = (s) => document.querySelector(s);
+const $ = (s: string): any => document.querySelector(s);
 const DEG = Math.PI / 180;
-const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const _p = new THREE.Vector3();
 
 const MOUSE_SVG = '<svg class="mouse" viewBox="0 0 16 22"><rect x="1.5" y="1.5" width="13" height="19" rx="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.5v7.5H1.5V8A6.5 6.5 0 0 1 8 1.5z" fill="currentColor"/></svg>';
 
+// Shapes that live in Game (and the still-JS files): named here so the signatures say what
+// they take. The other pane (a container or the Coffer) and an enemy stay loose, as Game has them.
+type Enemy = any;
+type OtherPane = any;
+// a compass mark or POI marker: remembers its last left and class so styles only change when they do
+type CompassEl = HTMLElement & { _x?: number | null; _cls?: string };
+// a marker on the compass and the minimap (the Heartwood, rifts, Blooms, a lost satchel)
+export interface Marker { key: string; x: number; z: number; icon: string; label: string; cls: string; alert?: boolean }
+// a recipe as the satchel shows it (items/Recipes.ts RECIPES): where it's made, at what bench level
+export interface CraftRecipe extends Recipe { id?: string; group?: string; at?: string; lvl?: number }
+// what crafting can see (Game.craftContext)
+export interface CraftCtx {
+  atCamp: boolean;
+  benches?: Record<string, number>;
+  roots?: { used: number; cap: number };
+  src: Inventory | Sources;
+}
+// a torn page (core/Story.js NOTES)
+export interface Note { title: string; text?: string; who?: string; map?: unknown }
+// a boon (ui/Perks.js PERKS)
+export interface Perk { name: string; desc: string; glyph: string }
+export interface Ending {
+  eyebrow?: string;
+  title: string;
+  lead?: string;
+  stats?: any;
+  kind?: string;
+  buttons: { label: string; primary?: boolean; fn: () => void }[];
+}
+interface MapJob { cx: number; cz: number; row: number; N: number; img: ImageData; prev: Float32Array }
+interface Floater { el: HTMLElement; pos: THREE.Vector3; vx: number; vy: number; t: number; life: number }
+// a slot's place: which inventory (looked up when used, as the other pane changes) and index
+interface SlotRef { inv: () => Inventory; i: number }
+
+// seconds a right-click is held on a defence to salvage it
+const SALVAGE_HOLD = 0.7;
+
 export class HUD {
-  constructor(inventory) {
+  inv: Inventory;
+  icons: Record<string, string>;
+  el: Record<string, any>; // the HUD's elements by name (canvas, SVG and plain divs alike)
+  mapCtx: CanvasRenderingContext2D;
+  mapBase: HTMLCanvasElement;
+  mapCenter: { x: number; z: number };
+  mapRange: number;
+  job: MapJob | null;
+  marks: { e: CompassEl; a: number }[];
+  compassW: number;
+  compassWT: number;
+  poiEls: Map<string, CompassEl>;
+  poiListKey: string;
+  poiList: ReturnType<typeof poisAround>;
+  discovered: Set<string>;
+  markers: Marker[];
+  keyLabel: ((code: string) => string) | null;
+  fpsAcc: { t: number; n: number };
+  fpsOn: boolean;
+  hurtT: number;
+  bannerK: number; // the latest banner (an older one's next-frame show is dropped)
+  carry: { inv: Inventory; i: number } | null;
+  press: { inv: Inventory; i: number; x: number; y: number; half: boolean; dragging: boolean } | null;
+  hover: SlotRef | null;
+  otherPane: OtherPane | null;
+  tab: string;
+  notes: Note[];
+  noteSel: Note | null;
+  craftCtx: () => CraftCtx;
+  onCraft: ((r: CraftRecipe) => void) | null;
+  onSalvage: ((i: number) => void) | null;
+  onFull: ((o: OtherPane | null, where?: 'belt') => void) | null;
+  salvageHold: { i: number; id: string; el: HTMLElement; t0: number; raf: number } | null; // a right-click held on a defence
+  onCloseOther: ((o: OtherPane) => void) | null;
+  onUse: ((i: number) => void) | null;
+  onDrop: ((i: number, n: number) => void) | null;
+  floats: Floater[];
+  bars: HTMLElement[];
+  journalKey: string;
+  hotEls: HTMLElement[];
+  slotRef: WeakMap<Element, SlotRef>;
+  ghost: HTMLElement | null;
+  dragOver: HTMLElement | null; // the slot under a dragged stack
+  slotEls: HTMLElement[];
+  otherEls: HTMLElement[];
+  otherInv: Inventory | null;
+  recipeEls: { r: CraftRecipe; card: HTMLElement }[];
+  chipEl: HTMLElement | null;
+  chipHtml: string;
+  capBox: HTMLElement;
+  tipEl: HTMLElement;
+  tipRecipe: CraftRecipe | null;
+
+  constructor(inventory: Inventory) {
     this.inv = inventory;
     this.icons = {};
     this.el = {
@@ -33,7 +125,7 @@ export class HUD {
       cross: $('#crosshair'), toasts: $('#toasts'),
       stamina: $('#stamina'), staminaBar: $('#stamina div'), health: $('#health'), healthBar: $('#health div'), healthText: $('#health span'),
       discover: $('#discover'), fps: $('#fps'),
-      inv: $('#inventory'), grid: $('#inv-grid'), belt: $('#inv-belt'), safe: $('#inv-safe'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
+      inv: $('#inventory'), sort: $('#inv-sort'), grid: $('#inv-grid'), belt: $('#inv-belt'), safe: $('#inv-safe'), detail: $('#inv-detail'), recipes: $('#inv-recipes'),
       slots: $('#inv-slots'), relics: $('#inv-relics'), packName: $('#inv-pack'), weight: $('#inv-weight'),
       tabs: $('#inv-tabs'), other: $('#inv-other'), otherGrid: $('#other-grid'), craft: $('#inv-craft'), benchRow: $('#bench-row'),
       notes: $('#inv-notes'),
@@ -81,12 +173,12 @@ export class HUD {
     setTimeout(() => this.el.hint.classList.add('hidden'), 90000);
   }
 
-  setIcons(icons) {
+  setIcons(icons: Record<string, string>) {
     this.icons = icons;
     this.renderHotbar();
   }
 
-  show(on) {
+  show(on: boolean) {
     this.el.hud.classList.toggle('hidden', !on);
   }
 
@@ -110,7 +202,7 @@ export class HUD {
   }
 
   // heading: radians clockwise from north (-z)
-  updateCompass(heading, player, done) {
+  updateCompass(heading: number, player: { x: number; z: number }, done: Set<string>) {
     // the strip's width is read now and then, not every frame (a read after last frame's
     // writes forces a layout), and styles are only written when they change
     if (!this.compassW || --this.compassWT <= 0) {
@@ -119,7 +211,7 @@ export class HUD {
     }
     const w = this.compassW;
     const span = 100 * DEG;
-    const place = (e, a) => {
+    const place = (e: CompassEl, a: number) => {
       const d = angleDelta(heading, a);
       const x = Math.abs(d) > span ? null : Math.round((w / 2 + (d / span) * (w / 2)) * 2) / 2;
       if (e._x !== x) {
@@ -142,7 +234,7 @@ export class HUD {
     }
     const seen = new Set();
     let focus = null, focusD = 8 * DEG; // only the marker nearest the centre gets a label
-    const show = (key, x, z, icon, label, cls = '') => {
+    const show = (key: string, x: number, z: number, icon: string, label: string, cls = '') => {
       const dx = x - player.x, dz = z - player.z;
       const dist = Math.hypot(dx, dz);
       if (dist < 6) return null;
@@ -188,12 +280,12 @@ export class HUD {
   // ---------------------------------------------------------------- minimap
 
   // The map image is rebuilt a few rows per frame so it never hitches.
-  mapJob(cx, cz) {
+  mapJob(cx: number, cz: number): MapJob {
     const N = this.mapBase.width;
     return { cx, cz, row: 0, N, img: new ImageData(N, N), prev: new Float32Array(N + 1) };
   }
 
-  stepMapJob(rows) {
+  stepMapJob(rows: number) {
     const job = this.job;
     const { N, img } = job;
     const R = this.mapRange;
@@ -234,7 +326,8 @@ export class HUD {
     }
   }
 
-  updateMinimap(player, heading, force, extra = {}) {
+  // extra: the frame's state (Game.frame): the base, build radius, buildings and enemies
+  updateMinimap(player: { x: number; z: number }, heading: number, force: boolean, extra: any = {}) {
     const R = this.mapRange;
     const snap = 24;
     const sx = Math.round(player.x / snap) * snap, sz = Math.round(player.z / snap) * snap;
@@ -249,8 +342,8 @@ export class HUD {
     const k = S / R;
     c.imageSmoothingEnabled = true;
     c.drawImage(this.mapBase, (this.mapCenter.x - player.x) * k, (this.mapCenter.z - player.z) * k, S, S);
-    const toMap = (x, z) => [S / 2 + (x - player.x) * k, S / 2 + (z - player.z) * k];
-    const inside = (px, pz, pad = 12) => (px - S / 2) ** 2 + (pz - S / 2) ** 2 <= (S / 2 - pad) ** 2;
+    const toMap = (x: number, z: number) => [S / 2 + (x - player.x) * k, S / 2 + (z - player.z) * k];
+    const inside = (px: number, pz: number, pad = 12) => (px - S / 2) ** 2 + (pz - S / 2) ** 2 <= (S / 2 - pad) ** 2;
     // build radius ring
     if (extra.base) {
       const [bx, bz] = toMap(extra.base.x, extra.base.z);
@@ -324,12 +417,12 @@ export class HUD {
   // label: main line; sub: a second, smaller line (costs, alternatives)
   // the keys named in a hint, as the player has bound them (Settings > Controls): Game sets
   // keyLabel(code)
-  keys(html) {
+  keys(html: string) {
     if (!this.keyLabel || !html) return html;
     return html.replace(/<kbd>([A-Z]|Tab|Space|Shift)<\/kbd>/g, (m, k) => `<kbd>${this.keyLabel(k.length === 1 ? `Key${k}` : k === 'Shift' ? 'ShiftLeft' : k)}</kbd>`);
   }
 
-  prompt(label, progress = 0, key = 'E', sub = '') {
+  prompt(label: string | null, progress = 0, key = 'E', sub = '') {
     if (this.keyLabel && /^[A-Z]$/.test(key)) key = this.keyLabel(`Key${key}`);
     sub = this.keys(sub);
     const p = this.el.prompt;
@@ -352,22 +445,22 @@ export class HUD {
   }
 
   // "10/2 [icon] 0/1 [icon]" for a recipe-like cost: what you carry over what it takes
-  costHtml(needs, src = this.craftCtx().src) {
+  costHtml(needs: Record<string, number>, src = this.craftCtx().src) {
     return Object.entries(needs).map(([id, n]) => {
       const have = src.count(id);
-      return `<span class="${have >= n ? 'have' : 'miss'}"><img src="${this.icons[id] || ''}">${have}/${n}</span>`;
+      return `<span class="${have >= n ? 'have' : 'miss'}" title="${ITEMS[id].name}"><img src="${this.icons[id] || ''}" alt="${ITEMS[id].name}">${have}/${n}</span>`;
     }).join(' ');
   }
 
-  toast(id, n = 1, note) {
+  toast(id: string, n = 1, note?: string) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
     // stack repeats of the same pickup into one toast
     const last = this.el.toasts.lastElementChild;
     if (!note && last && last.dataset.id === id && Date.now() - Number(last.dataset.t) < 2500) {
       const total = Number(last.dataset.n) + n;
-      last.dataset.n = total;
-      last.dataset.t = Date.now();
+      last.dataset.n = String(total);
+      last.dataset.t = String(Date.now());
       last.querySelector('.n').textContent = `${def.name} ×${total}`;
       last.style.animation = 'none';
       void last.offsetWidth;
@@ -377,8 +470,8 @@ export class HUD {
     const t = document.createElement('div');
     t.className = 'toast';
     t.dataset.id = id;
-    t.dataset.n = n;
-    t.dataset.t = Date.now();
+    t.dataset.n = String(n);
+    t.dataset.t = String(Date.now());
     t.style.setProperty('--rc', r.color);
     const sub = note || `${r.name} · ${KIND[def.kind].name}`;
     t.innerHTML = `<img src="${this.icons[id] || ''}"><div><div class="n">${def.name}${n > 1 ? ` ×${n}` : ''}</div><div class="r">${sub}</div></div>`;
@@ -387,7 +480,7 @@ export class HUD {
     setTimeout(() => t.remove(), 4100);
   }
 
-  message(text, color = '#f3ead2') {
+  message(text: string, color = '#f3ead2') {
     const t = document.createElement('div');
     t.className = 'toast msg';
     t.style.setProperty('--rc', color);
@@ -397,7 +490,7 @@ export class HUD {
     setTimeout(() => t.remove(), 4100);
   }
 
-  discover(name) {
+  discover(name: string) {
     const d = this.el.discover;
     d.querySelector('span').textContent = name;
     d.classList.remove('show');
@@ -406,7 +499,7 @@ export class HUD {
   }
 
   // line2: { text, color }, a second line in its own colour (tonight's Sign under a boss)
-  banner(title, sub, cls = '', line2 = null) {
+  banner(title: string, sub: string, cls = '', line2: { text: string; color?: string } | null = null) {
     const b = this.el.banner;
     b.querySelector('b').textContent = title;
     b.querySelector('span').textContent = sub;
@@ -419,16 +512,20 @@ export class HUD {
     l2.textContent = line2?.text || '';
     l2.style.color = line2?.color || '';
     l2.style.display = line2 ? '' : 'none';
+    // shown again on the next frame (the style flush between frames restarts its animation);
+    // reading offsetWidth here forced a whole-page layout on transition frames
     b.className = cls;
-    void b.offsetWidth;
-    b.classList.add('show');
+    const k = (this.bannerK = (this.bannerK || 0) + 1);
+    requestAnimationFrame(() => {
+      if (k === this.bannerK) b.classList.add('show');
+    });
   }
 
-  hurt(amount) {
+  hurt(amount: number) {
     this.hurtT = Math.min(1, this.hurtT + amount);
   }
 
-  buildHint(text, ok) {
+  buildHint(text: string | null, ok?: boolean) {
     const e = this.el.buildHint;
     if (!text) {
       e.classList.remove('show');
@@ -439,12 +536,12 @@ export class HUD {
     if (e.innerHTML !== text) e.innerHTML = text;
   }
 
-  setDead(seconds) {
+  setDead(seconds: number) {
     this.el.dead.classList.toggle('show', seconds > 0);
     if (seconds > 0) this.el.deadT.textContent = Math.ceil(seconds);
   }
 
-  hitmarker(kill, crit) {
+  hitmarker(kill: boolean, crit: boolean) {
     const h = this.el.hitmark;
     h.className = '';
     void h.offsetWidth;
@@ -452,11 +549,11 @@ export class HUD {
   }
 
   // a number that pops out of whatever was hit and floats up
-  damageNumber(pos, n, cls = '') {
+  damageNumber(pos: THREE.Vector3, n: number | string, cls = '') {
     if (this.floats.length > 40) this.floats.shift().el.remove();
     const el = document.createElement('div');
     el.className = `dmg ${cls}`;
-    el.textContent = typeof n === 'number' ? Math.max(1, Math.round(n)) : n;
+    el.textContent = typeof n === 'number' ? String(Math.max(1, Math.round(n))) : n;
     this.el.floaters.appendChild(el);
     // fan out a little so a burst of hits stays readable
     const p = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, Math.random() * 0.4, (Math.random() - 0.5) * 0.8));
@@ -464,23 +561,23 @@ export class HUD {
   }
 
   // slingshot draw: 0 hides it
-  charge(k) {
+  charge(k: number) {
     const c = this.el.charge;
     c.classList.toggle('show', k > 0.02);
     c.classList.toggle('full', k >= 0.98);
     this.el.chargeArc.style.strokeDashoffset = String(150.8 * (1 - k));
   }
 
-  lightning(f) {
+  lightning(f: number) {
     this.el.flash.style.opacity = String(f * 0.35);
   }
 
-  boons(perks) {
+  boons(perks: Perk[]) {
     this.el.boons.innerHTML = perks.map((p) => `<span title="${p.name}: ${p.desc}">${p.glyph}</span>`).join('');
   }
 
   // Three boon cards; resolves with the one clicked.
-  pickPerk(options, onPick) {
+  pickPerk<P extends Perk>(options: P[], onPick: (p: P) => void) {
     const el = this.el.perks;
     this.el.perkCards.innerHTML = '';
     options.forEach((p, i) => {
@@ -492,13 +589,13 @@ export class HUD {
     });
     // captured before the game's input sees it, so the 1-3 that picks a boon doesn't also
     // switch the belt slot
-    const key = (e) => {
+    const key = (e: KeyboardEvent) => {
       const i = Number(e.key) - 1;
       if (!options[i]) return;
       e.stopImmediatePropagation();
       done(options[i]);
     };
-    const done = (p) => {
+    const done = (p: P) => {
       removeEventListener('keydown', key, true);
       el.classList.add('hidden');
       onPick(p);
@@ -511,7 +608,7 @@ export class HUD {
     return !this.el.perks.classList.contains('hidden');
   }
 
-  statsHtml(s) {
+  statsHtml(s: any) {
     const lines = [
       s.nights ? `You held the Heartwood for <b>${s.nights}</b> night${s.nights === 1 ? '' : 's'} and felled <b>${s.kills}</b> Blight.` : `The Blight took the Heartwood on the first night. You felled <b>${s.kills}</b> of them.`,
       `<small>${s.built} built · ${s.upgraded} upgraded · ${s.boons} boon${s.boons === 1 ? '' : 's'}${s.bosses ? ` · ${s.bosses} boss${s.bosses === 1 ? '' : 'es'} slain` : ''}</small>`,
@@ -521,12 +618,12 @@ export class HUD {
     return lines.join('');
   }
 
-  gameOver(s) {
+  gameOver(s: any) {
     this.el.overStats.innerHTML = this.statsHtml(s);
     this.el.over.classList.remove('hidden');
   }
 
-  victory(s) {
+  victory(s: any) {
     this.el.victoryStats.innerHTML = this.statsHtml(s);
     this.el.victory.classList.remove('hidden');
   }
@@ -556,7 +653,7 @@ export class HUD {
   }
 
   // A torn page, read: the paper card over the game. done() when it's put away.
-  showNote(n, done) {
+  showNote(n: Note, done?: () => void) {
     const el = document.getElementById('note');
     el.querySelector('.eyebrow').textContent = n.map ? 'A map' : 'A torn page';
     el.querySelector('h2').textContent = n.title;
@@ -571,7 +668,7 @@ export class HUD {
       removeEventListener('keydown', key, true);
       done?.();
     };
-    const key = (e) => {
+    const key = (e: KeyboardEvent) => {
       if (['Enter', 'Space', 'Escape', 'KeyE'].includes(e.code)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -583,7 +680,7 @@ export class HUD {
   }
 
   // An ending: { eyebrow, title, lead, stats, buttons: [{ label, primary, fn }] }
-  showEnding(o) {
+  showEnding(o: Ending) {
     const el = document.getElementById('ending');
     el.querySelector('.eyebrow').textContent = o.eyebrow || '';
     el.querySelector('h1').textContent = o.title;
@@ -606,7 +703,7 @@ export class HUD {
   }
 
   // The opening card of a new run: what the vigil is and how a day goes. done() when closed.
-  showIntro(done) {
+  showIntro(done?: () => void) {
     const el = document.getElementById('intro'), go = document.getElementById('intro-go');
     el.classList.remove('hidden');
     const close = () => {
@@ -615,13 +712,13 @@ export class HUD {
       removeEventListener('keydown', key);
       done?.();
     };
-    const key = (e) => { if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') { e.preventDefault(); close(); } };
+    const key = (e: KeyboardEvent) => { if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') { e.preventDefault(); close(); } };
     go.addEventListener('click', close);
     addEventListener('keydown', key);
   }
 
   // a cheap screen projection: returns false if behind the camera or off screen
-  project(pos, camera, out) {
+  project(pos: THREE.Vector3, camera: THREE.Camera, out: { x: number; y: number }) {
     _p.copy(pos).project(camera);
     if (_p.z > 1) return false;
     const w = innerWidth, h = innerHeight;
@@ -630,7 +727,7 @@ export class HUD {
     return out.x > -60 && out.x < w + 60 && out.y > -60 && out.y < h + 60;
   }
 
-  updateFloaters(dt, camera, enemies, buildings, player) {
+  updateFloaters(dt: number, camera: THREE.Camera, enemies: Enemy[], buildings: Building[], player: { x: number; z: number }) {
     const sp = { x: 0, y: 0 };
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
@@ -653,7 +750,7 @@ export class HUD {
     // health bars over hurt enemies and damaged buildings nearby
     let n = 0;
     // glyph: an elite's affix over its bar; shield: what's left of a Shielded elite's crust
-    const bar = (pos, frac, cls, glyph = '', shield = 0, color = '') => {
+    const bar = (pos: THREE.Vector3, frac: number, cls: string, glyph = '', shield = 0, color = '') => {
       if (!this.project(pos, camera, sp)) return;
       let el = this.bars[n];
       if (!el) {
@@ -667,10 +764,10 @@ export class HUD {
       if (el.className !== c) el.className = c;
       el.style.display = '';
       el.style.transform = `translate(${sp.x}px, ${sp.y}px)`;
-      el.firstChild.style.width = `${Math.max(0, frac) * 100}%`;
-      el.children[1].style.width = `${Math.max(0, shield) * 100}%`;
+      (el.firstChild as HTMLElement).style.width = `${Math.max(0, frac) * 100}%`;
+      (el.children[1] as HTMLElement).style.width = `${Math.max(0, shield) * 100}%`;
       if (el.children[2].textContent !== glyph) el.children[2].textContent = glyph;
-      if (glyph) el.children[2].style.color = color;
+      if (glyph) (el.children[2] as HTMLElement).style.color = color;
     };
     for (const e of enemies) {
       if (n >= 28) break;
@@ -692,14 +789,14 @@ export class HUD {
     for (let i = n; i < this.bars.length; i++) this.bars[i].style.display = 'none';
   }
 
-  journal(lines) {
+  journal(lines: { html: string; done?: boolean; main?: boolean }[]) {
     const key = lines.map((l) => l.html + l.done + l.main).join('|');
     if (key === this.journalKey) return;
     this.journalKey = key;
     this.el.journal.innerHTML = lines.length ? `<div class="head">Journal</div>${lines.map((l) => `<div class="j${l.main ? ' main' : ''}${l.done ? ' done' : ''}">${this.keys(l.html)}</div>`).join('')}` : '';
   }
 
-  frame(dt, s) {
+  frame(dt: number, s: any) {
     this.updateCompass(s.heading, s.player, s.done);
     this.updateMinimap(s.player, s.heading, false, s);
     this.el.clock.textContent = s.clock;
@@ -787,7 +884,7 @@ export class HUD {
   }
 
   // the frame counter (Settings > Show FPS)
-  showFps(on) {
+  showFps(on: boolean) {
     this.fpsOn = on;
     this.el.fps.style.display = on ? '' : 'none';
     this.fpsAcc.t = this.fpsAcc.n = 0;
@@ -816,7 +913,7 @@ export class HUD {
       const img = el.querySelector('img');
       const src = s ? this.icons[s.id] || '' : '';
       if (img.getAttribute('src') !== src) img.setAttribute('src', src);
-      el.querySelector('.count').textContent = s && s.n > 1 ? s.n : '';
+      el.querySelector('.count').textContent = s && s.n > 1 ? String(s.n) : '';
       el.style.setProperty('--rc', s ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
     }
     const h = this.inv.held;
@@ -846,9 +943,13 @@ export class HUD {
 
   // other: a container or the Coffer shown beside the satchel ({ title, sub, inv, hidden, kind,
   // actions: [{ label, key, fn }] }), or null for the satchel alone
-  toggleInventory(on = !this.inventoryOpen, other = null) {
+  toggleInventory(on = !this.inventoryOpen, other: OtherPane | null = null) {
     this.el.inv.classList.toggle('hidden', !on);
     this.carry = null;
+    this.press = null;
+    this.hover = null;
+    this.cancelSalvage?.();
+    if (this.ghost) this.ghost.style.display = 'none';
     const had = this.otherPane;
     this.otherPane = on ? other : null;
     if (had && had !== this.otherPane) this.onCloseOther?.(had);
@@ -857,61 +958,216 @@ export class HUD {
     if (on) this.renderInventory();
   }
 
-  makeSlot(parent, inv, i) {
+  // Moving things about. Drag a stack onto a slot to put it there (on either side), or off the
+  // satchel to drop it on the ground. Click a stack to send it across: into the open Coffer or
+  // container (or out of it), or between the belt and the pack when nothing is open. Ctrl does
+  // half a stack. Right-click uses a consumable, salvages a defence or drops one of anything
+  // else (Shift: the whole stack); in a container it takes one. Hovering a stack, 1-8 puts it
+  // on that belt slot.
+  makeSlot(parent: HTMLElement, inv: () => Inventory, i: number) {
     const s = document.createElement('div');
     s.className = 'slot';
     s.innerHTML = '<img alt=""><span class="count"></span><svg class="search" viewBox="0 0 40 40"><circle cx="20" cy="20" r="15"/></svg>';
     s.addEventListener('mouseenter', () => {
+      this.hover = { inv, i };
       const it = inv().slots[i];
       if (it && !this.isHidden(inv(), i)) this.detail(it.id);
     });
+    s.addEventListener('mouseleave', () => {
+      if (this.hover?.inv === inv && this.hover.i === i) this.hover = null;
+    });
     s.addEventListener('mousedown', (ev) => {
       ev.preventDefault();
-      this.slotClick(inv(), i, ev);
+      this.slotDown(inv(), i, ev);
     });
     s.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    this.slotRef.set(s, { inv, i });
     parent.appendChild(s);
     return s;
   }
 
-  isHidden(inv, i) {
+  isHidden(inv: Inventory, i: number) {
     const o = this.otherPane;
     return !!(o && o.inv === inv && o.hidden?.has(i));
   }
 
-  slotClick(inv, i, ev) {
-    const o = this.otherPane;
-    const mine = inv === this.inv;
+  slotDown(inv: Inventory, i: number, ev: MouseEvent) {
     if (this.isHidden(inv, i)) return;
     const s = inv.slots[i];
+    if (!s) return;
+    const mine = inv === this.inv;
     if (ev.button === 2) {
-      if (!mine || !s) return;
-      // right-click: use a consumable, salvage a defence, drop one of anything else
-      if (ITEMS[s.id].kind === 'use') this.onUse?.(i);
-      else if (ITEMS[s.id].kind === 'build') this.onSalvage?.(i);
-      else this.onDrop?.(i);
+      const o = this.otherPane;
+      const n = ev.shiftKey ? Infinity : 1;
+      if (o) {
+        // with the Coffer or a container open: one across (Shift: the stack), either way
+        if (!transfer(inv, i, mine ? o.inv : this.inv, null, n)) this.onFull?.(mine ? o : null);
+      } else if (ITEMS[s.id].kind === 'build' && !ev.shiftKey) {
+        this.startSalvage(i);
+        return;
+      } else if (ev.shiftKey) this.onDrop?.(i, s.n);
+      else if (ITEMS[s.id].kind === 'use') this.onUse?.(i);
+      else this.onDrop?.(i, 1);
+      this.renderInventory();
       return;
     }
-    if (this.carry === null) {
-      if (!s) return;
-      // shift-click (or a click in the container) sends the whole stack across
-      if (o && (ev.shiftKey || !mine)) {
-        const n = transfer(inv, i, mine ? o.inv : this.inv);
-        if (!n) this.onFull?.(mine ? o : null);
-        this.renderInventory();
+    if (ev.button !== 0) return;
+    this.press = { inv, i, x: ev.clientX, y: ev.clientY, half: ev.ctrlKey, dragging: false };
+  }
+
+  // Breaking a defence down for parts can't be undone, so it's a held right-click: the slot's
+  // ring fills over SALVAGE_HOLD seconds; let go early and nothing happens.
+  startSalvage(i: number) {
+    this.cancelSalvage();
+    const el = this.slotEls[i], s = this.inv.slots[i];
+    if (!el || !s) return;
+    const h = { i, id: s.id, el, t0: performance.now(), raf: 0 };
+    this.salvageHold = h;
+    el.classList.add('searching');
+    const circle = el.querySelector<SVGElement>('.search circle');
+    const step = () => {
+      if (this.salvageHold !== h) return;
+      const k = (performance.now() - h.t0) / 1000 / SALVAGE_HOLD;
+      if (circle) circle.style.strokeDashoffset = String(94.2 * (1 - Math.min(1, k)));
+      if (k < 1) {
+        h.raf = requestAnimationFrame(step);
         return;
       }
-      this.carry = { inv, i };
-    } else {
-      const c = this.carry;
-      this.carry = null;
-      if (c.inv === inv) inv.move(c.i, i);
-      else if (!transfer(c.inv, c.i, inv, i)) this.onFull?.(mine ? null : o);
+      this.cancelSalvage();
+      if (this.inv.slots[i]?.id === h.id) this.onSalvage?.(i);
+      this.renderInventory();
+    };
+    h.raf = requestAnimationFrame(step);
+    this.message(`Keep holding to salvage the ${ITEMS[s.id].name} for parts`, '#f0c86a');
+  }
+
+  cancelSalvage() {
+    const h = this.salvageHold;
+    if (!h) return;
+    this.salvageHold = null;
+    cancelAnimationFrame(h.raf);
+    h.el.classList.remove('searching');
+    const c = h.el.querySelector<SVGElement>('.search circle');
+    if (c) c.style.strokeDashoffset = '';
+  }
+
+  // the press became a drag: the stack follows the cursor
+  dragMove(ev: MouseEvent) {
+    const p = this.press;
+    if (!p) return;
+    if (!p.dragging) {
+      if (Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 6) return;
+      const s = p.inv.slots[p.i];
+      if (!s) { this.press = null; return; }
+      p.dragging = true;
+      this.carry = { inv: p.inv, i: p.i };
+      if (!this.ghost) {
+        this.ghost = document.createElement('div');
+        this.ghost.className = 'drag-ghost';
+        this.ghost.innerHTML = '<img alt=""><span class="count"></span><em>Drop</em>';
+        this.el.inv.appendChild(this.ghost);
+      }
+      const g = this.ghost;
+      g.querySelector('img').src = this.icons[s.id] || '';
+      const n = p.half ? Math.ceil(s.n / 2) : s.n;
+      g.querySelector('.count').textContent = n > 1 ? String(n) : '';
+      g.style.display = '';
+      this.renderInventory();
+    }
+    const g = this.ghost;
+    g.style.left = `${ev.clientX}px`;
+    g.style.top = `${ev.clientY}px`;
+    // off the satchel, your own things drop on the ground
+    const at = document.elementFromPoint(ev.clientX, ev.clientY);
+    const out = p.inv === this.inv && !at?.closest('.inv-panel');
+    g.classList.toggle('out', out);
+    const over = at?.closest<HTMLElement>('.slot') ?? null;
+    if (over !== this.dragOver) {
+      this.dragOver?.classList.remove('target');
+      this.dragOver = over;
+      over?.classList.add('target');
+    }
+  }
+
+  dragEnd(ev: MouseEvent) {
+    const p = this.press;
+    if (!p || ev.button !== 0) return;
+    this.press = null;
+    if (!p.dragging) {
+      this.quickMove(p.inv, p.i, p.half);
+      return;
+    }
+    this.carry = null;
+    if (this.ghost) this.ghost.style.display = 'none';
+    this.dragOver?.classList.remove('target');
+    this.dragOver = null;
+    const s = p.inv.slots[p.i];
+    if (s) {
+      const n = p.half ? Math.ceil(s.n / 2) : Infinity;
+      const at = document.elementFromPoint(ev.clientX, ev.clientY);
+      const slot = at?.closest('.slot');
+      const ref = slot && this.slotRef.get(slot);
+      if (ref) {
+        const to = ref.inv();
+        if (to === p.inv) {
+          if (n === Infinity) to.move(p.i, ref.i);
+          else to.shift(p.i, [ref.i], n);
+        } else if (!this.isHidden(to, ref.i)) {
+          // onto a different item: trade places if both fit, else it goes where there's room
+          const t = to.slots[ref.i];
+          const swapped = n === Infinity && t && t.id !== s.id && swapAcross(p.inv, p.i, to, ref.i);
+          if (!swapped && !transfer(p.inv, p.i, to, ref.i, n)) this.onFull?.(to === this.inv ? null : this.otherPane);
+        }
+      } else if (p.inv === this.inv && !at?.closest('.inv-panel')) this.onDrop?.(p.i, n === Infinity ? s.n : n);
     }
     this.renderInventory();
   }
 
+  // A click: across to the open Coffer or container (or back), else between belt and pack.
+  quickMove(inv: Inventory, i: number, half = false) {
+    const s = inv.slots[i];
+    if (!s) return;
+    const n = half ? Math.ceil(s.n / 2) : Infinity;
+    const o = this.otherPane;
+    const mine = inv === this.inv;
+    if (o) {
+      if (!transfer(inv, i, mine ? o.inv : this.inv, null, n)) this.onFull?.(mine ? o : null);
+    } else if (mine) {
+      const belt = [...Array(inv.hotbar).keys()];
+      if (!inv.shift(i, i < inv.hotbar ? inv.packSlots() : belt, n)) this.onFull?.(null, i < inv.hotbar ? undefined : 'belt');
+    }
+    this.renderInventory();
+  }
+
+  // 1-8 over a stack: onto that belt slot (from the pack, or out of the Coffer / a container)
+  hoverToBelt(k: number) {
+    const h = this.hover;
+    if (!h || !this.inventoryOpen) return false;
+    const inv = h.inv();
+    if (!inv.slots[h.i] || this.isHidden(inv, h.i)) return false;
+    if (inv === this.inv) inv.move(h.i, k);
+    else if (!transfer(inv, h.i, this.inv, k)) this.onFull?.(null);
+    this.renderInventory();
+    return true;
+  }
+
   buildSatchel() {
+    this.slotRef = new WeakMap(); // slot element -> { inv, i }
+    this.ghost = null; // the stack being dragged, under the cursor
+    window.addEventListener('mousemove', (ev) => this.dragMove(ev));
+    window.addEventListener('mouseup', (ev) => {
+      if (ev.button === 2) this.cancelSalvage();
+      this.dragEnd(ev);
+    });
+    window.addEventListener('keydown', (ev) => {
+      const m = /^Digit([1-8])$/.exec(ev.code);
+      if (m && this.hoverToBelt(+m[1] - 1)) ev.stopPropagation();
+    }, true);
+    this.el.sort?.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      this.inv.sort();
+      this.renderInventory();
+    });
     this.slotEls = [];
     const inv = () => this.inv;
     for (let i = 0; i < HOTBAR; i++) this.slotEls[i] = this.makeSlot(this.el.belt, inv, i);
@@ -944,13 +1200,13 @@ export class HUD {
       this.recipeEls.push({ r, card });
     }
     this.el.tabs.addEventListener('mousedown', (ev) => {
-      const t = ev.target.closest('[data-tab]');
+      const t = (ev.target as Element).closest<HTMLElement>('[data-tab]');
       if (!t) return;
       this.tab = t.dataset.tab;
       this.renderInventory();
     });
-    this.el.other.querySelector('.acts').addEventListener('mousedown', (ev) => {
-      const b = ev.target.closest('button[data-i]');
+    this.el.other.querySelector('.acts').addEventListener('click', (ev) => {
+      const b = (ev.target as Element).closest<HTMLElement>('button[data-i]');
       if (!b) return;
       this.otherPane?.actions?.[+b.dataset.i]?.fn();
       this.renderInventory();
@@ -958,7 +1214,7 @@ export class HUD {
   }
 
   // Can recipe r be made here and now? { ok, where, afford, note }
-  recipeState(r, ctx = this.craftCtx()) {
+  recipeState(r: CraftRecipe, ctx = this.craftCtx()) {
     const lvl = r.lvl || 1;
     let where = true, note = '';
     if (r.at !== 'field') {
@@ -979,14 +1235,14 @@ export class HUD {
     return { ok: where && afford, where, afford, note };
   }
 
-  setSlot(el, s, hidden = false, locked = false) {
+  setSlot(el: HTMLElement, s: Slot, hidden = false, locked = false) {
     el.classList.toggle('empty', !s || hidden);
     el.classList.toggle('hidden-item', hidden);
     el.classList.toggle('locked', locked);
     const img = el.querySelector('img');
     const src = s && !hidden ? this.icons[s.id] || '' : '';
     if (img.getAttribute('src') !== src) img.setAttribute('src', src);
-    el.querySelector('.count').textContent = s && !hidden && s.n > 1 ? s.n : '';
+    el.querySelector('.count').textContent = s && !hidden && s.n > 1 ? String(s.n) : '';
     el.style.setProperty('--rc', s && !hidden ? RARITY[ITEMS[s.id].rarity].color : 'transparent');
   }
 
@@ -1079,7 +1335,7 @@ export class HUD {
     if (L.innerHTML !== list) {
       L.innerHTML = list;
       L.onmousedown = (ev) => {
-        const b = ev.target.closest('[data-n]');
+        const b = (ev.target as Element).closest<HTMLElement>('[data-n]');
         if (!b) return;
         this.noteSel = this.notes[+b.dataset.n];
         this.renderNotes();
@@ -1100,26 +1356,35 @@ export class HUD {
       this.otherEls = [];
       o.inv.slots.forEach((_, i) => { this.otherEls[i] = this.makeSlot(this.el.otherGrid, () => this.otherPane?.inv ?? o.inv, i); });
     }
-    this.el.otherGrid.classList.toggle('big', o.inv.slots.length > 24);
+    // (the Coffer has room for its best level; the slots its level doesn't give are hidden)
+    const shown = o.inv.size;
+    this.el.otherGrid.classList.toggle('big', shown > 24 && shown <= 48);
+    this.el.otherGrid.classList.toggle('huge', shown > 48 && shown <= 90);
+    this.el.otherGrid.classList.toggle('vast', shown > 90);
     const head = this.el.other.querySelector('.t');
     if (head.textContent !== o.title) head.textContent = o.title;
     const sub = this.el.other.querySelector('.other-sub');
-    if (sub.innerHTML !== (o.sub || '')) sub.innerHTML = o.sub || '';
-    const acts = (o.actions || []).map((a, i) => `<button data-i="${i}">${a.key ? `<kbd>${a.key}</kbd> ` : ''}${a.label}</button>`).join('');
+    const st = o.subFn?.() ?? o.sub ?? '';
+    if (sub.dataset.src !== st) {
+      sub.dataset.src = st;
+      sub.innerHTML = st;
+    }
+    const acts = (o.actions || []).map((a, i) => `<button data-i="${i}"${a.cls ? ` class="${a.cls}"` : ''}${a.off?.() ? ' disabled' : ''}>${a.key ? `<kbd>${a.key}</kbd> ` : ''}${a.label}</button>`).join('');
     const ae = this.el.other.querySelector('.acts');
     if (ae.innerHTML !== acts) ae.innerHTML = acts;
     o.inv.slots.forEach((s, i) => {
       const el = this.otherEls[i];
       const hidden = !!o.hidden?.has(i);
-      this.setSlot(el, s, hidden, !o.inv.usable(i));
+      this.setSlot(el, s, hidden);
+      el.classList.toggle('gone', !o.inv.usable(i));
       el.classList.toggle('searching', o.searching === i);
       el.classList.toggle('carry', this.carry?.inv === o.inv && this.carry.i === i);
-      if (o.searching === i) el.querySelector('.search circle').style.strokeDashoffset = String(94.2 * (1 - (o.prog || 0)));
+      if (o.searching === i) el.querySelector<SVGElement>('.search circle').style.strokeDashoffset = String(94.2 * (1 - (o.prog || 0)));
     });
   }
 
   // a sound written out (Settings > Captions): a line at the foot of the screen, a few at most
-  caption(text) {
+  caption(text: string) {
     const box = (this.capBox ??= (() => {
       const d = document.createElement('div');
       d.id = 'captions';
@@ -1149,7 +1414,7 @@ export class HUD {
   }
 
   // a slot in the open container was just searched: flash it in its rarity's colour
-  revealFlash(i) {
+  revealFlash(i: number) {
     const el = this.otherEls?.[i];
     if (!el) return;
     el.classList.remove('reveal');
@@ -1157,7 +1422,7 @@ export class HUD {
     el.classList.add('reveal');
   }
 
-  detail(id) {
+  detail(id: string) {
     const def = ITEMS[id];
     const r = RARITY[def.rarity];
     const have = this.inv.count(id);
@@ -1177,7 +1442,7 @@ export class HUD {
 
   // Hovering a recipe: every ingredient with what you carry against what it takes, what's
   // still missing, and where to look for it.
-  showTip(r, ev) {
+  showTip(r: CraftRecipe, ev?: MouseEvent) {
     if (!this.tipEl) {
       this.tipEl = document.createElement('div');
       this.tipEl.id = 'craft-tip';
@@ -1205,7 +1470,7 @@ export class HUD {
     if (ev) this.placeTip(ev);
   }
 
-  placeTip(ev) {
+  placeTip(ev: MouseEvent) {
     const t = this.tipEl;
     if (!t) return;
     const w = t.offsetWidth, h = t.offsetHeight;

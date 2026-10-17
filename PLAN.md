@@ -313,9 +313,55 @@ The old list follows for reference.
 
 ## Start here (next session, written 2026-10-15)
 
-**1.0.2 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
-"Lighter Loads" and "Smooth Going" patches. Read the **1.0 handoff** (the first handoff
+**1.0.3 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
+"Lighter Loads", "Smooth Going" and "Iron and Order" patches. Read the **1.0 handoff** (the first handoff
 below), then `README.md`. Its "Open / next" list is where to pick up.
+
+### 1.0.3 "Iron and Order" (2026-10-17, released)
+
+**Satchel handling** (`src/ui/HUD.ts`):
+- The handlers are `slotDown`, `dragMove`, `dragEnd`, `quickMove`, `hoverToBelt` and `startSalvage`/`cancelSalvage`.
+- `slotRef` maps each slot element to `{ inv, i }`.
+- `Inventory.shift` moves part of a stack into a set of slots in the same inventory, `packSlots` lists the pack slots, and `sort` tidies them.
+- `transfer(..., n)` moves only part of a stack.
+- `swapAcross` trades whole stacks between two inventories, checking each slot and the weight limits.
+- Salvage is a held right-click (`SALVAGE_HOLD`, 0.7 s).
+
+**Dropped piles** (`Pickups.spawn(..., n, dropped)`):
+- One pickup can hold a whole stack.
+- A `dropped` pile never comes to the player by itself. `Game.interact` finds it with `pickups.pileAt` and picks it up on E (`grab`).
+- `Game.dropSlot(i, n)` takes from the clicked slot.
+- `overflow` drops one pile.
+
+**The Coffer's levels** (`COFFER` in `src/items/Recipes.ts`):
+- 60, 90 and 120 slots. The inventory is always 120 slots and `packSize` follows the level (`Game.syncCoffer`).
+- The level is saved as `camp.coffer`. `loadFrom` restores the camp before the Coffer, so the slots beyond 60 survive a load.
+- The pane is built by `Game.cofferPane`, with `subFn` for a live cost line and `cls`/`off` on its actions. `upgradeCoffer` does the upgrade.
+- The model has `L2`/`L2Lid` (iron plate, the `IronPlate` material) and `L3`/`L3Lid` (brass) in `art/blender/coffer.py`. The lid parts are parented to the lid.
+
+**Camp facing:** the props now face out from the Heartwood (`rot: s.a` in `src/defense/Camp.ts`).
+
+**Harder Blight:** `BLIGHT_HARDER = 1.2` (`src/defense/Enemies.js`) scales every `ENEMY_TYPES` hp and dmg when the module loads. The Thornback's slam and bile puddles use it too.
+- The critic noted that this crosses some kill breakpoints:
+  - The mortar no longer one-shots Blightlings.
+  - A Husk takes 5 machete hits instead of 4.
+  - A Rotboar kills you in 4 bites instead of 5.
+- The balance table above predates this change.
+
+**Transition hitches:**
+- `Game.pinPrograms` keeps shader programs alive.
+- `Game.later` runs one transition job per frame: each bloom with its guards, then the Husks, the autosave and the records.
+- `Blooms.sites` picks bloom positions without building them.
+- `World.wearSoon`, `World.regrow`/`nextRegrow` (rebuilds in place, nearest first) and `src/world/CellRefresh.ts` (the grass, litter and herb cells) spread dawn work over frames.
+- `compileSafe(onlyNew)` and `Expedition.warmBeams` avoid compiles mid-run.
+- `HUD.banner` no longer forces a layout.
+- Measure with `node --experimental-strip-types e2e/events.ts [night] [nights]` (THROTTLE=4 for a slow CPU).
+  - At 4x throttle the worst frames went from 85 to 73 ms by day, 88 to 65 at dawn and 172 to 53 at night.
+  - What's left: the frame each bloom is built (about 10 ms at 4x) and one regrow chunk (about 30 ms).
+
+**TypeScript:** `HUD`, `Camp` and `Recipes` are now `.ts`.
+
+**Guard:** `node --experimental-strip-types e2e/satchel.ts` (27 checks: drops, piles, drag, quick-move, sort, salvage hold, the Coffer upgrades and save, camp facing, Blight stats).
 
 ### 1.0.2 "Smooth Going" (2026-10-16, released)
 - **Hitches were shader programs first compiled mid-run.** The load-time warm-up
@@ -363,6 +409,7 @@ Start the dev server with the Browser preview (`.claude/launch.json`, name `over
 - `node e2e/m14.mjs` (8)
 - `node e2e/daily.mjs` (15 dates)
 - `node --experimental-strip-types e2e/firstuse.ts` (all clear)
+- `node --experimental-strip-types e2e/satchel.ts` (all clear)
 - `npm run typecheck` (no errors in the `.ts` files)
 
 After a Blender export, run `npm run compress`. Commit on `main` and push only when the user asks; after a release add CHANGELOG

@@ -59,7 +59,7 @@ left walks you through the first day.
 | G (hold) | Graft the graft you carry onto a tier 2 or 3 tower |
 | 1–8 / mouse wheel | Choose a belt slot. An empty slot means the machete |
 | R | Rotate a barricade before placing it |
-| Tab / I | Satchel: inventory and crafting |
+| Tab / I | Satchel: inventory and crafting. Drag stacks between slots, or off the satchel to drop them. Click sends a stack across (to the open Coffer or container, or belt ⇄ pack). Ctrl moves half. Hover a stack and press 1–8 to put it on the belt. Right-click uses, drops one or moves one across (Shift: the stack). Hold right-click to salvage a defence |
 | T (hold) | Skip daylight |
 | M | Mute |
 | Esc | Pause: resume, the Field Guide, settings, controls, or quit to the title |
@@ -157,7 +157,7 @@ src/
   fx/Weather.js        rain streaks, lightning, fog and light dimming
   fx/Ambient.js        pollen, fireflies, butterflies, birds, light shafts
   audio/AudioSys.js    synthesised ambience + sound effects
-  ui/HUD.js, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
+  ui/HUD.ts, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
 art/blender/           one Python script per Blender model, export_all.py, the saved .blend
 art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures
 public/models/         the exported GLBs

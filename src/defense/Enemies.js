@@ -88,6 +88,14 @@ export const ENEMY_TYPES = {
   },
 };
 
+// Every Blight is a fifth tougher and hits a fifth harder than the numbers above (1.0.3: the
+// developer asked for harder nights). Boss slams in Game.ts use BLIGHT_HARDER too.
+export const BLIGHT_HARDER = 1.2;
+for (const t of Object.values(ENEMY_TYPES)) {
+  t.hp *= BLIGHT_HARDER;
+  t.dmg *= BLIGHT_HARDER;
+}
+
 // Damage types: what each source does (Towers, Projectiles, the burn) against `resist`.
 export const DAMAGE_TYPES = { pierce: 'Pierce', blunt: 'Blunt', fire: 'Fire', arc: 'Arc' };
 
@@ -809,7 +817,7 @@ export class Enemies {
       q.tick -= dt;
       if (q.tick <= 0 && ctx.playerAlive && Math.hypot(q.pos.x - ctx.player.x, q.pos.z - ctx.player.z) < q.r && Math.abs(ctx.player.y - q.pos.y) < 1.2) {
         q.tick = 0.5;
-        ctx.hitPlayer(3);
+        ctx.hitPlayer(3 * BLIGHT_HARDER);
       }
       if (q.t >= q.life) {
         this.scene.remove(q.mesh);

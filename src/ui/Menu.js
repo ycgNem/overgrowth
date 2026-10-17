@@ -13,7 +13,7 @@ import { BINDABLE, keyName } from '../core/Input.js';
 import { describeWave, SIGNS } from '../defense/Waves.js';
 import { NOTES, SEALS, RADIO_PARTS, loadNotes } from '../core/Story.js';
 import { ITEMS } from '../items/ItemDB.ts';
-import { RECIPES } from '../items/Recipes.js';
+import { RECIPES } from '../items/Recipes.ts';
 import { PERKS } from '../core/Perks.js';
 import { DIFFICULTIES, DIFFICULTY_IDS, difficulty, KITS, KIT_IDS, kitItems } from '../core/Difficulty.js';
 import { loadBest, loadRecords } from '../core/Save.js';
@@ -91,7 +91,7 @@ const CONTROLS = [
   ['Building', [['Place a defence', '<kbd>LMB</kbd>'], ['Rotate', '<kbd>R</kbd>'], ['Pack it up again', '<kbd>F</kbd>'], ['Upgrade or repair', 'Hold <kbd>E</kbd>'], ['Graft onto a tower', 'Hold <kbd>G</kbd>'], ["Fit the radio, set the heart", 'Hold <kbd>F</kbd> at the bench']]],
   ['The forest', [['Gather, offer, open the Coffer', '<kbd>E</kbd>'], ['Rake up forage', 'Hold <kbd>E</kbd>'], ['Search a crate or cache', 'Hold <kbd>E</kbd>'], ['Satchel and crafting', '<kbd>Tab</kbd>'], ['Hurry the day along', 'Hold <kbd>T</kbd>'], ['Sound on / off', '<kbd>M</kbd>'], ['Pause', '<kbd>Esc</kbd>']]],
   ['Capture', [['Free camera (fly with WASD, Space / C, wheel for speed, P holds time)', '<kbd>F8</kbd>'], ['Hide the HUD', '<kbd>F9</kbd>']]],
-  ['Satchel and containers', [['Take a find', 'Click'], ['Take everything', '<kbd>R</kbd>'], ['Move a stack across', '<kbd>Shift</kbd>-click'], ['Salvage a defence', 'Right-click it'], ['Shut it again', '<kbd>E</kbd> · <kbd>Tab</kbd>']]],
+  ['Satchel and containers', [['Move a stack across (or belt ⇄ pack)', 'Click'], ['Put it in a slot', 'Drag'], ['Drop it on the ground', 'Drag it off the satchel'], ['Half a stack', '<kbd>Ctrl</kbd> + click or drag'], ['Onto the belt', 'Hover, <kbd>1</kbd>–<kbd>8</kbd>'], ['Use, salvage, or drop one', 'Right-click · <kbd>Shift</kbd>: the stack'], ['Take everything', '<kbd>R</kbd>'], ['Shut it again', '<kbd>E</kbd> · <kbd>Tab</kbd>']]],
 ];
 
 // ------------------------------------------------------------------ settings, remembered
@@ -636,7 +636,7 @@ export class Menu {
     return `<div class="g-portrait"><img src="${pic}" alt=""></div>
       <h3 class="g-name">${def.name}</h3><div class="g-kind">${b.kind} · from night ${b.from}${def.flying ? ' · flies' : ''}</div>
       <p class="g-lore">${b.lore}</p>
-      <div class="g-stats">${bar('Health', def.hp, 1800, def.hp)}${bar('Bite', def.dmg, 40, def.dmg)}${bar('Speed', def.speed, 3.6, def.speed.toFixed(1))}${bar('Reach', def.reach, 3.7, `${def.reach} m`)}</div>
+      <div class="g-stats">${bar('Health', def.hp, 2160, Math.round(def.hp))}${bar('Bite', def.dmg, 48, Math.round(def.dmg))}${bar('Speed', def.speed, 3.6, def.speed.toFixed(1))}${bar('Reach', def.reach, 3.7, `${def.reach} m`)}</div>
       ${this.resistLine(def)}
       <div class="g-tip"><b>Field note</b>${b.tip}</div>
       ${id === 'blightling' ? `<div class="g-tip elite"><b>Elites</b>From night 5 (night 2 on Blightborn, never on Verdant) some Blight come marked, with more health and one quirk: ${Object.values(AFFIXES).map((a) => `<span style="color:#${a.rim.toString(16).padStart(6, '0')}">${a.glyph} ${a.name}</span> ${a.desc}`).join(' · ')}.</div>` : ''}`;

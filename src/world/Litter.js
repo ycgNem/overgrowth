@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { mulberry32, range } from '../utils/rng.js';
 import { smoothstep } from '../utils/math.js';
 import { addPackedNormal, addNightFill, patch } from '../art/shaders.js';
+import { staleCells, refreshCells } from './CellRefresh.ts';
 
 const CELL = 4; // metres; leaves are generated per cell, once, and kept while near
 const RADIUS = 14;
@@ -75,6 +76,8 @@ export class Litter {
   constructor(scene, world, lib) {
     this.world = world;
     this.cells = new Map(); // key -> per-shape arrays of matrices, colours, atlas rects
+    this.stale = null; // cells to build again, and those built so far (CellRefresh.ts)
+    this.fresh = null;
     this.cx = null; this.cz = null;
     this.rects = CELLS.map((n) => lib.cell('debris', n));
     const A = lib.atlas.debris;
@@ -181,13 +184,14 @@ export class Litter {
     return out.map((o) => ({ m: new Float32Array(o.m), c: new Float32Array(o.c), a: new Float32Array(o.a) }));
   }
 
-  // the ground changed under the cells (trampled lanes): build them again
+  // the ground changed under the cells (trampled lanes, the Rot): build them again, a few a
+  // frame while the old ones stay drawn (CellRefresh.ts)
   reset() {
-    this.cells.clear();
-    this.cx = null;
+    staleCells(this);
   }
 
   update(px, pz) {
+    if (this.stale && refreshCells(this)) this.cx = null;
     const ci = Math.floor(px / CELL), cj = Math.floor(pz / CELL);
     if (ci === this.cx && cj === this.cz && !this.missing) return;
     this.cx = ci; this.cz = cj;

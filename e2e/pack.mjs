@@ -60,7 +60,7 @@ await page.waitForTimeout(200);
 
 // 3. crafting in camp draws on the Coffer; a recipe at an unbuilt bench is refused
 // (the recipe list, from the module)
-await ev(async () => { window.__R = (await import('/src/items/Recipes.js')).RECIPES; });
+await ev(async () => { window.__R = (await import('/src/items/Recipes.ts')).RECIPES; });
 const cr2 = await ev(() => {
   const g = window.game;
   const R = window.__R;

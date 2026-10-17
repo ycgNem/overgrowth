@@ -33,22 +33,22 @@ import { Weather } from '../fx/Weather.js';
 import { Pickups } from '../items/Pickups.ts';
 import { Inventory, HOTBAR, BELT_KINDS, Sources, craftFrom, transfer } from '../items/Inventory.ts';
 import { ITEMS, ITEM_IDS, RARITY, PACKS, rollLoot } from '../items/ItemDB.ts';
-import { BENCHES, recipeFor, benchOf } from '../items/Recipes.js';
+import { BENCHES, recipeFor, benchOf, COFFER } from '../items/Recipes.ts';
 import { Containers } from '../items/Containers.ts';
 import { renderItemIcons, getItemModel } from '../items/ItemModels.ts';
 import { glowTexture } from '../art/textures.js';
 import { AudioSys } from '../audio/AudioSys.js';
-import { HUD } from '../ui/HUD.js';
+import { HUD } from '../ui/HUD.ts';
 import { smoothstep, damp, clamp } from '../utils/math.js';
 import { loadModels, MODEL_NAMES } from '../assets/Models.js';
 import { Base, Rift, pickRifts, pickGroveRift, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
 import { FlowField } from '../defense/FlowField.js';
-import { Enemies } from '../defense/Enemies.js';
+import { Enemies, BLIGHT_HARDER } from '../defense/Enemies.js';
 import { Buildings, BuildGhost, hologram, BUILD_DEFS, TIER_NAMES, ROOTS, GRAFTS } from '../defense/Towers.ts';
 import type { Building, TowerCtx } from '../defense/Towers.ts';
 import type { Recipe } from '../items/Inventory.ts';
 import type { Container } from '../items/Containers.ts';
-import { Camp } from '../defense/Camp.js';
+import { Camp } from '../defense/Camp.ts';
 import { Waves, DUSK, DAWN, SIGNS, signFor } from '../defense/Waves.js';
 import { Blooms, BLOOM_RADIUS } from '../defense/Blooms.js';
 import { Projectiles } from '../combat/Projectiles.js';
@@ -61,7 +61,7 @@ import { checkAchievements, scoreOf } from './Achievements.js';
 import { DAILY } from './Seed.js';
 import { Tips } from './Tips.js';
 import { bootQuality } from './Quality.js';
-import { Expedition } from './Expedition.js';
+import { Expedition, warmBeams } from './Expedition.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
@@ -70,8 +70,8 @@ const nextFrame = () => new Promise<void>((r) => {
   setTimeout(r, 60);
 });
 const REACH = 2.7;
-// what the Coffer holds (stacks); weight doesn't count in it
-const COFFER_SLOTS = 60;
+// what the Coffer holds (stacks) at its best level; weight doesn't count in it
+const COFFER_SLOTS = Math.max(...COFFER.slots);
 // loot tables whose containers never fill again (the temple's idol, the shrine's altar)
 const UNIQUE = new Set(['temple', 'shrine']);
 // a lost satchel's beam: 12 m of soft gold light, pulsing (no light source, an additive shell)
@@ -115,8 +115,9 @@ interface OtherPane {
   kind: 'coffer' | 'container';
   title: string;
   sub: string;
+  subFn?: () => string; // a sub line that changes while it's open (the Coffer's upgrade cost)
   inv: Inventory;
-  actions: { label: string; key?: string; fn: () => void }[];
+  actions: { label: string; key?: string; fn: () => void; cls?: string; off?: () => boolean }[];
   hidden?: Set<number>;
   rec?: Container;
   it?: Interactable;
@@ -241,6 +242,8 @@ export class Game {
   compileAgain: boolean;
   compiling: boolean;
   compiledAt: number;
+  compiledObjs: WeakSet<THREE.Object3D>; // everything compileSafe has prepared
+  later: Array<() => void>; // transition work put off to frames of its own (one a frame)
   tipT: number;
   capture: { pos: THREE.Vector3; home: THREE.Vector3; yaw: number; pitch: number; speed: number; freeze: boolean };
   loaded: boolean;
@@ -305,11 +308,12 @@ export class Game {
     this.inventory = new Inventory();
     this.inventory.setPack('woven_satchel');
     // the camp's stash: no belt, no pouch, no weight limit
-    this.coffer = new Inventory({ hotbar: 0, pack: COFFER_SLOTS, safe: 0, capacity: Infinity, packSize: COFFER_SLOTS, safeSize: 0 });
+    this.coffer = new Inventory({ hotbar: 0, pack: COFFER_SLOTS, safe: 0, capacity: Infinity, packSize: COFFER.slots[0], safeSize: 0 });
     // whether you have one of id, carried or stored (the journal's goals ask)
     this.owns = (id) => this.inventory.count(id) + this.coffer.count(id) > 0;
     this.containers = new Containers();
     this.restockable = new Set(); // emptied containers that may fill again at dawn
+    this.later = [];
     this.lost = []; // dropped satchels lying in the world
     this.lostN = 0;
     this.noises = []; // { x, z, r, t }: what the Blight can hear this moment
@@ -511,9 +515,9 @@ export class Game {
     this.containers.extra = (it) => this.expedition.pageFor(it);
     this.waves.onDay = () => {
       this.weather.target = 0;
-      this.sproutBlooms();
-      this.sproutHusks();
-      this.autosave();
+      // the blooms, the Husks and the save each on a frame of its own (all on the frame of the
+      // day's banner, the morning came in with a hitch)
+      this.later.push(() => this.sproutBlooms(), () => this.sproutHusks(), () => this.autosave());
     };
     this.waves.onNight = (n) => {
       this.expireLost('day');
@@ -549,12 +553,12 @@ export class Game {
         setTimeout(() => this.hud.message('The ground round the rifts is dying ✚ The Blight run faster on the Rot, and towers on it fire slower. Fire burns it back', '#d8a0ff'), 6500);
       }
       this.rot.dirty = false;
-      this.world.wearAll();
+      this.world.wearSoon();
       this.applySign(null);
       this.expedition.onDawn();
       this.syncRifts();
       for (const layer of [this.grass, this.litter, this.groundCover]) layer.reset();
-      this.bankRecords({ nights: 1, wins: won ? 1 : 0, hardWins: won && this.difficulty !== 'verdant' ? 1 : 0, blightWins: won && this.difficulty === 'blightborn' ? 1 : 0 });
+      this.later.push(() => this.bankRecords({ nights: 1, wins: won ? 1 : 0, hardWins: won && this.difficulty !== 'verdant' ? 1 : 0, blightWins: won && this.difficulty === 'blightborn' ? 1 : 0 }));
       if (this.mods.harvest) this.harvestDawn();
       if (this.mods.dawnMend) for (const b of this.buildings.list) b.hp = b.maxHp;
       // left near broken, a building comes out of the night scarred
@@ -587,13 +591,13 @@ export class Game {
     this.hud.keyLabel = (code) => keyName(this.input.bound(code));
     this.hud.onSalvage = (i) => this.salvage(i);
     this.hud.onCloseOther = (o) => this.closeOther(o);
-    this.hud.onFull = (o) => {
+    this.hud.onFull = (o, where) => {
       this.audio.ui();
-      this.hud.message(o ? 'No room in there' : this.inventory.burden === 'encumbered' ? 'Too heavy: your pack can take no more' : 'No room in your pack', '#ff9a7a');
+      this.hud.message(o ? 'No room in there' : where === 'belt' ? 'No room on your belt' : this.inventory.burden === 'encumbered' ? 'Too heavy: your pack can take no more' : 'No room in your pack', '#ff9a7a');
     };
     this.hud.onCraft = (r) => this.craft(r);
     this.hud.onUse = (i) => this.useFromSatchel(i);
-    this.hud.onDrop = (i) => this.dropSlot(i);
+    this.hud.onDrop = (i, n) => this.dropSlot(i, n);
     this.hud.stats();
     this.player.update(0.016, this.input, null);
     this.sky.update(0, this.player.pos, true);
@@ -638,6 +642,13 @@ export class Game {
       this.scene.add(h);
       warmGroups.push(h);
     }
+    // the supply drop's (and a seal's) beam and flare, and the lost satchel's beam: first
+    // drawn mid-run, at the first noon drop or the first death
+    const warmLit = warmBeams();
+    warmLit.add(new THREE.Mesh(LOST_BEAM, lostBeamMat()));
+    warmLit.position.set(this.player.pos.x, gy, this.player.pos.z);
+    this.scene.add(warmLit);
+    warmGroups.push(warmLit);
     // compile for the target play renders into: PostFX's linear half-float scene buffer. Bound
     // to the canvas (sRGB, tone mapped) every program came out a different variant and was
     // compiled again mid-game, a 0.5-1.5 s freeze the first time each kit streamed in
@@ -667,6 +678,8 @@ export class Game {
     this.renderer.setRenderTarget(this.post.sceneRT);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
+    // (kept compiled: the warm-up's own bloom, pickups and rings go now, and their programs with them)
+    this.pinPrograms();
     for (const g of warmGroups) this.scene.remove(g);
     for (const pk of warmPicks) this.pickups.remove(this.pickups.items.indexOf(pk));
     this.blooms.clear();
@@ -812,6 +825,7 @@ export class Game {
     inv.setPack('woven_satchel');
     this.coffer.slots.fill(null);
     this.camp.restore(null);
+    this.syncCoffer();
     for (const [item, n] of kitItems(d, kit)) inv.add(item, n);
     // what the Memories of the Heartwood add to every vigil (one of each weapon is plenty)
     for (const m of MEMORIES) {
@@ -900,7 +914,7 @@ export class Game {
     this.compiling = true;
     this.compiledAt = now;
     this.compileAgain = false;
-    this.compileSafe().catch(() => {}).finally(() => {
+    this.compileSafe(this.scene, this.camera, true).catch(() => {}).finally(() => {
       this.compiling = false;
       if (this.compileAgain) setTimeout(() => this.precompile(), 1000);
     });
@@ -912,13 +926,27 @@ export class Game {
   // the composite for what you hold): bound to the canvas, three makes the sRGB, tone-mapped
   // variant of every program instead, dozens of programs nothing uses, while the ones play
   // needs still compiled mid-frame.
-  compileSafe(scene: THREE.Object3D = this.scene, camera: THREE.Camera = this.camera) {
+  // onlyNew: just what hasn't been compiled before (the chunk that loaded, the blooms that
+  // sprouted). Compiling the whole scene again cost ~7 ms of main thread (30 on a slow machine)
+  // each time, on the frame the blooms came up at dawn and every second or so while streaming.
+  compileSafe(scene: THREE.Object3D = this.scene, camera: THREE.Camera = this.camera, onlyNew = false) {
     const r = this.renderer;
+    const seen = (this.compiledObjs ||= new WeakSet());
+    const fresh: THREE.Object3D[] = [];
+    scene.traverse((o) => {
+      const d = o as THREE.Mesh & { isPoints?: boolean; isLine?: boolean; isSprite?: boolean };
+      if ((d.isMesh || d.isPoints || d.isLine || d.isSprite) && !seen.has(o)) {
+        seen.add(o);
+        fresh.push(o);
+      }
+    });
+    if (onlyNew && !fresh.length) return Promise.resolve();
     const prev = r.getRenderTarget();
     if (this.post) r.setRenderTarget(scene === this.scene ? this.post.sceneRT : this.post.compRT);
     let mats;
     try {
-      mats = r.compile(scene, camera);
+      // (three's compile walks `traverse` for materials and the target scene for its lights)
+      mats = onlyNew ? r.compile({ traverse: (f: (o: THREE.Object3D) => void) => fresh.forEach(f), traverseVisible() {} } as unknown as THREE.Object3D, camera, scene as THREE.Scene) : r.compile(scene, camera);
     } finally {
       r.setRenderTarget(prev);
     }
@@ -933,6 +961,20 @@ export class Game {
       };
       tick();
     });
+  }
+
+  // Shader programs stay compiled for the whole run. three deletes a program when the last
+  // material using it is disposed, and whatever needs it next compiles it again, mid-frame:
+  // the Blight Blooms' pods at every dawn (the warm-up's bloom, then each day's, took the
+  // program with them), the shockwave rings, the Tesla arcs, the bile puddles, a pickup's glow.
+  // There are only a hundred-odd variants, so each keeps one use of its own. Called after the
+  // load-time warm-up and after every frame (renderer.info.programs is three's program cache).
+  pinPrograms() {
+    for (const p of (this.renderer.info.programs || []) as unknown as Array<{ usedTimes: number; pinned?: boolean }>) {
+      if (p.pinned) continue;
+      p.pinned = true;
+      p.usedTimes++;
+    }
   }
 
   // Captions: the sounds that carry meaning, written out (Settings > Captions). Each sound's
@@ -1103,12 +1145,14 @@ export class Game {
   loadFrom(d: SaveData) {
     const inv = this.inventory;
     inv.setPack(PACKS[d.pack] ? d.pack : 'woven_satchel');
+    // the camp first: the Coffer's level says how many slots it has
+    this.camp.restore(d.camp);
+    this.syncCoffer();
     this.coffer.restore(d.coffer || []);
     // a save from before the backpack (0.9: 8 + 24 slots) loads stack by stack; what doesn't
     // fit any more goes to the Coffer
     const spill = inv.restore(d.slots);
     for (const [id, n] of spill) this.coffer.add(id, n);
-    this.camp.restore(d.camp);
     this.containers.restore(d.containers);
     for (const id of d.restock || []) this.restockable.add(id);
     for (const id of d.looted || []) this.world.looted.add(id);
@@ -1514,10 +1558,8 @@ export class Game {
       if (!left) return;
       n = left;
     } else if (warn) this.hud.message(this.inventory.slotRoom(id) < 1 ? 'Satchel full' : 'Too heavy to carry', '#ff9a7a');
-    for (let i = 0; i < n; i++) {
-      const pk = this.pickups.spawn(id, p.clone().add(new THREE.Vector3(0, 1, 0)), 0.4);
-      if (pk) pk.age = -2;
-    }
+    // one pile at your feet that waits until you've walked off and come back
+    this.pickups.spawn(id, p.clone().add(new THREE.Vector3(0, 1, 0)), 0.4, false, n, true);
   }
 
   // What crafting can see from here: in camp, the built benches and the Coffer as well as the
@@ -1577,7 +1619,7 @@ export class Game {
     this.inventory.changed(s.id);
     for (const [id, m] of got) this.collect(id, m, true);
     this.audio.breakWood();
-    this.hud.message(`Salvaged the ${name}: ${got.map(([id, m]) => `${m} ${ITEMS[id].name}`).join(', ')}${full ? '' : " (half the parts: the Tinker's Bench gets more)"}`, '#f0c86a');
+    this.hud.message(`Salvaged the ${name}: ${got.map(([id, m]) => `${m} ${ITEMS[id].name}`).join(', ')}${full ? '' : " (about a third of the parts out here: the Tinker's Bench in camp gives back most)"}`, '#f0c86a');
   }
 
   // ------------------------------------------------------------- the Coffer and containers
@@ -1599,11 +1641,50 @@ export class Game {
   openCoffer() {
     this.camp.openWant = 1;
     this.audio.rummage();
-    this.openPane({
-      kind: 'coffer', title: 'The Coffer', inv: this.coffer,
-      sub: 'Nothing weighs on you in here. Anywhere in camp, crafting draws on the Coffer as well as your satchel.',
-      actions: [{ label: 'Store materials', fn: () => this.storeAll() }],
-    });
+    this.openPane(this.cofferPane());
+  }
+
+  // the Coffer's pane: its slots, storing and sorting, and the next upgrade with its cost
+  cofferPane(): OtherPane {
+    const lv = this.camp.cofferLevel, cost = this.camp.cofferCost();
+    const sub = `${this.camp.cofferSlots} slots. Nothing weighs on you in here. Anywhere in camp, crafting draws on the Coffer as well as your satchel.`;
+    let up = '';
+    const actions: OtherPane['actions'] = [{ label: 'Store materials', fn: () => this.storeAll() }, { label: 'Sort', fn: () => this.coffer.sort() }];
+    if (cost) {
+      up = `${lv === 1 ? 'Clad it in iron' : 'Bind it in brass'} for ${COFFER.slots[lv]} slots:`;
+      actions.push({ label: `Upgrade to ${lv === 1 ? 'iron' : 'brass'}`, cls: 'upgrade', off: () => !this.craftContext().src.canAfford(cost), fn: () => this.upgradeCoffer() });
+    }
+    const subFn = () => sub + (cost ? `<div class="upgrade">${up} ${this.hud.costHtml(cost, this.craftContext().src)}</div>` : '');
+    return { kind: 'coffer', title: COFFER.names[lv - 1], inv: this.coffer, sub, subFn, actions };
+  }
+
+  syncCoffer() {
+    this.coffer.packSize = this.camp.cofferSlots;
+    this.coffer.changed();
+  }
+
+  // iron plate, then brass: more room in the Coffer, paid from the satchel and the Coffer
+  upgradeCoffer() {
+    const cost = this.camp.cofferCost();
+    const src = this.craftContext().src;
+    if (!cost) return;
+    if (!src.canAfford(cost)) {
+      this.audio.ui();
+      this.hud.message(`Not enough to upgrade the Coffer: ${Object.entries(cost).filter(([id, n]) => src.count(id) < n).map(([id, n]) => `${n - src.count(id)} more ${ITEMS[id].name}`).join(', ')}`, '#ff9a7a');
+      return;
+    }
+    for (const [k, n] of Object.entries(cost)) src.remove(k, n);
+    this.camp.setCoffer(this.camp.cofferLevel + 1);
+    this.syncCoffer();
+    const s = this.camp.sites.coffer;
+    const at = new THREE.Vector3(s.x, s.y + 0.6, s.z);
+    this.particles.sparkle(at, 0xffe08a, 30);
+    this.particles.dust(at.clone().setY(s.y + 0.1), 16, 1.2);
+    this.audio.upgrade();
+    this.hud.message(`${COFFER.names[this.camp.cofferLevel - 1]}: ${this.camp.cofferSlots} slots to store what you find`, '#b8ffcf');
+    const o = this.hud.otherPane;
+    if (o?.kind === 'coffer') Object.assign(o, this.cofferPane());
+    this.precompile();
   }
 
   // every material and bit of salvage in the pack (not the belt or the pouch) into the Coffer
@@ -1630,7 +1711,7 @@ export class Game {
     const name = it.label.replace(/^(Search|Take) (the )?/, '');
     this.openPane({
       kind: 'container', title: name.charAt(0).toUpperCase() + name.slice(1), inv: rec.inv, hidden: rec.hidden, rec, it,
-      sub: rec.hidden.size ? 'Searching… click a find to take it.' : 'Click a find to take it. Shift-click your own things to leave them here.',
+      sub: rec.hidden.size ? 'Searching… click a find to take it.' : 'Click a find to take it (right-click: just one). Click your own things to leave them here.',
       actions: [{ label: 'Take all', key: 'R', fn: () => this.takeAll() }],
     });
   }
@@ -1851,14 +1932,19 @@ export class Game {
     this.inventory.changed(s.id);
   }
 
-  dropSlot(i: number) {
-    const s = this.inventory.slots[i];
+  // Throw n out of satchel slot i (that slot, not the item's first stack) onto the ground in
+  // front of you, as one pile. It stays there until you walk off and come back for it.
+  dropSlot(i: number, n = 1) {
+    const inv = this.inventory, s = inv.slots[i];
     if (!s) return;
+    const k = Math.min(n, s.n), id = s.id;
+    s.n -= k;
+    if (s.n <= 0) inv.slots[i] = null;
+    inv.changed(id);
     const fwd = this.forwardXZ();
-    const at = this.player.pos.clone().add(new THREE.Vector3(fwd.x * 1.5, 1, fwd.y * 1.5));
-    this.inventory.remove(s.id, 1);
-    const pk = this.pickups.spawn(s.id, at, 0.3);
-    if (pk) pk.age = -2; // don't fly straight back
+    const at = this.player.pos.clone().add(new THREE.Vector3(fwd.x * 1.8, 1, fwd.y * 1.8));
+    this.pickups.spawn(id, at, 0.3, false, k, true);
+    this.audio.thud();
   }
 
   // ------------------------------------------------------------- Blight Blooms
@@ -1874,12 +1960,14 @@ export class Game {
       if (k < 0 || !Number.isFinite(this.field.dist[k])) return true;
       return this.world.staticCircles(x - 4, z - 4, x + 4, z + 4).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2.6);
     };
-    const list = this.blooms.sprout(n, this.base, this.rand, blocked);
-    this.precompile();
+    const sites = this.blooms.sites(n, this.base, this.rand, blocked);
     const guards = Blooms.guardsFor(n);
-    list.forEach((b, i) => {
-      for (let k = 0; k < guards; k++) {
-        const a = (k / guards) * Math.PI * 2 + this.rand();
+    // (the guards' places are rolled now, so a seeded run rolls the same whatever the frames do)
+    const rolls = sites.map(() => Array.from({ length: guards }, (_, k) => (k / guards) * Math.PI * 2 + this.rand()));
+    // each bloom, with its guards, on a frame of its own, ahead of the rest of the dawn's work
+    const jobs = sites.map((s, i) => () => {
+      const b = this.blooms.add(s.x, s.z, s.seed);
+      for (const a of rolls[i]) {
         const e = this.enemies.spawn('blightling', b.x + Math.cos(a) * 3, b.z + Math.sin(a) * 3, this.waves.hpScale * 0.85);
         e.guard = { x: b.x, z: b.z, r: 6, leash: 24 };
         b.guards.push(e);
@@ -1888,10 +1976,15 @@ export class Game {
       b.key = `bloom${i}`;
       this.hud.markers.push({ key: b.key, x: b.x, z: b.z, icon: '✺', label: 'Blight Bloom', cls: 'rift' });
     });
-    if (list.length) {
-      this.hud.message(`${list.length} Blight Bloom${list.length > 1 ? 's have' : ' has'} sprouted ✺ Cut ${list.length > 1 ? 'them' : 'it'} down before dusk, or the Blight comes through ${list.length > 1 ? 'them' : 'it'} tonight`, '#d9a0ff');
-      this.audio.raw?.windup?.call(this.audio, 0.4);
+    if (sites.length) {
+      jobs.push(() => {
+        this.precompile();
+        const k = sites.length;
+        this.hud.message(`${k} Blight Bloom${k > 1 ? 's have' : ' has'} sprouted ✺ Cut ${k > 1 ? 'them' : 'it'} down before dusk, or the Blight comes through ${k > 1 ? 'them' : 'it'} tonight`, '#d9a0ff');
+        this.audio.raw?.windup?.call(this.audio, 0.4);
+      });
     }
+    this.later.unshift(...jobs);
   }
 
   // Dawn, from day 3: Husks walk the forest in twos and threes, round the old camps, crates and
@@ -2034,6 +2127,17 @@ export class Game {
   // Interactions that need E or F (tap or hold).
   interact(dt: number, input: Input) {
     const it = this.findInteractable();
+    // a pile you put down: tap E to pick it up (it never comes back by itself), unless you're
+    // looking at something nearer
+    const P = this.player.pos, f = this.forwardXZ(this._fwd);
+    const pile = this.playerAlive ? this.pickups.pileAt(P.x, P.z, f.x, f.y) : null;
+    if (pile && (!it || Math.hypot(pile.root.position.x - P.x, pile.root.position.z - P.z) < Math.hypot(it.x - P.x, it.z - P.z))) {
+      this.highlightForage(null);
+      const can = this.inventory.takeable(pile.id, 1);
+      this.hud.prompt(`${ITEMS[pile.id].name}${pile.n > 1 ? ` ×${pile.n}` : ''}`, 0, 'E', can ? 'Put down here · tap to pick it up' : 'Put down here · no room to carry it');
+      if (input.hit('KeyE') && can) this.pickups.grab(pile);
+      return;
+    }
     const holdAction: HoldAction = (label, time, done, sub = '', key = 'KeyE') => {
       // (an E held to rake up forage never also calls the night or packs a tower)
       if (input.down(key) && !(this.gathering && key === 'KeyE')) {
@@ -2135,7 +2239,8 @@ export class Game {
     const id = it.site;
     if (id === 'coffer') {
       const used = this.coffer.used;
-      this.hud.prompt('The Coffer', 0, 'E', `${used ? `${used} stack${used > 1 ? 's' : ''} stored` : 'Empty'} · tap to open`);
+      const up = this.camp.cofferCost() ? ' · upgrade it inside' : '';
+      this.hud.prompt(COFFER.names[this.camp.cofferLevel - 1], 0, 'E', `${used ? `${used}/${this.camp.cofferSlots} slots used` : 'Empty'} · tap to open${up}`);
       if (input.hit('KeyE')) this.openCoffer();
       return;
     }
@@ -2627,21 +2732,21 @@ export class Game {
     for (const b of [...this.buildings.list]) {
       const d = b.distTo(at.x, at.z);
       if (d < R) {
-        this.buildings.damage(b, 85 * (1 - (d / R) * 0.5));
+        this.buildings.damage(b, 85 * BLIGHT_HARDER * (1 - (d / R) * 0.5));
         this.particles.chipBurst(new THREE.Vector3(b.x, b.y + 1, b.z), 0x8a6a40, 10, b.y);
       }
     }
     const p = this.player.pos;
     const dp = Math.hypot(p.x - at.x, p.z - at.z);
     if (dp < R && this.playerAlive && p.y - at.y < 1.5) {
-      this.hitPlayer(26 * (1 - (dp / R) * 0.5));
+      this.hitPlayer(26 * BLIGHT_HARDER * (1 - (dp / R) * 0.5));
       const away = new THREE.Vector3(p.x - at.x, 0, p.z - at.z).normalize();
       this.player.vel.x += away.x * 9;
       this.player.vel.z += away.z * 9;
       this.player.vel.y = 6;
       this.player.onGround = false;
     }
-    if (Math.hypot(this.base.x - at.x, this.base.z - at.z) < GOAL_RADIUS + R * 0.6) this.hitBase(30, e);
+    if (Math.hypot(this.base.x - at.x, this.base.z - at.z) < GOAL_RADIUS + R * 0.6) this.hitBase(30 * BLIGHT_HARDER, e);
     this.particles.ring(at, R, 0xff70c0, 0.7);
     this.particles.ring(at, R * 0.6, 0xffc0e0, 0.45);
     this.particles.dust(at.clone().add(new THREE.Vector3(0, 0.2, 0)), 30, 2.2, 0x6a5a48);
@@ -2847,7 +2952,7 @@ export class Game {
     if (this.rot.dirty && this.rewearT <= 0) {
       this.rot.dirty = false;
       this.rewearT = 5;
-      this.world.wearAll();
+      this.world.wearSoon();
       for (const layer of [this.grass, this.litter, this.groundCover]) layer.reset();
     }
   }
@@ -3024,7 +3129,7 @@ export class Game {
         if (i >= 0) {
           this.audio.pickup(RARITY[ITEMS[pane.rec.inv.slots[i].id].rarity].order);
           this.hud.revealFlash(i);
-          if (!pane.rec.hidden.size) pane.sub = 'Click a find to take it. Shift-click your own things to leave them here.';
+          if (!pane.rec.hidden.size) pane.sub = 'Click a find to take it (right-click: just one). Click your own things to leave them here.';
         }
         if (i >= 0 || was !== null || pane.searching !== null) this.hud.renderOther();
       }
@@ -3069,6 +3174,9 @@ export class Game {
       this.buildings.changed = false;
       this.field.rebuild(this.buildings.blocking);
     }
+    // one put-off piece of a transition a frame (the morning's blooms and Husks, the save, the
+    // records), paused or not: they belong to the moment that queued them
+    this.later.shift()?.();
     const ctx = this.combatCtx;
     if (!paused) {
       // rain rolls in at dusk on wet nights and clears at dawn
@@ -3188,7 +3296,7 @@ export class Game {
     this.lights.update(realDt, pos);
 
     for (const g of this.pickups.update(dt, t, pos)) {
-      this.collect(g.id);
+      this.collect(g.id, g.n);
       // picking up drops counts toward the first journal step as much as tapping E does
       this.journal.event('forage');
     }
@@ -3263,6 +3371,7 @@ export class Game {
     this.renderer.shadowMap.needsUpdate = this.frameNo % (this.shadowEvery || 2) === 0 || this.sky.timeScale > 2;
     this.cullWorld();
     this.post.render(realDt, this.machete);
+    this.pinPrograms();
     this.tickRes(realDt);
     input.endFrame();
   }

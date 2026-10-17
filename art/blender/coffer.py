@@ -2,7 +2,9 @@
 # claimed. Iron bands, a curved lid on a back hinge (the "Lid" part opens in the game), roots
 # that run over the lid and down into the ground, moss in the joints and a pale rune burning
 # on the lock plate. About 1.2 m long. Origin on the ground at the centre; the front faces -y
-# (three +z).
+# (three +z). Upgrades show on it: "L2" clads it in riveted iron plate (the Iron Coffer), "L3"
+# adds brass corner caps, studs and a bigger lock (the Brassbound Coffer); "L2Lid" and "L3Lid"
+# are the same on the lid, parented to it so they swing open with it.
 exec(open(r"C:/Users/jacks/Documents/overgrowth/art/blender/oglib.py").read())
 import math, random
 
@@ -107,7 +109,88 @@ for k, x in enumerate((-0.3, 0.12)):
         am = math.pi * (1 - i / 6)
         pts.append(Vector((x + 0.05 * math.sin(i * 1.3 + k), -D / 2 - (R + 0.03) * math.cos(am), (R + 0.03) * math.sin(am) * 0.55 + 0.03)))
     root_path(pts, 0.035, 0.018, 20 + k, P=P)
-P.build(coll, root, loc=(0, D / 2, H))
+lid = P.build(coll, root, loc=(0, D / 2, H))
+
+
+# ---- level 2: iron plate over the planks, rivets round each panel (the bands stay proud)
+steel = get_mat('Iron', 0.55, 0.6)
+# the plate is weathered, not polished: rough and only half metallic so it doesn't read as a
+# black mirror under the jungle sky, and lighter, with rust streaks running down it
+plate = get_mat('IronPlate', 0.7, 0.35)
+brass = get_mat('Brass', 0.35, 0.85)
+S = Part('L2', 11)
+PT = 0.004  # plate thickness, just under the bands' 8 mm
+pcol = ['#77716a', '#6d675f', '#7d7468']
+for side in (-1, 1):
+    S.add(box(L - 0.1, PT, H - 0.1, base=False, cuts=3), plate, rnd.choice(pcol), M((0, side * (D / 2 + PT / 2), H / 2 + 0.035)), var=0.3, streak=1.1, ao=0.35, ao_h=0.3, ao_base=0.08)
+    S.add(box(PT, D - 0.1, H - 0.1, base=False, cuts=3), plate, rnd.choice(pcol), M((side * (L / 2 + PT / 2), 0, H / 2 + 0.035)), var=0.3, streak=1.1, ao=0.35, ao_h=0.3, ao_base=0.08)
+    # rust weeping down from the top rivets and pooling along the bottom edge
+    for k in range(5):
+        x = rnd.uniform(-L / 2 + 0.1, L / 2 - 0.1)
+        h = rnd.uniform(0.12, 0.3)
+        S.add(box(rnd.uniform(0.02, 0.05), 0.002, h, base=False), plate, rnd.choice(['#7a4a2c', '#86522e', '#6e4228']),
+              M((x, side * (D / 2 + PT + 0.001), H - 0.04 - h / 2)), var=0.25, streak=0.8)
+    S.add(box(L - 0.12, 0.002, 0.05, base=False), plate, '#6a4026', M((0, side * (D / 2 + PT + 0.001), 0.115)), var=0.3, streak=0.9)
+    # rivet rows along the top and bottom of each long panel and up the ends
+    for i in range(9):
+        x = -L / 2 + 0.08 + (L - 0.16) * i / 8
+        for z in (0.105, H - 0.035):
+            S.add(ico(0.013, 1), steel, '#3e3a36', M((x, side * (D / 2 + PT + 0.003), z)), var=0.1)
+    for i in range(4):
+        y = -D / 2 + 0.1 + (D - 0.2) * i / 3
+        for z in (0.105, H - 0.035):
+            S.add(ico(0.013, 1), steel, '#3e3a36', M((side * (L / 2 + PT + 0.003), y, z)), var=0.1)
+# iron feet at the corners of the plinth
+for sx in (-1, 1):
+    for sy in (-1, 1):
+        S.add(box(0.11, 0.11, 0.08, chamfer=0.008), steel, '#3a3734', M((sx * (L / 2 - 0.01), sy * (D / 2 - 0.01), -0.005)), var=0.15)
+S.build(coll, root)
+
+# the lid's plating: a sheet over each board, offset out along the board's face
+SL = Part('L2Lid', 12)
+for i in range(n):
+    a0, a1 = math.pi * (i / n), math.pi * ((i + 1) / n)
+    am = (a0 + a1) / 2
+    w = 2 * R * math.sin((a1 - a0) / 2) + 0.002
+    nrm = (-math.cos(am), math.sin(am))
+    off = T / 2 + PT / 2 + 0.001
+    cy, cz = -D / 2 - R * math.cos(am) + nrm[0] * off, R * math.sin(am) * 0.55 + nrm[1] * off
+    SL.add(box(L - 0.04, w, PT, base=False, cuts=2), plate, rnd.choice(pcol), M((0, cy, cz), (math.pi / 2 - am, 0, 0)), var=0.3, streak=1.1)
+    for x in (-L / 2 + 0.05, L / 2 - 0.05):
+        SL.add(ico(0.009, 1), steel, '#5c5852', M((x, cy + nrm[0] * 0.004, cz + nrm[1] * 0.004)), var=0.1)
+SL.build(coll, lid)
+
+# ---- level 3: brass caps on the corners, studs on the bands, a broad brass lock plate
+Q = Part('L3', 13)
+bcol = ['#b58a3c', '#a87e34', '#c29848']
+for sx in (-1, 1):
+    for sy in (-1, 1):
+        Q.add(box(0.085, 0.085, 0.05, base=False, chamfer=0.01), brass, rnd.choice(bcol), M((sx * (L / 2 - 0.02), sy * (D / 2 - 0.02), H - 0.01)), var=0.12)
+        Q.add(box(0.12, 0.12, 0.03, chamfer=0.006), brass, rnd.choice(bcol), M((sx * (L / 2 - 0.01), sy * (D / 2 - 0.01), 0.07)), var=0.12)
+for x in (-L * 0.32, L * 0.32):
+    for side in (-1, 1):
+        for z in (0.14, 0.26, 0.38):
+            Q.add(ico(0.014, 1), brass, '#c8a050', M((x, side * (D / 2 + 0.012), z)), var=0.1)
+# a brass escutcheon behind the iron lock plate (the rune still burns on top)
+Q.add(box(0.26, 0.006, 0.26, base=False, chamfer=0.01), brass, '#b08a3a', M((0, -D / 2 - 0.006, H - 0.13)), var=0.15)
+# handles on the ends
+for side in (-1, 1):
+    Q.add(ringed_cyl(0.012, 0.012, 0.2, 6, 1), brass, '#a87e34', M((side * (L / 2 + 0.05), 0, H * 0.62), (math.pi / 2, 0, 0)) @ M((0, 0, -0.1)), var=0.1)
+    for y in (-0.1, 0.1):
+        Q.add(box(0.05, 0.02, 0.03, base=False), brass, '#9a7230', M((side * (L / 2 + 0.028), y, H * 0.62)), var=0.1)
+Q.build(coll, root)
+
+QL = Part('L3Lid', 14)
+# a brass strip along the lid's front edge and caps where the bands meet it
+for i in (0, n - 1):
+    am = math.pi * ((i + 0.5) / n)
+    nrm = (-math.cos(am), math.sin(am))
+    off = T / 2 + PT + 0.004
+    cy, cz = -D / 2 - R * math.cos(am) + nrm[0] * off, R * math.sin(am) * 0.55 + nrm[1] * off
+    QL.add(box(L - 0.02, 0.03, 0.006, base=False), brass, rnd.choice(bcol), M((0, cy, cz), (math.pi / 2 - am, 0, 0)), var=0.12)
+for x in (-L * 0.32, L * 0.32, 0.0):
+    QL.add(ico(0.022, 1), brass, '#c8a050', M((x, -D / 2, R * 0.55 + T / 2 + 0.01), (0, 0, 0), (1, 1, 0.6)), var=0.1)
+QL.build(coll, lid)
 
 # roots: they come in from behind along the ground, climb the back and wrap round the ends
 # (on the body, so the lid still lifts); a thin one creeps over the lid itself

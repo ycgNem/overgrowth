@@ -1,5 +1,30 @@
 # Patch notes
 
+## 1.0.3: Iron and Order (2026-10-17)
+
+- **The satchel is easier to handle.**
+  - Drag a stack onto any slot, on either side. Drag it off the satchel to drop it.
+  - Click a stack to send it across: into the open Coffer or container, or back out. With nothing open, a click moves it between your belt and your pack.
+  - Hold Ctrl for half a stack. Hover a stack and press 1–8 to put it on that belt slot.
+  - A Sort button tidies your pack, and another tidies the Coffer.
+- **Dropping things works properly.**
+  - Right-click drops one from the stack you clicked, not your biggest stack. Shift+right-click drops the whole stack.
+  - What you drop lands as one pile and stays on the ground. It no longer flies back into your satchel; look at it and tap E to pick it up again.
+- **Right-click with the Coffer or a container open** moves one across in either direction. Shift moves the whole stack.
+- **Dragging onto a different item** swaps the two when both fit.
+- **Salvaging a defence is a held right-click.** A ring fills on the slot, so one stray click no longer breaks a tower down.
+- **The Coffer can be upgraded.**
+  - Clad it in iron for 90 slots: 4 scrap metal, 4 rusty bolts, 2 bog iron.
+  - Bind it in brass for 120 slots: 3 copper wire, 6 scrap metal, 4 rusty bolts, 3 bog iron.
+  - The upgrade is a button in the Coffer, and each level shows on the chest itself.
+- **The camp faces you.** The Coffer, the Workbench, the Fire Pit and the Tinker's Bench now face out toward you as you come in from the forest, not toward the Heartwood.
+- **The Blight are 20% tougher.** Every kind has a fifth more health and hits a fifth harder, on every difficulty, bosses included.
+- **Fewer stutters at dawn and when the day starts.**
+  - Ground wear, regrowth and grass are rebuilt over several frames, nearest first, so nothing pops out and back.
+  - Blooms sprout one per frame, and the autosave and records no longer land on the same frame as the day banner.
+  - Shader programs are kept instead of being thrown away and rebuilt each dawn.
+  - On a CPU throttled to a quarter speed, the worst dawn frame went from about 200 ms to about 65 ms.
+
 ## 1.0.2: Smooth Going (2026-10-16)
 
 - **No more random freezes.** The game used to stop for up to half a second the first time
