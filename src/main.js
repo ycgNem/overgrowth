@@ -1,6 +1,6 @@
 // Entry point: install shader overrides, boot the game, run the title and pause menus.
 import { installFog, installSoftShadows } from './art/shaders.js';
-import { Game } from './core/Game.js';
+import { Game } from './core/Game.ts';
 import { loadSave, clearSave } from './core/Save.js';
 import { Menu } from './ui/Menu.js';
 

@@ -267,6 +267,7 @@ export class Blooms {
 
   // A new day's blooms, out in the forest around the base: on dry, gentle ground, clear of the
   // camp, the points of interest and each other.
+  /** @param {(x: number, z: number) => boolean} [blocked] somewhere else a bloom mustn't go */
   sprout(n, base, rand = Math.random, blocked = () => false) {
     this.clear();
     if (!this.enabled) return [];

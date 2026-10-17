@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { handleWoodTexture } from '../art/textures.js';
 import { buildMachete, loadHand } from './MacheteModel.js';
 import { clamp } from '../utils/math.js';
-import { getItemModel } from '../items/ItemModels.js';
+import { getItemModel } from '../items/ItemModels.ts';
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const easeIn = (t) => t * t * t;

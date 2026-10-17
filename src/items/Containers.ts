@@ -3,33 +3,47 @@
 // can leave things in a crate and come back for them. Opened by searching, the contents show
 // as question marks and turn up one at a time, the rarer the slower; smashed open, they spill
 // out onto the ground all at once, but fragile things may have broken.
-import { Inventory } from './Inventory.js';
-import { ITEMS, rollLoot, FRAGILE } from './ItemDB.js';
+import { Inventory, type SavedSlot } from './Inventory.ts';
+import { ITEMS, rollLoot, FRAGILE } from './ItemDB.ts';
 
 // seconds to turn up one item, by rarity
-export const REVEAL = { common: 0.6, uncommon: 0.9, rare: 1.4, epic: 2.0, legendary: 2.6 };
+export const REVEAL: Record<string, number> = { common: 0.6, uncommon: 0.9, rare: 1.4, epic: 2.0, legendary: 2.6 };
 
-const box = (n) => new Inventory({ hotbar: 0, pack: n, safe: 0, capacity: Infinity, packSize: n, safeSize: 0 });
+const box = (n: number) => new Inventory({ hotbar: 0, pack: n, safe: 0, capacity: Infinity, packSize: n, safeSize: 0 });
+
+// what a container is opened from: the world's interactable (only these fields matter here)
+export interface Openable { id: string; loot?: string; [k: string]: unknown }
+export interface Container {
+  id: string;
+  inv: Inventory;
+  hidden: Set<number>; // slots not searched yet
+  searching: number | null;
+  prog: number;
+  broke?: string[] | null; // what broke when it was smashed open
+}
 
 export class Containers {
+  map: Map<string, Container>;
+  extra: ((it: Openable) => string[]) | null; // more item ids to put in (a torn page: core/Expedition.js)
+
   constructor() {
-    this.map = new Map(); // id -> { id, inv, hidden: Set, searching, prog }
-    this.extra = null; // (interactable) => more item ids to put in (a torn page: core/Expedition.js)
+    this.map = new Map();
+    this.extra = null;
   }
 
-  has(id) {
+  has(id: string) {
     return this.map.has(id);
   }
 
-  get(id) {
+  get(id: string) {
     return this.map.get(id);
   }
 
   // A container filled with these item ids (stacked), the slots hidden until searched.
-  make(id, ids, size = 6, { hidden = true } = {}) {
+  make(id: string, ids: string[], size = 6, { hidden = true } = {}): Container {
     const inv = box(Math.max(size, 1));
     for (const item of ids) if (ITEMS[item]) inv.add(item, 1);
-    const rec = { id, inv, hidden: new Set(), searching: null, prog: 0 };
+    const rec: Container = { id, inv, hidden: new Set<number>(), searching: null, prog: 0 };
     if (hidden) inv.slots.forEach((s, i) => { if (s) rec.hidden.add(i); });
     this.map.set(id, rec);
     return rec;
@@ -37,13 +51,13 @@ export class Containers {
 
   // Roll an interactable's loot table into a new container. smashed: everything shows at
   // once, and each fragile thing breaks half the time (returned as `broke`).
-  roll(it, rand, { smashed = false, bonus = 0 } = {}) {
-    let ids = rollLoot(it.loot, rand);
+  roll(it: Openable, rand: () => number, { smashed = false, bonus = 0 } = {}): Container {
+    let ids: string[] = rollLoot(it.loot, rand);
     if (this.extra) ids.push(...this.extra(it));
     if (bonus && rand() < bonus) ids.push(...rollLoot(it.loot, rand).slice(0, 1));
     // smashing it open shakes loose one more thing (the price is the noise and the breakage)
     if (smashed) ids.push(...rollLoot(it.loot, rand).slice(0, 1));
-    const broke = [];
+    const broke: string[] = [];
     if (smashed) {
       ids = ids.filter((id) => {
         if (FRAGILE.has(id) && rand() < 0.5) {
@@ -62,7 +76,7 @@ export class Containers {
 
   // Search the open container for dt seconds: the next hidden slot fills in. Returns the slot
   // index that turned up this frame, or -1.
-  search(rec, dt) {
+  search(rec: Container, dt: number) {
     if (!rec.hidden.size) {
       rec.searching = null;
       return -1;
@@ -82,26 +96,26 @@ export class Containers {
     return i;
   }
 
-  empty(rec) {
+  empty(rec: Container) {
     return rec.inv.slots.every((s) => !s);
   }
 
   // items left (counting the unsearched)
-  left(rec) {
+  left(rec: Container) {
     return rec.inv.slots.filter(Boolean).length;
   }
 
-  forget(id) {
+  forget(id: string) {
     this.map.delete(id);
   }
 
   state() {
-    const out = {};
+    const out: Record<string, [number, SavedSlot[], number[]]> = {};
     for (const [id, r] of this.map) out[id] = [r.inv.slots.length, r.inv.state(), [...r.hidden]];
     return out;
   }
 
-  restore(d) {
+  restore(d: Record<string, [number, SavedSlot[], number[]]> | null | undefined) {
     this.map.clear();
     for (const [id, [n, slots, hidden]] of Object.entries(d || {})) {
       const inv = box(n);

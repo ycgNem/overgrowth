@@ -102,6 +102,9 @@ export class Sky {
     this._time = 0.3; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
     this.dayLength = 20 * 60; // seconds per full day
     this.timeScale = 1;
+    this.fogBoost = 0; // extra fog density on Low quality (Game.setQuality)
+    this.signFog = 0; // tonight's sign, 0..1 (Game sets them)
+    this.signMoon = 0;
 
     this.uniforms = {
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },

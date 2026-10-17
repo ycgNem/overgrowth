@@ -84,6 +84,7 @@ export class Ambient {
     this.scene = scene;
     this.world = world;
     this.sky = sky;
+    this.shaftScale = 1; // 0 on High quality, where PostFX draws volumetric shafts (Game.setQuality)
     this.motes = makeMotes(scene, 700, new THREE.Vector3(36, 14, 36), new THREE.Vector3(0, 2, 0), 0.05, 0xfff2c0, 0);
     this.fireflies = makeMotes(scene, 420, new THREE.Vector3(50, 5, 50), new THREE.Vector3(0, -0.5, 0), 0.22, 0xd4ff70, 1);
 

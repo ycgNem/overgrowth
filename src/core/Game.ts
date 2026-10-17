@@ -30,12 +30,12 @@ import { Marks } from '../fx/Marks.js';
 import { Ambient } from '../fx/Ambient.js';
 import { LightPool } from '../fx/LightPool.js';
 import { Weather } from '../fx/Weather.js';
-import { Pickups } from '../items/Pickups.js';
-import { Inventory, HOTBAR, Sources, craftFrom, transfer } from '../items/Inventory.js';
-import { ITEMS, ITEM_IDS, RARITY, PACKS, rollLoot } from '../items/ItemDB.js';
+import { Pickups } from '../items/Pickups.ts';
+import { Inventory, HOTBAR, BELT_KINDS, Sources, craftFrom, transfer } from '../items/Inventory.ts';
+import { ITEMS, ITEM_IDS, RARITY, PACKS, rollLoot } from '../items/ItemDB.ts';
 import { BENCHES, recipeFor, benchOf } from '../items/Recipes.js';
-import { Containers } from '../items/Containers.js';
-import { renderItemIcons, getItemModel } from '../items/ItemModels.js';
+import { Containers } from '../items/Containers.ts';
+import { renderItemIcons, getItemModel } from '../items/ItemModels.ts';
 import { glowTexture } from '../art/textures.js';
 import { AudioSys } from '../audio/AudioSys.js';
 import { HUD } from '../ui/HUD.js';
@@ -44,13 +44,16 @@ import { loadModels, MODEL_NAMES } from '../assets/Models.js';
 import { Base, Rift, pickRifts, pickGroveRift, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
 import { FlowField } from '../defense/FlowField.js';
 import { Enemies } from '../defense/Enemies.js';
-import { Buildings, BuildGhost, BUILD_DEFS, TIER_NAMES, ROOTS, GRAFTS } from '../defense/Towers.js';
+import { Buildings, BuildGhost, hologram, BUILD_DEFS, TIER_NAMES, ROOTS, GRAFTS } from '../defense/Towers.ts';
+import type { Building, TowerCtx } from '../defense/Towers.ts';
+import type { Recipe } from '../items/Inventory.ts';
+import type { Container } from '../items/Containers.ts';
 import { Camp } from '../defense/Camp.js';
 import { Waves, DUSK, DAWN, SIGNS, signFor } from '../defense/Waves.js';
 import { Blooms, BLOOM_RADIUS } from '../defense/Blooms.js';
 import { Projectiles } from '../combat/Projectiles.js';
 import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
-import { Journal } from './Journal.js';
+import { Journal } from './Journal.ts';
 import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
 import { difficulty, kitItems } from './Difficulty.js';
 import { MEMORIES, unlocked } from './Memories.js';
@@ -62,7 +65,7 @@ import { Expedition } from './Expedition.js';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
-const nextFrame = () => new Promise((r) => {
+const nextFrame = () => new Promise<void>((r) => {
   requestAnimationFrame(() => r());
   setTimeout(r, 60);
 });
@@ -73,7 +76,7 @@ const COFFER_SLOTS = 60;
 const UNIQUE = new Set(['temple', 'shrine']);
 // a lost satchel's beam: 12 m of soft gold light, pulsing (no light source, an additive shell)
 const LOST_BEAM = new THREE.CylinderGeometry(0.35, 0.5, 12, 12, 1, true).translate(0, 6, 0);
-let lostBeam = null;
+let lostBeam: THREE.ShaderMaterial | null = null;
 function lostBeamMat() {
   lostBeam ??= new THREE.ShaderMaterial({
     uniforms: { uTime: globalUniforms.uTime },
@@ -88,15 +91,193 @@ const WOODY = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'treeFern', 'l
 const MACHETE_DMG = 28;
 const RESPAWN = 5;
 const FOV = 72;
-const STARTER = [['bow_tower', 1], ['spike_trap', 2], ['poultice', 2]];
+const STARTER: [string, number][] = [['bow_tower', 1], ['spike_trap', 2], ['poultice', 2]];
 // the title's light: late afternoon, the sun low and gold through the crowns
 const TITLE_TIME = 0.728;
 const TITLE_SHOT = 19;
-const ease = (t) => 1 - (1 - t) ** 3;
+const ease = (t: number) => 1 - (1 - t) ** 3;
 const _white = new THREE.Color();
 
+// Shapes still defined only in JS (World's interactables and colliders, a chunk, an enemy, a
+// Bloom, a save): named here so the signatures say what they take, typed when those files are.
+type Interactable = any;
+type Collider = any;
+type Chunk = any;
+type Enemy = any;
+type Bloom = any;
+type SaveData = any;
+// how a hit landed, for the damage numbers and kill callbacks (Enemies.damage fills in k)
+interface HitInfo { source?: string; type?: string; crit?: boolean; stagger?: number; shield?: boolean; k?: number }
+// hold a key to do it, with a progress ring on the prompt (Game.interact makes one per frame)
+type HoldAction = (label: string, time: number, done: () => void, sub?: string, key?: string) => void;
+// the satchel's other pane: the Coffer, or a container being searched (HUD.otherPane)
+interface OtherPane {
+  kind: 'coffer' | 'container';
+  title: string;
+  sub: string;
+  inv: Inventory;
+  actions: { label: string; key?: string; fn: () => void }[];
+  hidden?: Set<number>;
+  rec?: Container;
+  it?: Interactable;
+}
+// a torn page (Story.NOTES)
+interface Note { id: string; title: string; map?: unknown }
+
+// what combat callbacks get (enemies, towers, projectiles): Game.combatCtx
+interface CombatCtx extends TowerCtx {
+  base: Base;
+  lights: LightPool;
+  onKill: (e: Enemy, opts?: HitInfo) => void;
+  onDamage: (e: Enemy, n: number, opts: HitInfo) => void;
+  damageCtx?: CombatCtx;
+}
+type TerrainSample = ReturnType<typeof sampleTerrain>;
+
 export class Game {
-  constructor(canvas, { debug = false, time = null } = {}) {
+  debug: boolean;
+  renderer: THREE.WebGLRenderer;
+  frameNo: number;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  input: Input;
+  canopy: CanopyMap;
+  audio: AudioSys;
+  captions: boolean;
+  inventory: Inventory;
+  coffer: Inventory;
+  owns: (id: string) => boolean;
+  containers: Containers;
+  restockable: Set<string>; // container ids
+  lost: Interactable[];
+  lostN: number;
+  noises: { x: number; z: number; r: number; t: number }[];
+  hud: HUD;
+  journal: Journal;
+  tips: Tips;
+  running: boolean;
+  paused: boolean;
+  modal: string | null;
+  startTime: number | null;
+  cover: number;
+  _ahead: THREE.Vector3;
+  search: Interactable | null; // what E is being held on
+  searchT: number;
+  searchKey: string;
+  doneSet: Set<string>; // POI keys
+  envTick: number;
+  nearWater: number;
+  deadT: number;
+  lastHit: number;
+  hitStop: number;
+  chain: number;
+  lastStrike: number;
+  draw: number;
+  aimK: number;
+  drawing: boolean;
+  noAmmoT: number;
+  alertT: number;
+  alertHold: number;
+  saveT: number;
+  overT: number;
+  mods: ReturnType<typeof baseMods>;
+  perks: string[];
+  favour: number;
+  boonsTaken: number;
+  pendingBoons: number;
+  stats: { built: number; upgraded: number; bosses: number; blooms: number; elites: number; grafts: number; seals: number; drops: number; burns: number };
+  rootBonus: number;
+  difficulty: string;
+  fadeEl: HTMLElement;
+  bloom: boolean;
+  rand: () => number;
+  autoRes: boolean;
+  fpsCap: number;
+  nextFrameAt: number;
+  resScale: number;
+  res: { avg: number; cool: number; hold: number; fast: number; sinceUp: number };
+  quality: string;
+  basePR: number;
+  shadowEvery: number;
+  resFloor: number;
+  bootQuality: string;
+  flora: Flora;
+  sky: Sky;
+  water: Water;
+  world: World;
+  base: Base;
+  camp: Camp;
+  trample: Trample;
+  rot: Rot;
+  player: Player;
+  litter: Litter;
+  groundCover: Cover;
+  grass: Grass;
+  field: FlowField;
+  rifts: (Rift & { grove: boolean })[];
+  enemies: Enemies;
+  buildings: Buildings;
+  ghost: BuildGhost;
+  lights: LightPool;
+  weather: Weather;
+  projectiles: Projectiles;
+  blooms: Blooms;
+  heartMarker: any;
+  waves: Waves;
+  expedition: Expedition;
+  bloomUsed: boolean;
+  rootT: number;
+  machete: Machete;
+  particles: Particles;
+  marks: Marks;
+  uniforms: typeof globalUniforms;
+  ambient: Ambient;
+  pickups: Pickups;
+  post: PostFX;
+  timer: THREE.Timer;
+  title: { t: number; shot: number; shotT: number; fade: number; fly: any; wake?: number } | null;
+  banked: { kills: number; bosses: number; blooms: number; built: number; elites: number; grafts: number; seals: number; drops: number; burns: number };
+  begun: boolean;
+  compileAgain: boolean;
+  compiling: boolean;
+  compiledAt: number;
+  tipT: number;
+  capture: { pos: THREE.Vector3; home: THREE.Vector3; yaw: number; pitch: number; speed: number; freeze: boolean };
+  loaded: boolean;
+  paneFrame: number;
+  usingId: string;
+  seenHusk: boolean;
+  gathering: boolean;
+  gatherTick: number;
+  gatherT: number;
+  hiForage: Interactable | null;
+  glintT: number;
+  _ctx: CombatCtx;
+  rotT: number;
+  rewearT: number;
+  signFog: number;
+  signMoon: number;
+  wasInCamp: boolean;
+  hudHidden: boolean;
+  swingTapped: boolean;
+  grassSig: number;
+  playerNoise: number;
+  haze: number;
+  swampAir: number;
+  blockedT: number;
+  shade: number;
+  // scratch, made on first use
+  _tEye: THREE.Vector3;
+  _tAt: THREE.Vector3;
+  _fwd: THREE.Vector2;
+  _nearI: Interactable[];
+  _hitMesh: THREE.Mesh;
+  _hitRay: THREE.Raycaster;
+  _campSrc: Sources;
+  _ground: TerrainSample;
+  campChip: HTMLElement | null;
+
+  constructor(canvas: HTMLCanvasElement, { debug = false, time = null }: { debug?: boolean; time?: number | null } = {}) {
     this.debug = debug;
     // no canvas MSAA: the scene is drawn into multisampled targets by PostFX
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -125,6 +306,8 @@ export class Game {
     this.inventory.setPack('woven_satchel');
     // the camp's stash: no belt, no pouch, no weight limit
     this.coffer = new Inventory({ hotbar: 0, pack: COFFER_SLOTS, safe: 0, capacity: Infinity, packSize: COFFER_SLOTS, safeSize: 0 });
+    // whether you have one of id, carried or stored (the journal's goals ask)
+    this.owns = (id) => this.inventory.count(id) + this.coffer.count(id) > 0;
     this.containers = new Containers();
     this.restockable = new Set(); // emptied containers that may fill again at dawn
     this.lost = []; // dropped satchels lying in the world
@@ -180,7 +363,7 @@ export class Game {
   }
 
   // High / Medium / Low: the costly parts a slower machine can do without
-  setQuality(q) {
+  setQuality(q: string) {
     this.quality = q;
     this.basePR = Math.min(devicePixelRatio, 1.5) * (q === 'low' ? 0.75 : 1);
     this.applyRes();
@@ -216,7 +399,7 @@ export class Game {
   // Steady frame rate: when frames run slow for a second or two the scene is drawn at a
   // little lower resolution (down to 60%), and creeps back up once there's room again. A step
   // up that brings the slowdown straight back isn't tried again for a while.
-  tickRes(dt) {
+  tickRes(dt: number) {
     if (!this.autoRes || dt > 0.25) return;
     const r = this.res;
     r.avg += (dt - r.avg) * Math.min(1, dt * 2);
@@ -255,7 +438,7 @@ export class Game {
     }
   }
 
-  async init(progress) {
+  async init(progress: (k: number, label: string) => void) {
     progress(0.03, 'Carving the Heartwood…');
     let loaded = 0;
     await loadModels(() => progress(0.03 + (++loaded / MODEL_NAMES.length) * 0.12, 'Carving the Heartwood…'));
@@ -298,7 +481,7 @@ export class Game {
     await nextFrame();
     this.field = new FlowField(this.world, this.base.x, this.base.z, GOAL_RADIUS);
     this.field.rebuild([]);
-    const riftSpots = pickRifts(this.field, this.base.x, this.base.z, 5, Math.round(sp.x + sp.z));
+    const riftSpots: { x: number; z: number; night: number; grove?: boolean }[] = pickRifts(this.field, this.base.x, this.base.z, 5, Math.round(sp.x + sp.z));
     const gr = pickGroveRift(this.field, this.base.x, this.base.z, grove());
     if (gr) riftSpots.push(gr);
     this.rifts = riftSpots.map((r) => Object.assign(new Rift(this.scene, r.x, r.z, r.night), { grove: !!r.grove }));
@@ -424,7 +607,9 @@ export class Game {
     await nextFrame();
     // compile enemy, projectile and effect materials up front so the first night doesn't hitch
     const warm = ['blightling', 'rotboar', 'wisp', 'spitter', 'burrower', 'thornback', 'husk', 'rot_mother', 'rot_egg'].map((t, i) => this.enemies.spawn(t, this.base.x + 8 + i * 3, this.base.z));
-    const wb = this.buildings.place('ember_brazier', this.base.x - 9, this.base.z + 9, 0, { instant: true });
+    // one of every defence, standing and as the placement hologram (its see-through and
+    // depth-only materials were a half-second freeze the first time you held a barricade)
+    const warmBuilt = Object.keys(BUILD_DEFS).map((id, i) => this.buildings.place(id, this.base.x - 9 + (i % 4) * 3, this.base.z + 9 + ((i / 4) | 0) * 3, 0, { instant: true }));
     for (const r of this.rifts) r.group.visible = true;
     this.weather.rain.visible = true;
     this.particles.ring(new THREE.Vector3(this.base.x, this.base.y, this.base.z), 1);
@@ -443,6 +628,16 @@ export class Game {
     warmGroups.push(this.world.warmFlora(this.player.pos.x, gy, this.player.pos.z));
     const warmBloom = this.blooms.add(this.player.pos.x + 3, this.player.pos.z);
     warmBloom.group.position.y = gy;
+    // and one of every item as a pickup (model, glow and beam): the icons are drawn under
+    // their own lights, so the in-game program for each item's materials was still compiled
+    // the first time it dropped, a 0.2 s freeze mid-run
+    const warmPicks = ITEM_IDS.map((id) => this.pickups.spawn(id, new THREE.Vector3(this.player.pos.x, gy, this.player.pos.z), 0));
+    for (const id of Object.keys(BUILD_DEFS)) {
+      const h = hologram(id);
+      h.position.set(this.player.pos.x, gy, this.player.pos.z);
+      this.scene.add(h);
+      warmGroups.push(h);
+    }
     // compile for the target play renders into: PostFX's linear half-float scene buffer. Bound
     // to the canvas (sRGB, tone mapped) every program came out a different variant and was
     // compiled again mid-game, a 0.5-1.5 s freeze the first time each kit streamed in
@@ -452,16 +647,32 @@ export class Game {
     } catch {
       this.renderer.compile(this.scene, this.camera);
     }
+    // what you hold (one of every belt item, and the slingshot) is drawn under the viewmodel's
+    // own lights into the composite: compile those for that target too
+    const vm = this.machete, held = ITEM_IDS.filter((id) => BELT_KINDS.has(ITEMS[id].kind)).map((id) => getItemModel(id));
+    vm.item.add(...held);
+    vm.item.visible = vm.sling.root.visible = true;
+    // (lit as in play: its environment is the sky's, which its update hands it every frame)
+    vm.scene.environment = this.scene.environment;
+    this.renderer.setRenderTarget(this.post.compRT);
+    try {
+      await this.compileSafe(vm.scene, vm.camera);
+    } catch {
+      this.renderer.compile(vm.scene, vm.camera);
+    }
+    vm.item.remove(...held);
+    vm.item.visible = vm.sling.root.visible = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.cullWorld();
     this.renderer.setRenderTarget(this.post.sceneRT);
     this.renderer.render(this.scene, this.camera);
     this.renderer.setRenderTarget(null);
     for (const g of warmGroups) this.scene.remove(g);
+    for (const pk of warmPicks) this.pickups.remove(this.pickups.items.indexOf(pk));
     this.blooms.clear();
     for (const e of warm) this.scene.remove(e.obj);
     this.enemies.list = [];
-    this.buildings.remove(wb);
+    for (const b of warmBuilt) this.buildings.remove(b);
     this.buildings.stats.built = 0;
     for (const r of this.rifts) r.group.visible = false;
     this.weather.rain.visible = false;
@@ -476,7 +687,7 @@ export class Game {
   // on a 144 Hz screen) and the GPU draws every one of them flat out. Frames come on a
   // schedule instead, at most fpsCap a second (0 = every refresh). Paused, or behind another
   // window, nothing needs more than 30. (?debug runs draw every frame: e2e timings.)
-  tick(ts) {
+  tick(ts: number) {
     const idle = !this.debug && ((this.paused && !this.title) || !document.hasFocus());
     const cap = idle ? Math.min(this.fpsCap || 30, 30) : this.fpsCap;
     if (cap > 0) {
@@ -499,7 +710,7 @@ export class Game {
   }
 
   // shot k at local time u (seconds): where the eye is and what it looks at
-  titleShot(k, u, eye, at) {
+  titleShot(k: number, u: number, eye: THREE.Vector3, at: THREE.Vector3) {
     const b = this.base, h = b.heartPos;
     const ang = (a, r, y) => eye.set(b.x + Math.sin(a) * r, 0, b.z + Math.cos(a) * r).setY(terrainHeight(eye.x, eye.z) + y);
     if (k === 0) {
@@ -523,7 +734,7 @@ export class Game {
     at.addScaledVector(side, -eye.distanceTo(at) * 0.26);
   }
 
-  updateTitle(dt) {
+  updateTitle(dt: number) {
     const T = this.title;
     T.t += dt;
     const eye = this._tEye ??= new THREE.Vector3(), at = this._tAt ??= new THREE.Vector3();
@@ -571,14 +782,14 @@ export class Game {
   }
 
   // Leave the title: the camera flies to the player's eye, then `done` runs.
-  flyIn(done, dur = 1.8) {
+  flyIn(done?: () => void, dur = 1.8) {
     if (!this.title) return done?.();
     this.respawn();
     const wake = this.title.wake ?? this.startTime ?? 0.29;
     this.title.fly = { t: 0, dur, eye: this.camera.position.clone(), quat: this.camera.quaternion.clone(), done, wake };
   }
 
-  setFade(v, secs = 0) {
+  setFade(v: number, secs = 0) {
     const el = this.fadeEl;
     if (!el) return;
     el.style.transition = secs ? `opacity ${secs}s ease-out` : 'none';
@@ -587,7 +798,7 @@ export class Game {
 
   // A new run on the chosen difficulty: the Heartwood's HP, the Blight and the starting kit
   // (the difficulty's own unless Many Paths is earned and another was picked).
-  setDifficulty(id, kit = 'starter') {
+  setDifficulty(id: string, kit = 'starter') {
     // the daily vigil is the same for everyone: Warden, the starter kit, no Memories
     if (DAILY) id = 'warden';
     const d = difficulty(id);
@@ -605,7 +816,7 @@ export class Game {
     // what the Memories of the Heartwood add to every vigil (one of each weapon is plenty)
     for (const m of MEMORIES) {
       if (!mem.has(m.id)) continue;
-      for (const [item, n] of m.kit || []) if (ITEMS[item].kind !== 'tool' || !inv.count(item)) inv.add(item, n);
+      for (const [item, n] of (m.kit || []) as [string, number][]) if (ITEMS[item].kind !== 'tool' || !inv.count(item)) inv.add(item, n);
     }
     inv.select(inv.slots.findIndex((s, i) => !s && i < HOTBAR));
     inv.changed();
@@ -620,7 +831,7 @@ export class Game {
     return { kills: this.enemies.kills, bosses: s.bosses, blooms: s.blooms, built: this.buildings.stats.built, elites: s.elites, grafts: s.grafts, seals: s.seals, drops: s.drops, burns: s.burns };
   }
 
-  bankRecords(extra = {}) {
+  bankRecords(extra: Record<string, number> = {}) {
     if (this.debug) return;
     const now = this.bankable();
     const last = this.banked ?? now;
@@ -628,7 +839,7 @@ export class Game {
     for (const k in now) delta[k] = Math.max(0, now[k] - (last[k] || 0));
     this.banked = now;
     const had = unlocked();
-    const most = { deepest: this.waves.night - 1 };
+    const most: { deepest: number; dailyBest?: number } = { deepest: this.waves.night - 1 };
     if (DAILY) most.dailyBest = this.waves.night - 1;
     const r = addRecords(delta, Object.keys(this.enemies.killsByType), most);
     recordBest(this.waves.night - 1, this.enemies.kills, this.score);
@@ -666,7 +877,7 @@ export class Game {
   }
 
   // the "Your vigil" card (a new run's first, and How to play on the pause menu)
-  showIntro(done) {
+  showIntro(done?: () => void) {
     this.modal = 'intro';
     this.input.unlock();
     this.hud.showIntro(() => {
@@ -697,13 +908,24 @@ export class Game {
 
   // renderer.compileAsync, but a material disposed while it waits (a Husk crumbling, a lost
   // satchel picked up) is dropped from the wait instead of throwing in three's timer
-  compileSafe() {
+  // Compiled for the target the scene is really drawn into (PostFX's linear scene buffer, or
+  // the composite for what you hold): bound to the canvas, three makes the sRGB, tone-mapped
+  // variant of every program instead, dozens of programs nothing uses, while the ones play
+  // needs still compiled mid-frame.
+  compileSafe(scene: THREE.Object3D = this.scene, camera: THREE.Camera = this.camera) {
     const r = this.renderer;
-    const mats = r.compile(this.scene, this.camera);
-    return new Promise((resolve) => {
+    const prev = r.getRenderTarget();
+    if (this.post) r.setRenderTarget(scene === this.scene ? this.post.sceneRT : this.post.compRT);
+    let mats;
+    try {
+      mats = r.compile(scene, camera);
+    } finally {
+      r.setRenderTarget(prev);
+    }
+    return new Promise<void>((resolve) => {
       const tick = () => {
         for (const m of mats) {
-          const prog = r.properties.get(m).currentProgram;
+          const prog = (r.properties.get(m) as { currentProgram?: { isReady(): boolean } }).currentProgram;
           if (!prog || prog.isReady()) mats.delete(m);
         }
         if (mats.size === 0) resolve();
@@ -716,13 +938,13 @@ export class Game {
   // Captions: the sounds that carry meaning, written out (Settings > Captions). Each sound's
   // method is wrapped so whatever plays it also captions it, a few seconds apart at most.
   captionAudio() {
-    const CAPS = {
+    const CAPS: Record<string, [string, number]> = {
       horn: ['A horn: night falls, the Blight are coming', 0], roar: ['A great roar', 3], heartHurt: ['The Heartwood is being bitten', 4],
       bite: ['Something is chewing on a defence', 5], windup: ['A hiss close by: a bite is coming', 3], huskCreak: ['Creaking wood: a Husk nearby', 7],
       spit: ['A wet spit: a Spitter', 5], burrow: ['Digging under the ground', 6], wispCry: ['A Wisp keens overhead', 7],
       slam: ['The ground shakes', 3], dawn: ['Birdsong: dawn', 0], heartAlarm: ['The Heartwood cries out', 4], thunder: ['Thunder', 8],
     };
-    const last = {};
+    const last: Record<string, number> = {};
     for (const [name, [text, gap]] of Object.entries(CAPS)) {
       const fn = this.audio[name];
       if (typeof fn !== 'function') continue;
@@ -776,7 +998,7 @@ export class Game {
 
   // WASD and the mouse fly, Space / C rise and sink, Shift is faster, the wheel sets the speed,
   // P holds the world still, F8 lands again
-  updateCapture(dt, input) {
+  updateCapture(dt: number, input: Input) {
     const C = this.capture, cam = this.camera;
     C.yaw -= input.mouse.dx * 0.0022;
     C.pitch = clamp(C.pitch - input.mouse.dy * 0.0022, -1.5, 1.5);
@@ -809,7 +1031,7 @@ export class Game {
 
   // The tower damage a second that reaches the Blight's path from (x, z) to the Heart, walked
   // down the flow field: low means a thin side
-  coverage(x, z) {
+  coverage(x: number, z: number) {
     let dps = 0, px = x, pz = z;
     const towers = this.buildings.list.filter((b) => !b.dead && b.def.range && b.def.dmg);
     for (let i = 0; i < 70; i++) {
@@ -824,7 +1046,7 @@ export class Game {
   }
 
   // map markers for every rift that has opened by night n (the late ones appear when they tear)
-  showRifts(n) {
+  showRifts(n: number) {
     this.rifts.forEach((r, i) => {
       const key = `rift${i}`;
       if (r.night <= n && !this.hud.markers.some((m) => m.key === key)) {
@@ -834,7 +1056,7 @@ export class Game {
   }
 
   // Debug helper: game.teleport('temple') jumps next to the nearest POI.
-  teleport(type, dist = 16, angle = 0) {
+  teleport(type: string, dist = 16, angle = 0) {
     const p = this.player.pos;
     const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
     let best = null, bd = Infinity;
@@ -862,7 +1084,7 @@ export class Game {
   }
 
   // Debug helpers
-  give(id, n = 1) {
+  give(id: string, n = 1) {
     this.inventory.add(id, n);
   }
 
@@ -878,7 +1100,7 @@ export class Game {
   }
 
   // Apply a save made by writeSave. Called once, before the player enters.
-  loadFrom(d) {
+  loadFrom(d: SaveData) {
     const inv = this.inventory;
     inv.setPack(PACKS[d.pack] ? d.pack : 'woven_satchel');
     this.coffer.restore(d.coffer || []);
@@ -953,13 +1175,13 @@ export class Game {
     return this.deadT <= 0;
   }
 
-  loot(table, at, impulse = 0.8, auto = false) {
+  loot(table: string, at: THREE.Vector3, impulse = 0.8, auto = false) {
     const ids = rollLoot(table, this.rand);
     if (this.mods.lootBonus && this.rand() < this.mods.lootBonus) ids.push(...rollLoot(table, this.rand).slice(0, 1));
     for (const id of ids) this.pickups.spawn(id, at.clone(), impulse, auto);
   }
 
-  onSwingHit(combo) {
+  onSwingHit(combo: number) {
     const p = this.player.pos;
     const fwd = this.forwardXZ();
     // every plant the blade sweeps through whips along with it (forehand right to left)
@@ -1079,7 +1301,8 @@ export class Game {
         const rec = this.containers.roll(best, this.rand, { smashed: true, bonus: this.mods.lootBonus });
         if (rec.broke.length) this.hud.message(`Something broke inside: ${rec.broke.map((id) => ITEMS[id].name).join(', ')}`, '#ff9a7a');
         const spill = at.clone().add(new THREE.Vector3(0, 0.4, 0));
-        for (const s of rec.inv.slots) if (s) for (let k = 0; k < s.n; k++) this.pickups.spawn(s.id, spill, 0.7);
+        // (and comes to you, like a search's finds: it can land somewhere you can't reach)
+        for (const s of rec.inv.slots) if (s) for (let k = 0; k < s.n; k++) this.pickups.spawn(s.id, spill, 0.7, true);
         this.journal.event('search');
         this.expedition.opened(best);
         this.containers.forget(best.id);
@@ -1177,7 +1400,7 @@ export class Game {
   // Where the blade meets a collider's model: a ray from the eye to the struck point on the
   // real mesh (trunks lean and flare, rocks are lumpy), with the surface's outward normal.
   // Falls back to the collider's own shape when there's no mesh or the ray misses.
-  bladeContact(c, probe) {
+  bladeContact(c: Collider, probe: THREE.Vector3) {
     const eye = this.camera.position;
     const out = { point: probe.clone(), normal: new THREE.Vector3() };
     if (c.type === 'circle') {
@@ -1214,7 +1437,7 @@ export class Game {
   }
 
   // Hacking at a tree: bark, resin, vines; every third good blow frees a log.
-  harvestTrunk(c, at, out) {
+  harvestTrunk(c: Collider, at: THREE.Vector3, out: THREE.Vector3) {
     this.makeNoise(11);
     this.audio.wood();
     this.particles.chipBurst(at, 0x8a6a40, 14, this.player.pos.y, out);
@@ -1231,7 +1454,7 @@ export class Game {
     }
   }
 
-  harvestRock(c, at, out) {
+  harvestRock(c: Collider, at: THREE.Vector3, out: THREE.Vector3) {
     this.makeNoise(11);
     this.audio.stone();
     this.particles.sparks(at, 0xfff0c0, 12, out);
@@ -1267,11 +1490,11 @@ export class Game {
     return best;
   }
 
-  checkDone(chunk) {
+  checkDone(chunk: Chunk) {
     if (chunk?.poi && chunk.interactables.every((i) => i.done || i.kind === 'forage')) this.doneSet.add(chunk.poi.key);
   }
 
-  collect(id, n = 1, quiet = false) {
+  collect(id: string, n = 1, quiet = false) {
     const k = this.inventory.room(id, n);
     const left = n - k + this.inventory.add(id, k);
     if (left > 0) this.overflow(id, left, true);
@@ -1283,7 +1506,7 @@ export class Game {
   }
 
   // What won't fit in the satchel: the Coffer takes it in camp, otherwise it drops at your feet.
-  overflow(id, n, warn = false) {
+  overflow(id: string, n: number, warn = false) {
     const p = this.player.pos;
     if (this.camp.inCamp(p.x, p.z)) {
       const left = this.coffer.add(id, n);
@@ -1305,7 +1528,7 @@ export class Game {
     return { atCamp, benches: this.camp.levels, roots: { used: this.rootsUsed, cap: this.rootCap }, src: atCamp ? (this._campSrc ??= new Sources([this.coffer, this.inventory])) : this.inventory };
   }
 
-  craft(recipe) {
+  craft(recipe: Recipe) {
     const st = this.hud.recipeState(recipe);
     if (!st.ok) {
       this.audio.ui();
@@ -1323,7 +1546,8 @@ export class Game {
       this.inventory.setPack(recipe.out);
       const pk = PACKS[recipe.out];
       this.hud.banner(ITEMS[recipe.out].name, `${pk.cap} kg, ${pk.slots} pockets, ${pk.safe} safe pouch${pk.safe > 1 ? 'es' : ''}`, 'win');
-    } else if (!craftFrom(recipe, ctx.src, this.inventory)) {
+    // (out of camp the source is the satchel alone)
+    } else if (!craftFrom(recipe, ctx.src instanceof Sources ? ctx.src : [ctx.src], this.inventory)) {
       this.audio.ui();
       return;
     }
@@ -1336,7 +1560,7 @@ export class Game {
 
   // Right-click a defence in the satchel: break it down for parts. At the Tinker's Bench in camp
   // that gives back most of what it took; anywhere else, about a third.
-  salvage(i) {
+  salvage(i: number) {
     const s = this.inventory.slots[i];
     const r = s && recipeFor(s.id);
     if (!r || ITEMS[s.id].kind !== 'build') return;
@@ -1359,7 +1583,7 @@ export class Game {
   // ------------------------------------------------------------- the Coffer and containers
 
   // the satchel with something open beside it (a container or the Coffer)
-  openPane(pane) {
+  openPane(pane: OtherPane) {
     this.paneFrame = this.frameNo; // (the E that opened it isn't also the E that shuts it)
     this.hud.toggleInventory(true, pane);
     this.audio.ui();
@@ -1395,7 +1619,7 @@ export class Game {
     this.hud.message(n ? `Stored ${n} thing${n > 1 ? 's' : ''} in the Coffer` : 'Nothing to store', '#f3ead2');
   }
 
-  openContainer(it, rec) {
+  openContainer(it: Interactable, rec: Container) {
     this.audio.rummage();
     if (!it.lost) this.journal.event('search');
     this.expedition.opened(it);
@@ -1425,7 +1649,7 @@ export class Game {
     this.hud.renderInventory();
   }
 
-  closeOther(o) {
+  closeOther(o: OtherPane) {
     if (o.kind === 'coffer') this.camp.openWant = 0;
     if (o.kind !== 'container') return;
     if (!this.containers.empty(o.rec)) return;
@@ -1434,7 +1658,7 @@ export class Game {
     this.finishContainer(o.it);
   }
 
-  finishContainer(it) {
+  finishContainer(it: Interactable) {
     if (it.lost) {
       this.removeLost(it);
       return;
@@ -1478,9 +1702,10 @@ export class Game {
 
   // ------------------------------------------------------------- a lost satchel
 
-  // Fallen out in the forest (or outside the camp at night), your pack drops where you lay. The
-  // belt stays with you (all of it on Warden; on Blightborn the belt drops too), and so does the
-  // safe pouch. Get back to it before the phase turns, or the Blight tramples it.
+  // Fallen out in the forest (or outside the camp at night), your pack drops where you lay. What
+  // you use from the belt stays with you (all of it on Warden; on Blightborn the belt drops too,
+  // all but the slingshot), and so does the safe pouch; materials, salvage and relics tucked in
+  // the belt drop with the pack. Get back to it before the phase turns, or the Blight tramples it.
   dropPack() {
     const mode = difficulty(this.difficulty).keepOnDeath ?? 'pack';
     const p = this.player.pos;
@@ -1490,7 +1715,8 @@ export class Game {
     const take = [];
     inv.slots.forEach((s, i) => {
       if (!s || inv.isSafe(i)) return;
-      if (i < inv.hotbar && (mode !== 'hotbar' || ITEMS[s.id].kind === 'tool')) return;
+      const k = ITEMS[s.id].kind;
+      if (i < inv.hotbar && BELT_KINDS.has(k) && (mode !== 'hotbar' || k === 'tool')) return;
       take.push(i);
     });
     if (!take.length) return;
@@ -1502,7 +1728,7 @@ export class Game {
     setTimeout(() => this.hud.message(`Your pack lies where you fell ✚ Get back to it before ${expires === 'day' ? 'dusk' : 'dawn'}, or the Blight will trample it`, '#ffd28a'), 5600);
   }
 
-  placeLost(id, x, z, expires) {
+  placeLost(id: string, x: number, z: number, expires: string) {
     const y = terrainHeight(x, z);
     const obj = new THREE.Group();
     const bag = getItemModel('woven_satchel');
@@ -1527,7 +1753,7 @@ export class Game {
     this.hud.markers.push({ key: id, x, z, icon: '✚', label: 'Lost satchel', cls: 'lost' });
   }
 
-  removeLost(it, trampled = false) {
+  removeLost(it: Interactable, trampled = false) {
     this.scene.remove(it.obj);
     it.glow.material.dispose();
     it.beam = null;
@@ -1540,14 +1766,14 @@ export class Game {
   }
 
   // the phase turned: satchels dropped in the last one are gone
-  expireLost(phase) {
+  expireLost(phase: string) {
     for (const it of [...this.lost]) if (it.expires === phase) this.removeLost(it, true);
   }
 
   // ------------------------------------------------------------- noise
 
   // Something loud at (x, z): the Blight within r hear it (Enemies reads game.noises)
-  makeNoise(r, at = this.player.pos) {
+  makeNoise(r: number, at: { x: number; z: number } = this.player.pos) {
     this.noises.push({ x: at.x, z: at.z, r, t: 0.3 });
   }
 
@@ -1576,7 +1802,7 @@ export class Game {
     this.inventory.remove(id, 1);
   }
 
-  applyConsumable(id) {
+  applyConsumable(id: string) {
     const def = ITEMS[id];
     const p = this.player.pos;
     if (def.heal) {
@@ -1607,7 +1833,7 @@ export class Game {
   }
 
   // Right-click in the satchel: eat/apply at once (no throwing from the bag).
-  useFromSatchel(i) {
+  useFromSatchel(i: number) {
     const s = this.inventory.slots[i];
     if (!s || ITEMS[s.id].kind !== 'use') return;
     const def = ITEMS[s.id];
@@ -1625,7 +1851,7 @@ export class Game {
     this.inventory.changed(s.id);
   }
 
-  dropSlot(i) {
+  dropSlot(i: number) {
     const s = this.inventory.slots[i];
     if (!s) return;
     const fwd = this.forwardXZ();
@@ -1726,7 +1952,7 @@ export class Game {
     if (live.length) setTimeout(() => this.hud.message(`${live.length} Blight Bloom${live.length > 1 ? 's' : ''} opened: the Blight is coming through ${live.length > 1 ? 'them' : 'it'} too ✺`, '#d9a0ff'), 3500);
   }
 
-  hitBloom(b, dmg, at, crit = false) {
+  hitBloom(b: Bloom, dmg: number, at: THREE.Vector3, crit = false) {
     const killed = this.blooms.damage(b, dmg);
     this.particles.chipBurst(at.clone(), 0x7a3a9a, crit ? 16 : 10, b.y);
     this.particles.sporeBurst(at.clone(), 0xb050ff, 8, 0.6);
@@ -1736,7 +1962,7 @@ export class Game {
     return killed;
   }
 
-  onBloomCleansed(b) {
+  onBloomCleansed(b: Bloom) {
     const at = new THREE.Vector3(b.x, b.cy, b.z);
     this.particles.sporeBurst(at, 0xc070ff, 60, 1.8);
     this.particles.sparkle(at, 0x9affb0, 30);
@@ -1766,7 +1992,7 @@ export class Game {
 
   // ------------------------------------------------------------- slingshot
 
-  updateSling(dt, input) {
+  updateSling(dt: number, input: Input) {
     const has = this.inventory.count('scrap_shot') + this.inventory.count('stone') > 0;
     const ready = this.machete.mode === 'sling' && this.machete.ready;
     if (ready && input.mouse.down && has) {
@@ -1806,9 +2032,9 @@ export class Game {
   // ------------------------------------------------------------- interaction
 
   // Interactions that need E or F (tap or hold).
-  interact(dt, input) {
+  interact(dt: number, input: Input) {
     const it = this.findInteractable();
-    const holdAction = (label, time, done, sub = '', key = 'KeyE') => {
+    const holdAction: HoldAction = (label, time, done, sub = '', key = 'KeyE') => {
       // (an E held to rake up forage never also calls the night or packs a tower)
       if (input.down(key) && !(this.gathering && key === 'KeyE')) {
         if (this.search !== it || this.searchKey !== key) {
@@ -1876,7 +2102,7 @@ export class Game {
 
   // A container: searched open with E (a crate can also be smashed with the machete: quicker,
   // loud, and fragile things inside may break). Once open, a tap of E opens it again.
-  interactContainer(it, holdAction, input) {
+  interactContainer(it: Interactable, holdAction: HoldAction, input: Input) {
     const rec = this.containers.get(it.id);
     if (rec) {
       const left = this.containers.left(rec);
@@ -1905,7 +2131,7 @@ export class Game {
   }
 
   // The Coffer (tap E) and the benches: build one, or raise it a level (hold E).
-  interactCamp(it, holdAction, input) {
+  interactCamp(it: Interactable, holdAction: HoldAction, input: Input) {
     const id = it.site;
     if (id === 'coffer') {
       const used = this.coffer.used;
@@ -1913,7 +2139,7 @@ export class Game {
       if (input.hit('KeyE')) this.openCoffer();
       return;
     }
-    const B = BENCHES[id], lv = this.camp.levels[id], cost = this.camp.nextCost(id);
+    const B = BENCHES[id], lv = this.camp.levels[id], cost: Record<string, number> | null = this.camp.nextCost(id);
     const src = this.craftContext().src;
     // F at the benches: the Thornback's heart into the Workbench; Hollis's radio at the Tinker's
     // When the story's next step is in hand it is the prompt's title (F); raising the bench
@@ -1962,7 +2188,7 @@ export class Game {
 
   // the item the prompt means lights up, with a glint now and then, so you can find it among
   // the leaves
-  highlightForage(it) {
+  highlightForage(it: Interactable | null) {
     const prev = this.hiForage;
     if (prev !== it) {
       if (prev && !prev.done) {
@@ -1982,7 +2208,7 @@ export class Game {
     }
   }
 
-  takeForage(it) {
+  takeForage(it: Interactable) {
     if (!this.inventory.takeable(it.id, 1)) {
       this.hud.message(this.inventory.slotRoom(it.id) < 1 ? 'Satchel full' : 'Too heavy: your pack can take no more', '#ff9a7a');
       this.gathering = false;
@@ -1995,7 +2221,7 @@ export class Game {
     return true;
   }
 
-  nearestForage(r) {
+  nearestForage(r: number) {
     const p = this.player.pos;
     let best = null, bd = r;
     for (const it of this.world.near(p.x, p.z, 'interactables')) {
@@ -2026,7 +2252,7 @@ export class Game {
     return n;
   }
 
-  interactBase(holdAction, input) {
+  interactBase(holdAction: HoldAction, input: Input) {
     const relics = this.inventory.relicValue;
     const next = thresholds(this.boonsTaken + this.pendingBoons);
     if (relics > 0 && input?.down('KeyF')) {
@@ -2094,7 +2320,7 @@ export class Game {
     this.player.staminaRegen = this.mods.staminaRegen;
   }
 
-  interactBuilding(b, holdAction, input) {
+  interactBuilding(b: Building, holdAction: HoldAction, input: Input) {
     const glyphs = b.grafts.map((g) => GRAFTS[g].glyph).join('');
     const name = `${TIER_NAMES[b.tier] ? `${TIER_NAMES[b.tier]} ` : ''}${ITEMS[b.id].name}${glyphs ? ` ${glyphs}` : ''}`;
     const day = this.waves.phase === 'day' || this.waves.phase === 'dawn';
@@ -2170,7 +2396,7 @@ export class Game {
   }
 
   // Holding a buildable: show the ghost and place on click.
-  updateBuild(input) {
+  updateBuild(input: Input) {
     const held = this.inventory.held;
     const def = held && BUILD_DEFS[held.id];
     if (!def || !this.playerAlive) {
@@ -2225,7 +2451,7 @@ export class Game {
         base: this.base,
         onKill: (e, opts) => this.onKill(e, opts),
         onDamage: (e, n, opts) => this.onEnemyDamage(e, n, opts),
-      };
+      } as CombatCtx;
       this._ctx.damageCtx = this._ctx;
     }
     this._ctx.field = this.field;
@@ -2234,7 +2460,7 @@ export class Game {
     return this._ctx;
   }
 
-  onEnemyDamage(e, n, opts) {
+  onEnemyDamage(e: Enemy, n: number, opts: HitInfo) {
     const at = this.enemies.chest(e).clone();
     at.y += 0.4 * e.def.scale;
     const near = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 22;
@@ -2250,7 +2476,7 @@ export class Game {
     } else if (near) this.hud.damageNumber(at, n, `tower${rk}`);
   }
 
-  onKill(e, opts = {}) {
+  onKill(e: Enemy, opts: HitInfo = {}) {
     const at = this.enemies.chest(e).clone();
     // a burst that fills the screen at arm's length reads as a glitch: scale it with distance
     const d = at.distanceTo(this.camera.position);
@@ -2294,7 +2520,7 @@ export class Game {
     }
   }
 
-  hitPlayer(dmg) {
+  hitPlayer(dmg: number) {
     if (!this.playerAlive) return;
     dmg *= this.mods.playerArmor;
     this.player.hp -= dmg;
@@ -2327,7 +2553,7 @@ export class Game {
   }
 
   // Grasping Roots: at night the Heartwood seizes the Blight closest to it
-  rootPulse(dt) {
+  rootPulse(dt: number) {
     if (!this.mods.rootPulse || this.waves.phase !== 'night') return;
     this.rootT = (this.rootT ?? 6) - dt;
     if (this.rootT > 0) return;
@@ -2345,7 +2571,7 @@ export class Game {
     if (near.length) this.audio.snare?.();
   }
 
-  hitBase(dmg, e) {
+  hitBase(dmg: number, e: Enemy) {
     this.base.damage(dmg);
     if (this.mods.heartBurn && e && !e.dying) this.enemies.ignite(e, 8, 3);
     // Last Bloom: once a night the failing Heartwood bursts and throws the Blight back
@@ -2393,7 +2619,7 @@ export class Game {
     }
   }
 
-  onSlam(e) {
+  onSlam(e: Enemy) {
     const f = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw));
     const at = e.pos.clone().addScaledVector(f, 2.2);
     at.y = terrainHeight(at.x, at.z);
@@ -2427,7 +2653,7 @@ export class Game {
 
   // the Thornback calls Blightlings out of its back
   // the Rot Mother lays three eggs behind her as she walks
-  layEggs(e) {
+  layEggs(e: Enemy) {
     // two at a time on night 10 (with the surge round her, three were too many), three after
     const n = this.waves.night >= 15 ? 3 : 2;
     for (let i = 0; i < n; i++) {
@@ -2440,7 +2666,7 @@ export class Game {
     this.audio.splat?.(this.near(e.pos));
   }
 
-  summon(e) {
+  summon(e: Enemy) {
     for (let i = 0; i < 3; i++) {
       const a = e.yaw + Math.PI + (i - 1) * 0.9;
       const x = e.pos.x + Math.sin(a) * 2.6, z = e.pos.z + Math.cos(a) * 2.6;
@@ -2451,11 +2677,11 @@ export class Game {
   }
 
   // 1 beside the player, 0 at 40 m: how loud something out in the clearing sounds
-  near(p) {
+  near(p: { x: number; z: number }) {
     return Math.max(0, 1 - Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) / 40);
   }
 
-  onWindup(e, kind) {
+  onWindup(e: Enemy, kind: string) {
     const d = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z);
     if (kind === 'slam') {
       this.audio.roar();
@@ -2536,7 +2762,7 @@ export class Game {
   }
 
   // The escape ending: you fly out, and the run is over
-  flyOut(stats) {
+  flyOut(stats: Record<string, unknown>) {
     if (!this.debug) addRecords({ flights: 1 });
     this.bankRecords();
     clearSave();
@@ -2551,7 +2777,7 @@ export class Game {
   // ---------------------------------------------------------------- the expedition
 
   // a page read: by day it opens (the world waits); at night it's kept for the satchel's Notes
-  onPage(q) {
+  onPage(q: Note) {
     this.audio.pickup(2);
     if (this.waves.phase === 'night' || this.modal || this.debug) {
       this.hud.message(`A page: "${q.title}" ✚ read it in the satchel (Tab, Notes)`, '#e8d8a8');
@@ -2579,7 +2805,7 @@ export class Game {
     this.hud.banner('Grafting', 'The heart beats into the bench and roots spread through the grain. Tier 2 towers take a graft, tier 3 two: hold G on a tower with one in your satchel.', 'win');
   }
 
-  graftOn(b, id) {
+  graftOn(b: Building, id: string) {
     this.inventory.remove(id, 1);
     this.stats.grafts++;
     b.addGraft(id);
@@ -2595,7 +2821,7 @@ export class Game {
     return this.buildings.list.filter((b) => !b.dead && b.def.ward).map((b) => ({ x: b.x, z: b.z, r: b.def.ward }));
   }
 
-  burnRot(x, z, r, amount) {
+  burnRot(x: number, z: number, r: number, amount: number) {
     if (!this.rot.any) return;
     if (this.rot.burn(x, z, r, amount) && amount >= 0.5) {
       this.journal.event('burnrot');
@@ -2605,7 +2831,7 @@ export class Game {
 
   // Once a second: braziers burn back the Rot round them, towers standing on it choke, and the
   // ground is repainted when it has changed (at most every few seconds)
-  tickRot(dt) {
+  tickRot(dt: number) {
     if (!this.rot.any) return;
     this.rotT = (this.rotT ?? 0) - dt;
     if (this.rotT > 0) return;
@@ -2627,7 +2853,7 @@ export class Game {
   }
 
   // a sign tonight (or none): the fog thins the towers' sight
-  applySign(sign) {
+  applySign(sign: string | null) {
     this.mods.fogRange = sign === 'fog' ? 0.7 : 1;
     this.signFog = sign === 'fog' ? 1 : 0;
     this.signMoon = sign === 'blood' ? 1 : 0;
@@ -2652,11 +2878,11 @@ export class Game {
 
   // ---------------------------------------------------------------- loop
 
-  setPaused(p) {
+  setPaused(p: boolean) {
     this.paused = p;
   }
 
-  frame(ts) {
+  frame(ts: number) {
     this.timer.update(ts);
     let dt = Math.min(Math.max(this.timer.getDelta(), 0), 0.05);
     const t = this.timer.getElapsed();
@@ -2955,7 +3181,7 @@ export class Game {
     this.haze = damp(this.haze ?? 0, this.canopy.coverAround(pos.x, pos.z, 10), 0.8, dt);
     this.camera.getWorldDirection(this._ahead).setY(0).normalize();
     // the drowned grove's air: thick, green-grey, still
-    this.swampAir = damp(this.swampAir ?? 0, sampleTerrain(pos.x, pos.z, this._ground ||= {}).swamp, 0.6, dt);
+    this.swampAir = damp(this.swampAir ?? 0, sampleTerrain(pos.x, pos.z, this._ground ||= {} as TerrainSample).swamp, 0.6, dt);
     this.sky.update(dt, pos, false, Math.max(this.cover, this.haze), this._ahead, this.swampAir);
     this.weather.update(realDt, t, this.camera, this.sky, this.audio, this.sky.state.night);
     this.hud.lightning(this.weather.uniforms.uFlash.value);
@@ -2965,6 +3191,14 @@ export class Game {
       this.collect(g.id);
       // picking up drops counts toward the first journal step as much as tapping E does
       this.journal.event('forage');
+    }
+    // standing over something the satchel won't take: say why (now and then, not every frame)
+    const stuck = this.pickups.blocked;
+    this.blockedT = Math.max(0, (this.blockedT || 0) - dt);
+    if (stuck && this.blockedT <= 0) {
+      this.blockedT = 4;
+      const full = this.inventory.slotRoom(stuck) < 1;
+      this.hud.message(`${ITEMS[stuck].name}: ${full ? 'no pocket free in your pack or belt' : 'too heavy to carry'} ✚ Drop or store something (${this.hud.keyLabel('Tab')})`, '#ff9a7a');
     }
     this.particles.update(dt, this.camera);
     this.ambient.update(dt, t, this.camera, pos);
@@ -3015,7 +3249,7 @@ export class Game {
       underwater: this.camera.position.y < WATER_LEVEL - 0.05, done: this.doneSet,
       hp: this.player.hp, maxHp: this.player.maxHp, waves: this.waves, base: this.base,
       buildings: this.buildings.list, enemies: this.enemies.list, buildRadius: BUILD_RADIUS,
-      camera: this.camera, boss: this.enemies.boss, journal: this.journal.lines(this.waves.phase),
+      camera: this.camera, boss: this.enemies.boss, journal: this.journal.lines(this.waves.phase, this.owns),
     });
 
     this.post.enabled.bloom = this.bloom;

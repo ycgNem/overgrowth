@@ -1,0 +1,21 @@
+{
+  // Moving to TypeScript a file at a time: the old .js files are checked too (checkJs), new
+  // files are .ts, and strict waits until most of src is converted. Vite builds; tsc only
+  // type-checks (npm run typecheck).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "strict": false
+  },
+  "include": ["src"]
+}

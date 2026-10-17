@@ -110,7 +110,12 @@ else {
   const o3 = await ev(() => { const o = window.game.hud.otherPane; return o && { left: o.inv.slots.filter(Boolean).length }; });
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(200);
-  const done = await ev(() => ({ done: window.__crate.done, open: !!window.game.hud.otherPane }));
+  // (by id: the chunk may have rebuilt while it was searched, with a new object for the crate)
+  const done = await ev(() => {
+    const g = window.game, id = window.__crate.id;
+    const it = [...g.world.chunks.values()].flatMap((ch) => ch.interactables).find((q) => q.id === id);
+    return { done: !!(it?.done || g.world.looted.has(id)), open: !!g.hud.otherPane };
+  });
   ok(`crate prised open: ${o1?.items} finds hidden ${o1?.hidden} -> ${o2?.hidden}, R takes all (left ${o3?.left}), shut it is done: ${done.done}`,
     o1 && o1.hidden === o1.items && o1.items > 0 && o2?.hidden === 0 && o3?.left === 0 && done.done && !done.open);
 

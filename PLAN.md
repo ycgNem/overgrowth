@@ -313,9 +313,36 @@ The old list follows for reference.
 
 ## Start here (next session, written 2026-10-15)
 
-**1.0.1 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
-"Lighter Loads" patch. Read the **1.0 handoff** (the first handoff below), then `README.md`.
-Its "Open / next" list is where to pick up.
+**1.0.2 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
+"Lighter Loads" and "Smooth Going" patches. Read the **1.0 handoff** (the first handoff
+below), then `README.md`. Its "Open / next" list is where to pick up.
+
+### 1.0.2 "Smooth Going" (2026-10-16, released)
+- **Hitches were shader programs first compiled mid-run.** The load-time warm-up
+  (`Game.init`) now also compiles one pickup of every item (model, glow, beam), one of every
+  defence standing and as its placement hologram (`hologram` in `defense/Towers.ts`, split
+  out of `BuildGhost.show`), and every belt item and the slingshot in the viewmodel scene,
+  with the sky's environment map set on it as in play. `Game.compileSafe(scene, camera)`
+  binds the target the scene is really drawn into (`post.sceneRT`, or `post.compRT` for the
+  viewmodel): against the canvas, three made ~60 sRGB, tone-mapped variants nobody used.
+  Programs in play went from 154 to 107. Before: 0.5 s on the first barricade held, 0.2 s on
+  first drops, ~70 ms on first held consumables. Guard: `node --experimental-strip-types
+  e2e/firstuse.ts` (every first use: 0 new programs, worst frame under 60 ms) and
+  `e2e/session.ts` (a day and a night, every frame over 40 ms with what compiled in it).
+- Crafting a field recipe out of camp threw (`Game.craft` passed the satchel to `craftFrom`
+  unwrapped); fixed, and `e2e/loop.mjs` crafts a poultice ~300 m out (11 PASS now).
+- Belt: `Inventory.cap` lets anything on the belt; `order` puts non-belt kinds in the pack
+  first, then the belt. `Game.dropPack` drops belt materials, salvage and relics with the
+  pack. `Pickups.blocked` + a throttled message say why something in reach can't be taken;
+  smashed-crate loot spawns `auto` (flies to you). Clay is red-brown and smooth
+  (`ItemModels`). Journal goals can be met by owning an item (`owned`, `lines(phase, has)`).
+- **TypeScript (the developer's rule since 2026-10-16):** `tsconfig.json` (allowJs, checkJs,
+  noEmit, not strict), `npm run typecheck`. Converted: `Game`, `Journal`, `Inventory`,
+  `ItemDB`, `ItemModels`, `Pickups`, `Containers`, `Towers` (`.ts`, imported with the `.ts`
+  extension). `tsc` reports 70 errors, all in older `.js` files. New files are `.ts`; convert a
+  `.js` file when doing real work in it.
+- `e2e/pack.mjs` checks the prised crate by id (a chunk rebuild swapped the object, an
+  intermittent false FAIL).
 
 ### 1.0.1 "Lighter Loads" (2026-10-15, released)
 - Item weights roughly halved, heaviest cut most (`WEIGHT` in `src/items/ItemDB.js`): log
@@ -329,12 +356,14 @@ Its "Open / next" list is where to pick up.
   spill). Its prised-crate check failed once in four runs (a timing flake, not reproduced).
 Start the dev server with the Browser preview (`.claude/launch.json`, name `overgrowth`, port
 5188) or `npm run dev`. Before changing anything, run:
-- `node e2e/loop.mjs` (10 PASS)
+- `node e2e/loop.mjs` (11 PASS)
 - `node e2e/blight.mjs` (3)
 - `node e2e/pack.mjs` (11)
-- `node e2e/story.mjs` (11)
+- `node e2e/story.mjs` (11-12)
 - `node e2e/m14.mjs` (8)
 - `node e2e/daily.mjs` (15 dates)
+- `node --experimental-strip-types e2e/firstuse.ts` (all clear)
+- `npm run typecheck` (no errors in the `.ts` files)
 
 After a Blender export, run `npm run compress`. Commit on `main` and push only when the user asks; after a release add CHANGELOG
 notes and refresh this section. The developer's alias is **ycgNem** (credits, git author).

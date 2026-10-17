@@ -11,6 +11,7 @@ export class AudioSys {
     this.birdTimer = 2;
     this.day = 1;
     this.water = 0;
+    this.raw = null; // the bare sounds, before Game wraps them with captions
   }
 
   // Must be called from a user gesture.

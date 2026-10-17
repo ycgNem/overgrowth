@@ -3,16 +3,19 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { rustTexture } from '../art/textures.js';
-import { ITEMS } from './ItemDB.js';
+import { ITEMS } from './ItemDB.ts';
 import { cloneModel, hasModel } from '../assets/Models.js';
 
 const TAU = Math.PI * 2;
 
-const std = (o) => new THREE.MeshStandardMaterial(o);
-let M = null;
-function mats() {
-  if (M) return M;
-  M = {
+const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(o);
+type Mats = ReturnType<typeof makeMats>;
+let M: Mats | null = null;
+function mats(): Mats {
+  return (M ??= makeMats());
+}
+function makeMats() {
+  return {
     rust: std({ map: rustTexture(3), roughness: 0.85, metalness: 0.3 }),
     steel: std({ color: 0x8a8f94, roughness: 0.4, metalness: 0.9 }),
     darkSteel: std({ color: 0x4a4038, roughness: 0.7, metalness: 0.6 }),
@@ -53,7 +56,8 @@ function mats() {
     eel: std({ color: 0x23261c, roughness: 0.25, metalness: 0.1 }),
     smoked: std({ color: 0x4a2a14, roughness: 0.6 }),
     bogIron: std({ color: 0x7a3a1a, roughness: 0.85, metalness: 0.25 }),
-    clay: std({ color: 0x8a8278, roughness: 0.75 }),
+    // red-brown and wet-looking, so it never reads as a stone beside one
+    clay: std({ color: 0xa8603a, roughness: 0.42 }),
     feather: std({ color: 0xe8e2d2, roughness: 0.8, side: THREE.DoubleSide }),
     featherTip: std({ color: 0x3a3f4a, roughness: 0.8, side: THREE.DoubleSide }),
     bone: std({ color: 0xe4dcc4, roughness: 0.7 }),
@@ -64,10 +68,12 @@ function mats() {
     hide: std({ color: 0x6a4a34, roughness: 0.8 }),
     oilcloth: std({ color: 0x3e4a32, roughness: 0.55 }),
   };
-  return M;
 }
 
-function mesh(geo, mat, { p = [0, 0, 0], r = [0, 0, 0], s = 1 } = {}) {
+type Vec3 = [number, number, number];
+type Builder = (m: Mats) => THREE.Object3D;
+
+function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, { p = [0, 0, 0], r = [0, 0, 0], s = 1 }: { p?: Vec3; r?: Vec3; s?: number | Vec3 } = {}) {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(...p);
   m.rotation.set(...r);
@@ -93,7 +99,7 @@ function gearGeometry(teeth = 10, r0 = 0.12, r1 = 0.16, hole = 0.04, depth = 0.0
 }
 
 // a pack: a rounded body, a flap and two straps (also the lost satchel in the world)
-function packModel(m, body, flap, w = 0.3, h = 0.36, d = 0.18) {
+function packModel(m: Mats, body: THREE.Material, flap: THREE.Material, w = 0.3, h = 0.36, d = 0.18) {
   const g = new THREE.Group();
   const b = new THREE.SphereGeometry(0.5, 12, 8);
   b.scale(w, h, d);
@@ -104,7 +110,7 @@ function packModel(m, body, flap, w = 0.3, h = 0.36, d = 0.18) {
   return g;
 }
 
-const builders = {
+const builders: Record<string, Builder> = {
   // the expedition: a torn page, the Thornback's heart, the grafts
   torn_page(m) {
     const geo = new THREE.PlaneGeometry(0.3, 0.38, 5, 6);
@@ -384,7 +390,7 @@ function leafGeo(len = 0.16, w = 0.07) {
   return new THREE.ShapeGeometry(s, 6);
 }
 
-function lumpy(geo, amt, seed = 1) {
+function lumpy<G extends THREE.BufferGeometry>(geo: G, amt: number, seed = 1): G {
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -396,7 +402,7 @@ function lumpy(geo, amt, seed = 1) {
   return geo;
 }
 
-const forestBuilders = {
+const forestBuilders: Record<string, Builder> = {
   stick(m) {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(0.018, 0.026, 0.5, 6), m.bark, { r: [0, 0, Math.PI / 2 - 0.1] }));
@@ -485,7 +491,8 @@ const forestBuilders = {
     return g;
   },
   clay(m) {
-    return mesh(lumpy(new THREE.SphereGeometry(0.13, 14, 10), 0.08, 9), m.clay, { s: [1.3, 0.6, 1] });
+    // a smooth, squashed slab (the stone is grey and faceted)
+    return mesh(lumpy(new THREE.SphereGeometry(0.13, 18, 12), 0.03, 9), m.clay, { s: [1.45, 0.45, 1.05] });
   },
   feather(m) {
     const g = new THREE.Group();
@@ -531,7 +538,7 @@ const forestBuilders = {
   },
   smoked_eel(m) {
     const g = forestBuilders.eel(m);
-    g.children[0].material = m.smoked;
+    (g.children[0] as THREE.Mesh).material = m.smoked;
     g.add(mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.62, 5), m.wood, { r: [0, 0, Math.PI / 2] }));
     return g;
   },
@@ -613,7 +620,7 @@ const forestBuilders = {
 };
 
 // Spike trap: also placed in the world, so it's exported.
-export function spikeTrapModel(m = mats()) {
+export function spikeTrapModel(m: Mats = mats()) {
   const g = new THREE.Group();
   g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 1.2), m.woodDark, { p: [0, 0.03, 0] }));
   for (let i = 0; i < 4; i++) g.add(mesh(new THREE.BoxGeometry(1.24, 0.07, 0.08), m.bark, { p: [0, 0.05, -0.45 + i * 0.3] }));
@@ -628,9 +635,9 @@ export function spikeTrapModel(m = mats()) {
   return g;
 }
 
-const cache = new Map();
+const cache = new Map<string, THREE.Group>();
 
-export function getItemModel(id) {
+export function getItemModel(id: string): THREE.Group {
   if (!cache.has(id)) {
     const def = ITEMS[id];
     const g = def?.model && hasModel(def.model) ? cloneModel(def.model)
@@ -651,7 +658,7 @@ export function getItemModel(id) {
 }
 
 // Render every item to a transparent PNG for the inventory UI.
-export function renderItemIcons(renderer, ids) {
+export function renderItemIcons(renderer: THREE.WebGLRenderer, ids: Iterable<string>): Record<string, string> {
   const size = 128;
   const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace });
   const scene = new THREE.Scene();
@@ -673,7 +680,7 @@ export function renderItemIcons(renderer, ids) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const icons = {};
+  const icons: Record<string, string> = {};
   const prevTarget = renderer.getRenderTarget();
   const prevColor = renderer.getClearColor(new THREE.Color());
   const prevAlpha = renderer.getClearAlpha();

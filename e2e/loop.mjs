@@ -51,6 +51,20 @@ await page.click('.recipe button');
 await page.waitForTimeout(200);
 const after = await ev(() => ({ b: window.game.inventory.count('barricade'), s: window.game.inventory.count('stick') }));
 ok(`craft barricade by click (${before}->${after.b}, sticks left ${after.s})`, after.b === before + 1);
+// ...and an Anywhere recipe out in the forest, from the satchel alone (this threw in 1.0.1)
+const away = await ev(async () => {
+  const g = window.game, p = g.player.pos, x0 = p.x, z0 = p.z;
+  const { recipeFor } = await import('/src/items/Recipes.js');
+  for (const [id, n] of [['berries', 4], ['fiber', 1], ['moss', 1]]) g.give(id, n);
+  p.x += 300; p.z += 300;
+  const atCamp = g.craftContext().atCamp, before = g.inventory.count('poultice');
+  let err = null;
+  try { g.craft(recipeFor('poultice')); } catch (e) { err = String(e); }
+  const r = { atCamp, before, after: g.inventory.count('poultice'), err };
+  p.x = x0; p.z = z0;
+  return r;
+});
+ok(`craft a poultice away from camp (${away.before}->${away.after}${away.err ? `, ${away.err}` : ''})`, !away.atCamp && !away.err && away.after === away.before + 1);
 // drag-free move: click slot to pick, click another to drop
 await page.click(`#inv-belt .slot:nth-child(8)`).catch(()=>{});
 await page.keyboard.press('Tab');

@@ -1,12 +1,12 @@
 // Items lying in the world: pop out of whatever dropped them, settle,
 // bob with a rarity glow, then fly to the player when close.
 import * as THREE from 'three';
-import { getItemModel } from './ItemModels.js';
-import { ITEMS, RARITY } from './ItemDB.js';
+import { getItemModel } from './ItemModels.ts';
+import { ITEMS, RARITY } from './ItemDB.ts';
 import { glowTexture } from '../art/textures.js';
 
-const beamMat = new Map();
-function beamMaterial(color) {
+const beamMat = new Map<string, THREE.ShaderMaterial>();
+function beamMaterial(color: string) {
   if (!beamMat.has(color)) {
     beamMat.set(color, new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(color) } },
@@ -21,17 +21,41 @@ function beamMaterial(color) {
 const beamGeo = new THREE.CylinderGeometry(0.025, 0.07, 3.5, 8, 1, true);
 beamGeo.translate(0, 1.75, 0);
 
+export interface Pickup {
+  id: string;
+  root: THREE.Group;
+  model: THREE.Object3D;
+  glow: THREE.Sprite;
+  rarity: { color: string; order: number };
+  vel: THREE.Vector3;
+  age: number;
+  settled: boolean;
+  ground: number;
+  phase: number;
+  magnet: boolean;
+  auto: boolean;
+}
+// what pickups need from the world: where the ground is
+interface Ground { groundHeight(x: number, z: number, feetY?: number): number }
+
 export class Pickups {
-  constructor(scene, world) {
+  scene: THREE.Scene;
+  world: Ground;
+  items: Pickup[];
+  glowTex: THREE.Texture;
+  canTake: (id: string) => boolean; // items stay put while the satchel is full
+  blocked: string | null = null;
+
+  constructor(scene: THREE.Scene, world: Ground) {
     this.scene = scene;
     this.world = world;
     this.items = [];
     this.glowTex = glowTexture();
-    this.canTake = () => true; // items stay put while the satchel is full
+    this.canTake = () => true;
   }
 
   // auto: fly to the player even from a distance (loot from searches).
-  spawn(id, origin, impulse = 1, auto = false) {
+  spawn(id: string, origin: THREE.Vector3, impulse = 1, auto = false): Pickup {
     const def = ITEMS[id];
     const rarity = RARITY[def.rarity];
     const root = new THREE.Group();
@@ -52,7 +76,7 @@ export class Pickups {
     this.scene.add(root);
     const a = Math.random() * Math.PI * 2;
     const sp = (1.2 + Math.random() * 1.8) * impulse;
-    const item = {
+    const item: Pickup = {
       id, root, model, glow, rarity,
       vel: new THREE.Vector3(Math.cos(a) * sp, 4 + Math.random() * 2.5, Math.sin(a) * sp),
       age: 0, settled: false, ground: 0, phase: Math.random() * 10, magnet: false, auto,
@@ -61,16 +85,21 @@ export class Pickups {
     return item;
   }
 
-  // Returns ids collected this frame.
-  update(dt, t, playerPos) {
-    const got = [];
+  // Returns ids collected this frame. this.blocked: something in reach the satchel can't take
+  // (the game says why), else null.
+  update(dt: number, t: number, playerPos: THREE.Vector3) {
+    const got: { id: string; pos: THREE.Vector3 }[] = [];
+    this.blocked = null;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const p = this.items[i];
       p.age += dt;
       const pos = p.root.position;
       const dx = playerPos.x - pos.x, dy = playerPos.y + 0.9 - pos.y, dz = playerPos.z - pos.z;
       const d = Math.hypot(dx, dy, dz);
-      if (!p.magnet && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15)) && this.canTake(p.id)) p.magnet = true;
+      if (!p.magnet && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) {
+        if (this.canTake(p.id)) p.magnet = true;
+        else if (d < 2.6) this.blocked = p.id;
+      }
       if (p.magnet) {
         const speed = 4 + p.age * 3;
         pos.x += (dx / d) * speed * dt * Math.min(1, d * 2);
@@ -108,7 +137,7 @@ export class Pickups {
     return got;
   }
 
-  remove(i) {
+  remove(i: number) {
     const p = this.items[i];
     this.scene.remove(p.root);
     p.glow.material.dispose();

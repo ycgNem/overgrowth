@@ -1,5 +1,25 @@
 # Patch notes
 
+## 1.0.2: Smooth Going (2026-10-16)
+
+- **No more random freezes.** The game used to stop for up to half a second the first time
+  you held a defence, the first time each kind of loot dropped, and the first time you held a
+  poultice, smoked eel or the slingshot. All of that is now prepared on the loading screen.
+- **Crafting out in the forest works again.** Field recipes (traps, poultices, firepots,
+  ammo) could fail with an error away from camp.
+- **The belt takes anything.** Move materials and salvage onto the belt when the pack is
+  full; new finds use empty belt slots once the pack runs out of pockets. What you use from
+  the belt still stays with you when you fall, but materials, salvage and relics on it drop
+  with the pack.
+- **Full pack? The game says so.** Standing over something you can't carry tells you
+  whether you're out of pockets or it's too heavy.
+- **Smashed-crate loot comes to you**, like a searched crate's does, so nothing lands out
+  of reach.
+- **River clay looks like clay.** A smooth red-brown slab, no longer a grey lump you could
+  mistake for a stone.
+- **The slingshot goal** in the journal no longer asks you to craft one when you already have
+  one.
+
 ## 1.0.1: Lighter Loads (2026-10-15)
 
 - **Everything weighs about half as much.** The heavy things lost the most: a log is 1.5 kg

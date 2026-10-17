@@ -1,5 +1,5 @@
 // Item definitions and loot tables. Add a new item here + a model in
-// ItemModels.js and it shows up everywhere (pickups, icons, inventory, recipes).
+// ItemModels.ts and it shows up everywhere (pickups, icons, inventory, recipes).
 //
 // kind: material (crafting), scrap (salvage, also crafting), relic (offer at the
 //       Heartwood), build (placeable defence), use (consumable), tool (weapon), gear (kept
@@ -31,7 +31,27 @@ export const KIND = {
   graft: { name: 'Graft', stack: 3 },
 };
 
-export const ITEMS = {
+export type RarityId = keyof typeof RARITY;
+export type ItemKind = keyof typeof KIND;
+export interface ItemDef {
+  name: string;
+  kind: ItemKind;
+  rarity: RarityId;
+  value: number;
+  desc: string;
+  stack?: number; // overrides the kind's stack size
+  wt?: number; // overrides WEIGHT
+  model?: string; // the building model a 'build' item places
+  heal?: number;
+  throw?: boolean;
+  salve?: boolean;
+  graft?: boolean;
+  ammo?: number; // slingshot damage multiplier
+}
+// chance: probability of any drop at all; rolls: number of draws from table ([id, weight]).
+export interface LootTable { chance: number; rolls: number; table: [string, number][]; guaranteed?: string[] }
+
+export const ITEMS: Record<string, ItemDef> = {
   // ------------------------------------------------------------- forest materials
   stick: { name: 'Stick', kind: 'material', rarity: 'common', value: 1, desc: 'A straight, dry branch. The start of nearly everything.' },
   log: { name: 'Log', kind: 'material', rarity: 'common', value: 3, stack: 8, desc: 'A length of trunk, hacked free with a lot of effort.' },
@@ -45,7 +65,7 @@ export const ITEMS = {
   mushroom: { name: 'Spotted Mushroom', kind: 'material', rarity: 'common', value: 2, desc: "Red cap, white spots. Don't eat it. Do load it into a mortar." },
   glowcap: { name: 'Glowcap', kind: 'material', rarity: 'rare', value: 10, desc: 'A mushroom that glows a faint cold blue. The Blight hates its light.' },
   berries: { name: 'Wild Berries', kind: 'material', rarity: 'common', value: 1, desc: 'Sweet, sharp and only slightly poisonous.' },
-  clay: { name: 'River Clay', kind: 'material', rarity: 'uncommon', value: 3, desc: 'Cool grey clay dug from the riverbank.' },
+  clay: { name: 'River Clay', kind: 'material', rarity: 'uncommon', value: 3, desc: 'Slick red-brown clay dug from the riverbank. It squashes in your hand, where a stone won’t.' },
   feather: { name: 'Feather', kind: 'material', rarity: 'uncommon', value: 3, desc: 'A long flight feather. Perfect fletching.' },
   bone: { name: 'Bone', kind: 'material', rarity: 'uncommon', value: 3, desc: 'Picked clean. Something big ate well out here.' },
   moss: { name: 'Moss', kind: 'material', rarity: 'common', value: 1, desc: 'Damp and springy. Soaks up blood and packs wounds.' },
@@ -107,13 +127,13 @@ export const ITEMS = {
 };
 
 export const ITEM_IDS = Object.keys(ITEMS);
-export const stackOf = (id) => ITEMS[id].stack ?? KIND[ITEMS[id].kind].stack;
+export const stackOf = (id: string): number => ITEMS[id].stack ?? KIND[ITEMS[id].kind].stack;
 
 // kilograms each. Logs, stone, iron and built defences are what fill a pack; feathers, seeds
 // and fibre weigh next to nothing. Kept light enough that a full day's foraging fits in the
 // starting satchel before it slows you.
-const KIND_WEIGHT = { material: 0.15, scrap: 0.25, relic: 0.3, build: 1.5, use: 0.15, tool: 0.4, gear: 0.6, pack: 0 };
-const WEIGHT = {
+const KIND_WEIGHT: Partial<Record<ItemKind, number>> = { material: 0.15, scrap: 0.25, relic: 0.3, build: 1.5, use: 0.15, tool: 0.4, gear: 0.6, pack: 0 };
+const WEIGHT: Record<string, number> = {
   stick: 0.1, log: 1.5, stone: 0.4, flint: 0.15, fiber: 0.05, vine: 0.1, bark: 0.08, resin: 0.12, thorns: 0.05,
   mushroom: 0.08, glowcap: 0.1, berries: 0.05, clay: 0.6, feather: 0.02, bone: 0.2, moss: 0.05, strange_seeds: 0.02,
   reed: 0.08, eel: 0.4, bog_iron: 0.8, ghost_orchid: 0.05, rot_hide: 0.6,
@@ -124,21 +144,20 @@ const WEIGHT = {
   poultice: 0.15, smoked_eel: 0.3, firepot: 0.4, orchid_salve: 0.15, slingshot: 0.3, scrap_shot: 0.06, pry_bar: 0.8,
   heartseed: 1, torn_page: 0.01, thornback_heart: 1, glowcap_lens: 0.2, bog_heads: 0.4, resin_drip: 0.3, coiled_spring: 0.2, root_anchor: 0.5,
 };
-export const weightOf = (id) => ITEMS[id].wt ?? WEIGHT[id] ?? KIND_WEIGHT[ITEMS[id].kind] ?? 0.5;
+export const weightOf = (id: string): number => ITEMS[id].wt ?? WEIGHT[id] ?? KIND_WEIGHT[ITEMS[id].kind] ?? 0.5;
 // things that break when a container they're in is smashed open instead of searched
 export const FRAGILE = new Set(['old_bottle', 'vacuum_tube', 'battery', 'pocket_watch', 'compass', 'jade_figurine', 'glowcap_lens']);
 // the grafts, for loot tables
-export const GRAFT_IDS = ['glowcap_lens', 'bog_heads', 'resin_drip', 'coiled_spring', 'root_anchor'];
+export const GRAFT_IDS: string[] = ['glowcap_lens', 'bog_heads', 'resin_drip', 'coiled_spring', 'root_anchor'];
 
 // Backpacks: what each carries. Wearing one is the satchel's capacity, pack slots and safe pouch.
-export const PACKS = {
+export const PACKS: Record<string, { cap: number; slots: number; safe: number }> = {
   woven_satchel: { cap: 25, slots: 16, safe: 1 },
   hide_pack: { cap: 32, slots: 18, safe: 1 },
   rucksack: { cap: 40, slots: 20, safe: 2 },
 };
 
-// chance: probability of any drop at all; rolls: number of draws.
-export const LOOT = {
+export const LOOT: Record<string, LootTable> = {
   grass: { chance: 0.35, rolls: 1, table: [['fiber', 80], ['strange_seeds', 4], ['thorns', 6]] },
   fern: { chance: 0.45, rolls: 1, table: [['fiber', 50], ['moss', 20], ['strange_seeds', 6], ['rusty_bolts', 3], ['feather', 3]] },
   bush: { chance: 0.7, rolls: 2, table: [['stick', 34], ['thorns', 22], ['berries', 22], ['fiber', 14], ['scrap_metal', 3], ['tin_can', 2], ['copper_wire', 1.5], ['feather', 2]] },
@@ -182,9 +201,9 @@ export const LOOT = {
 // grafts don't turn up until the Workbench can set them (Expedition.grafting keeps this)
 export const lootGate = { grafting: false };
 const GRAFT_SET = new Set(GRAFT_IDS);
-const ungrafted = new Map();
+const ungrafted = new Map<LootTable, [string, number][]>();
 
-export function rollLoot(tableName, rand) {
+export function rollLoot(tableName: string, rand: () => number): string[] {
   const t = LOOT[tableName];
   if (!t || rand() > t.chance) return [];
   let table = t.table;
@@ -202,7 +221,7 @@ export function rollLoot(tableName, rand) {
 // lying loose on the floor (World.plan's forage), and in the drowned grove's shallows
 const FLOOR = new Set(['stick', 'stone', 'flint', 'mushroom', 'glowcap', 'feather', 'bone', 'bark', 'fiber', 'moss', 'berries', 'vine', 'clay']);
 const GROVE_FLOOR = new Set(['reed', 'eel', 'bog_iron', 'moss', 'clay']);
-const SOURCE_NAMES = {
+const SOURCE_NAMES: Record<string, string> = {
   grass: 'cutting grass', fern: 'cutting ferns', bush: 'cutting bushes', banana: 'cutting banana plants', flower: 'cutting flowers',
   mushrooms: 'mushroom clumps', seedling: 'cutting saplings', trunk: 'chopping tree trunks', rock: 'breaking rocks',
   scrap: 'scrap heaps', crate: 'supply crates', camp: 'the abandoned camp', ruin: 'ruins', wreck: 'the plane wreck',
@@ -212,12 +231,12 @@ const SOURCE_NAMES = {
 
 // Where to look for an item, in a few words ("on the forest floor · breaking rocks"): read
 // from the forage lists and the loot tables, best odds first, so it stays true as they change.
-export function whereToFind(id, max = 3) {
+export function whereToFind(id: string, max = 3): string {
   // (a tree frees a log every third good blow: Game.hackTree, not a loot table)
   const out = id === 'log' ? ['chopping trees with the machete'] : [];
   if (FLOOR.has(id)) out.push('on the forest floor');
   if (GROVE_FLOOR.has(id) && !FLOOR.has(id)) out.push('in the drowned grove');
-  const odds = [];
+  const odds: [string, number][] = [];
   for (const [name, t] of Object.entries(LOOT)) {
     const total = t.table.reduce((s, [, w]) => s + w, 0);
     const w = t.table.find(([i]) => i === id)?.[1] ?? 0;

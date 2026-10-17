@@ -2,15 +2,15 @@
 // strip, combat feedback (damage numbers, health bars, hit markers, the boss bar), the
 // journal, and the overlays (satchel + crafting, boons, victory, game over).
 import * as THREE from 'three';
-import { ITEMS, RARITY, KIND, whereToFind, weightOf, PACKS } from '../items/ItemDB.js';
+import { ITEMS, RARITY, KIND, whereToFind, weightOf, PACKS } from '../items/ItemDB.ts';
 import { RECIPES, BENCHES, BENCH_IDS, AT_NAMES } from '../items/Recipes.js';
-import { HOTBAR, LADEN, HARD_CAP, transfer } from '../items/Inventory.js';
+import { HOTBAR, LADEN, HARD_CAP, transfer } from '../items/Inventory.ts';
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
 import { describeWave } from '../defense/Waves.js';
 import { AFFIXES, affixRim } from '../defense/Enemies.js';
-import { ROOTS, BUILD_DEFS } from '../defense/Towers.js';
+import { ROOTS, BUILD_DEFS } from '../defense/Towers.ts';
 
 // the kind of damage a defence does, on its craft card (the Blight resist some, fear others)
 const DTYPE = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce' };
@@ -56,6 +56,7 @@ export class HUD {
     this.poiEls = new Map();
     this.discovered = new Set();
     this.markers = []; // { key, x, z, icon, label, cls }
+    this.keyLabel = null; // (code) => the key it's bound to, for prompts (Game sets it)
     this.fpsAcc = { t: 0, n: 0 };
     this.hurtT = 0;
     this.carry = null; // { inv, i }: the stack picked up in the satchel (or the other pane)

@@ -7,7 +7,7 @@ import { addMoss, addNightFill, addPackedNormal, addRelief } from '../../art/sha
 import { worldBox, BlockBatch, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
 import { terrainHeight, terrainNormal, CHUNK_SIZE, WATER_LEVEL, grove } from '../WorldGen.js';
-import { getItemModel } from '../../items/ItemModels.js';
+import { getItemModel } from '../../items/ItemModels.ts';
 import { cloneModel } from '../../assets/Models.js';
 
 const TAU = Math.PI * 2;

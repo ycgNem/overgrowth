@@ -241,6 +241,8 @@ export class PostFX {
     this.camera = camera;
     this.sky = sky;
     this.enabled = { ao: true, vol: true, bloom: true };
+    this.water = null; // the river, for reflections (Game sets it)
+    this.exposure = 1; // eye adaptation under the canopy (Game sets it)
     this.size = new THREE.Vector2(1, 1);
 
     const depth = new THREE.DepthTexture(1, 1);

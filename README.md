@@ -79,7 +79,7 @@ exposed on `window`, for example:
 
 ```js
 game.teleport('temple')   // also: 'ruins', 'wreck', 'camp', 'scrap', 'crates', 'shrine'
-game.give('log', 5)       // any item id from src/items/ItemDB.js
+game.give('log', 5)       // any item id from src/items/ItemDB.ts
 game.skipToNight()        // jump the clock to dusk: the rifts open
 game.waves.setNight(5)    // pretend it's night 5 (a boss night)
 game.enemies.spawn('rotboar', game.base.x + 20, game.base.z)   // also 'blightling', 'wisp', 'thornback'
@@ -103,11 +103,11 @@ src/
   core/Difficulty.js   Verdant / Warden / Blightborn
   core/Memories.js     permanent unlocks earned from lifetime records
   audio/TitleTheme.js  the synthesised title music
-  core/Game.js         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
+  core/Game.ts         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
                        building, boss slams, endings, autosave
   core/Save.js         localStorage save/load of a run, best-run record, lifetime records
   core/Perks.js        boons offered at the Heartwood and the stat modifiers they change
-  core/Journal.js      first-day tutorial steps, then rolling optional goals
+  core/Journal.ts      first-day tutorial steps, then rolling optional goals
   core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering
   assets/Models.js     loads the Blender GLBs, clones them, finds animated parts
   art/merge.js         flattens models to one draw call per moving part (baked colour/emissive),
@@ -138,17 +138,17 @@ src/
   player/MacheteModel.js the machete (blade, scales, rivets) and the gloved hand (hand.glb)
   fx/Marks.js          gashes the machete cuts in bark, scrapes it leaves on stone
   world/Stubs.js       the cut stalks a machete leaves standing
-  items/ItemDB.js      items (materials, salvage, relics, buildables, consumables) + loot tables
+  items/ItemDB.ts      items (materials, salvage, relics, buildables, consumables) + loot tables
   items/Recipes.js     crafting recipes
-  items/Inventory.js   8-slot belt + 24-slot pack of stacks
-  items/ItemModels.js  3D item models + inventory icon renderer
-  items/Pickups.js     items in the world (pop, bob, glow, magnet)
+  items/Inventory.ts   8-slot belt + 24-slot pack of stacks
+  items/ItemModels.ts  3D item models + inventory icon renderer
+  items/Pickups.ts     items in the world (pop, bob, glow, magnet)
   defense/Base.js      the Heartwood (light, beam, hit reactions), base-site search, Blight rifts
   defense/FlowField.js enemy path-finding: one Dijkstra field around the base
   defense/Enemies.js   Blightling, Rotboar, Wisp, Spitter, Burrower, Thornback: steering,
                        wind-ups, pounces, bile globs and puddles, digging,
                        statuses (burn/root/slow), boss slam, spawn and death animations
-  defense/Towers.js    buildings, tiers, repair, targeting, projectiles, placement ghost
+  defense/Towers.ts    buildings, tiers, repair, targeting, projectiles, placement ghost
   defense/Waves.js     the day/night director, wave composition, boss and rain nights
   defense/Blooms.js    Blight Blooms: the day's guarded pods, cut down for loot, or they open lanes at dusk
   combat/Projectiles.js  slingshot stones and thrown firepots
@@ -247,12 +247,12 @@ live in `.claude/agents/`:
 
 ## Extending it
 
-- **New item:** add an entry in `ITEMS` (`items/ItemDB.js`), a builder in
-  `items/ItemModels.js`, and reference it in a loot table or recipe. The icon is generated
+- **New item:** add an entry in `ITEMS` (`items/ItemDB.ts`), a builder in
+  `items/ItemModels.ts`, and reference it in a loot table or recipe. The icon is generated
   automatically.
 - **New tower:** model it in `art/blender/` (keep `Turret`/`Aim` nodes if it should aim), add it
   to `MODEL_NAMES` in `assets/Models.js`, add an item with `kind: 'build'` and `model`, a recipe,
-  and an entry in `BUILD_DEFS` (`defense/Towers.js`) with its range, rate and damage. Give it a
+  and an entry in `BUILD_DEFS` (`defense/Towers.ts`) with its range, rate and damage. Give it a
   new `kind` and a branch in `Buildings.fire` if it shoots something new.
 - **New enemy:** a Blender model with `Head`/`Leg*` nodes, an entry in `ENEMY_TYPES`
   (`defense/Enemies.js`), a loot table, and a place in `waveFor` (`defense/Waves.js`).

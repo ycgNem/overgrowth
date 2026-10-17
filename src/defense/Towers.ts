@@ -4,16 +4,96 @@
 import * as THREE from 'three';
 import { cloneModel, part, parts } from '../assets/Models.js';
 import { flatten, setFlash, setTint, setEmit, ownMaterials } from '../art/merge.js';
-import { spikeTrapModel } from '../items/ItemModels.js';
+import { spikeTrapModel } from '../items/ItemModels.ts';
 import { terrainHeight, terrainNormal, WATER_LEVEL } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
 import { BUILD_RADIUS, GOAL_RADIUS } from './Base.js';
+import type { World } from '../world/World.js';
+import type { Enemies } from './Enemies.js';
+import type { FlowField } from './FlowField.js';
+import type { Particles } from '../fx/Particles.js';
+import type { LightPool } from '../fx/LightPool.js';
+import type { AudioSys } from '../audio/AudioSys.js';
 
 const TAU = Math.PI * 2;
-const backOut = (t) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2;
-const ease = (t) => 1 - (1 - t) ** 3;
+const backOut = (t: number) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2;
+const ease = (t: number) => 1 - (1 - t) ** 3;
 
-export const BUILD_DEFS = {
+export type BuildKind = 'bow' | 'mortar' | 'tesla' | 'fire' | 'wall' | 'trap' | 'snare' | 'lantern' | 'seed';
+export interface BuildDef {
+  model: string | null; // null: the spike trap, built from its item model
+  hp: number;
+  r: number; // footprint radius
+  pathCost: number;
+  blocks: boolean;
+  kind: BuildKind;
+  range?: number;
+  minRange?: number;
+  rate?: number; // seconds between shots
+  dmg?: number;
+  splash?: number;
+  slow?: number;
+  slowTime?: number;
+  chain?: number;
+  chainRange?: number;
+  burn?: number;
+  burnTime?: number;
+  muzzle?: number;
+  air?: boolean; // can hit flyers
+  light?: boolean;
+  thorns?: number;
+  rotates?: boolean;
+  root?: number;
+  grabs?: number;
+  expose?: number;
+  ward?: number;
+}
+// the stats Building.stat scales by tier and boons
+export type StatKey = 'dmg' | 'range' | 'rate' | 'splash' | 'chain' | 'thorns' | 'burn' | 'expose';
+// the player's boons that touch buildings (Game.mods)
+export interface TowerMods {
+  towerDmg?: number;
+  towerRange?: number;
+  towerRate?: number;
+  fogRange?: number;
+  mortarSplash?: number;
+  buildRegen?: number;
+  lanternRange?: number;
+  lanternExpose?: number;
+  boltSplit?: number;
+  sporeSlow?: number;
+  [key: string]: unknown;
+}
+// what combat hands the buildings each frame (Game.combatCtx)
+export interface TowerCtx {
+  enemies: Enemies;
+  field: FlowField;
+  audio: AudioSys;
+  particles: Particles;
+  lights?: LightPool;
+  base: { x: number; z: number };
+  mods?: TowerMods;
+  rain?: boolean;
+  [key: string]: unknown;
+}
+export interface Footprint { x: number; z: number; r: number }
+export type Collider =
+  | { type: 'box'; x: number; z: number; hx: number; hz: number; rot: number; top: number; building: Building }
+  | { type: 'circle'; x: number; z: number; r: number; top: number; building: Building };
+export interface BuildingInteractable { kind: 'building'; x: number; y: number; z: number; r: number; label: string; building: Building }
+interface Shot {
+  kind: 'bolt' | 'pod';
+  mesh: THREE.Mesh;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  target?: any;
+  t: number;
+  dur: number;
+  arc?: number;
+  hit: () => void;
+}
+
+export const BUILD_DEFS: Record<string, BuildDef> = {
   bow_tower: {
     model: 'bow_tower', hp: 320, r: 1.45, range: 22, rate: 1.0, dmg: 30, pathCost: 60, blocks: true,
     muzzle: 3.35, kind: 'bow', air: true,
@@ -41,7 +121,8 @@ export const BUILD_DEFS = {
 
 // Grafts: attachments found in containers and supply drops, fitted with G once the Thornback's
 // heart is set in the Workbench. A tower has one slot at tier 2 and two at tier 3.
-export const GRAFTS = {
+export interface GraftDef { glyph: string; color: number; say: string; fits: (d: BuildDef) => boolean }
+export const GRAFTS: Record<string, GraftDef> = {
   glowcap_lens: { glyph: '◉', color: 0x7ac8ff, say: '+20% range', fits: (d) => !!(d.range && d.dmg) },
   bog_heads: { glyph: '➶', color: 0xd07a40, say: 'ignores resistances', fits: (d) => !!d.dmg },
   resin_drip: { glyph: '♨', color: 0xffa030, say: 'sets the Blight burning', fits: (d) => !!d.dmg && d.kind !== 'fire' },
@@ -50,17 +131,18 @@ export const GRAFTS = {
 };
 // Settings: a colour-blind safe palette for the placement ghost (and the Blight: Enemies.js)
 export const PALETTE = { cb: false };
-export const graftSlots = (tier) => (tier >= 3 ? 2 : tier >= 2 ? 1 : 0);
+export const graftSlots = (tier: number) => (tier >= 3 ? 2 : tier >= 2 ? 1 : 0);
 // a hit from a grafted building: Bog-iron Heads cut through hide, Resin Drip sets it alight
-const graftOpts = (b, opts) => {
+interface HitOpts { source: string; type?: string; stagger?: number; pierceArmour?: boolean }
+const graftOpts = (b: Building | null, opts: HitOpts) => {
   if (b?.grafts?.includes('bog_heads')) opts.pierceArmour = true;
   return opts;
 };
-const graftHit = (b, e, enemies) => {
+const graftHit = (b: Building | null, e: any, enemies: Enemies) => {
   if (b?.grafts?.includes('resin_drip') && !e.dying) enemies.ignite(e, 5, 2.5);
 };
-const graftMats = {};
-function graftSprite(id) {
+const graftMats: Record<string, THREE.SpriteMaterial> = {};
+function graftSprite(id: string) {
   graftMats[id] ??= new THREE.SpriteMaterial({ map: glowTexture(), color: GRAFTS[id].color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85 });
   const s = new THREE.Sprite(graftMats[id]);
   s.scale.setScalar(0.5);
@@ -69,12 +151,12 @@ function graftSprite(id) {
 }
 
 // Upgrades: stat multipliers per tier, and what each step costs.
-export const TIER_MUL = {
+export const TIER_MUL: Record<number, { dmg: number; range: number; rate: number; hp: number }> = {
   1: { dmg: 1, range: 1, rate: 1, hp: 1 },
   2: { dmg: 1.5, range: 1.12, rate: 0.85, hp: 1.4 },
   3: { dmg: 2.2, range: 1.25, rate: 0.72, hp: 1.9 },
 };
-export const UPGRADES = {
+export const UPGRADES: Record<string, Record<number, Record<string, number>>> = {
   bow_tower: { 2: { log: 1, flint: 3, feather: 2, rusty_bolts: 2 }, 3: { log: 2, bone: 4, brass_gear: 1, glowcap: 1 } },
   spore_mortar: { 2: { clay: 2, mushroom: 4, resin: 2 }, 3: { stone: 4, glowcap: 2, strange_seeds: 3 } },
   tesla_totem: { 2: { copper_wire: 2, scrap_metal: 2, rusty_bolts: 2 }, 3: { vacuum_tube: 1, brass_gear: 2, battery: 1 } },
@@ -84,16 +166,16 @@ export const UPGRADES = {
   glow_lantern: { 2: { glowcap: 2, resin: 2, stick: 2 }, 3: { glowcap: 3, strange_seeds: 3, battery: 1 } },
 };
 // What a full repair costs: towers want bark and resin, walls sticks and thorns.
-export const REPAIRS = {
+export const REPAIRS: Record<'wall' | 'tower', Record<string, number>> = {
   wall: { stick: 2, thorns: 2 },
   tower: { bark: 2, resin: 1 },
 };
-export const TIER_NAMES = { 1: '', 2: 'Overgrown', 3: 'Heartbound' };
+export const TIER_NAMES: Record<number, string> = { 1: '', 2: 'Overgrown', 3: 'Heartbound' };
 // What each building draws from the Heartwood's roots (Game.rootCap is how many it can feed)
-export const ROOTS = { barricade: 1, spike_trap: 1, vine_snare: 1, glow_lantern: 2, heartseed: 2, bow_tower: 3, ember_brazier: 3, spore_mortar: 4, tesla_totem: 4 };
+export const ROOTS: Record<string, number> = { barricade: 1, spike_trap: 1, vine_snare: 1, glow_lantern: 2, heartseed: 2, bow_tower: 3, ember_brazier: 3, spore_mortar: 4, tesla_totem: 4 };
 
-let trapTemplate = null;
-function buildModel(id) {
+let trapTemplate: THREE.Object3D | null = null;
+function buildModel(id: string): THREE.Object3D {
   const def = BUILD_DEFS[id];
   if (def.model) return cloneModel(def.model, { own: true });
   if (!trapTemplate) trapTemplate = flatten(spikeTrapModel(), /^$/, { shadow: false });
@@ -107,7 +189,7 @@ const decorMats = {
   leaf: new THREE.MeshStandardMaterial({ color: 0x4f8a30, roughness: 0.7, side: THREE.DoubleSide }),
   band: new THREE.MeshStandardMaterial({ color: 0xb8a882, roughness: 0.6, metalness: 0.1 }),
 };
-function tierDecor(b, tier) {
+function tierDecor(b: Building, tier: number) {
   const g = new THREE.Group();
   g.name = 'TierDecor';
   const def = b.def;
@@ -163,8 +245,51 @@ function tierDecor(b, tier) {
 }
 
 // ------------------------------------------------------------------ one building
-class Building {
-  constructor(id, x, z, rot, ground) {
+export class Building {
+  id: string;
+  def: BuildDef;
+  x: number;
+  z: number;
+  rot: number;
+  y: number;
+  tier: number;
+  hp: number;
+  maxHp: number;
+  grafts: string[];
+  blocks: boolean;
+  pathCost: number;
+  cooldown: number;
+  flash: number;
+  dead: boolean;
+  buildT: number;
+  popT: number;
+  idleT: number;
+  barT: number;
+  obj: THREE.Object3D;
+  turret: THREE.Object3D | null;
+  aim: THREE.Object3D | null;
+  bolt: THREE.Object3D | null;
+  orb: THREE.Object3D | null;
+  rings: THREE.Object3D | null;
+  bellows: THREE.Object3D | null;
+  flame: THREE.Object3D | null;
+  coals: THREE.Object3D | null;
+  grabs: THREE.Object3D[];
+  recoil: number;
+  charge: number;
+  grabT: number;
+  aimRest: number;
+  footprint: Footprint[];
+  collider: Collider | null;
+  interactable: BuildingInteractable;
+  // (set later on, so declared without emitting a field)
+  declare scarred?: boolean;
+  declare rotK?: number; // how deep in the Rot it stands (Game)
+  declare deathT?: number;
+  declare fall?: number;
+  declare dusted?: boolean;
+
+  constructor(id: string, x: number, z: number, rot: number, ground: number) {
     const def = BUILD_DEFS[id];
     this.id = id;
     this.def = def;
@@ -215,7 +340,7 @@ class Building {
   }
 
   // a stat after the tier and the player's boons
-  stat(key, mods = {}) {
+  stat(key: StatKey, mods: TowerMods = {}): number | undefined {
     const base = this.def[key];
     if (base === undefined) return undefined;
     const m = TIER_MUL[this.tier];
@@ -243,7 +368,7 @@ class Building {
   get repairCost() {
     const base = this.def.kind === 'wall' ? REPAIRS.wall : REPAIRS.tower;
     const k = 1 + 0.5 * (this.tier - 1);
-    const out = {};
+    const out: Record<string, number> = {};
     for (const [id, n] of Object.entries(base)) out[id] = Math.round(n * k);
     return out;
   }
@@ -273,11 +398,11 @@ class Building {
     return graftSlots(this.tier) - this.grafts.length;
   }
 
-  canGraft(id) {
+  canGraft(id: string) {
     return this.graftRoom > 0 && !!GRAFTS[id]?.fits(this.def) && !this.grafts.includes(id);
   }
 
-  addGraft(id) {
+  addGraft(id: string) {
     this.grafts.push(id);
     if (id === 'root_anchor') {
       const was = this.maxHp;
@@ -315,13 +440,13 @@ class Building {
     this.obj.add(tierDecor(this, this.tier));
   }
 
-  distTo(x, z) {
+  distTo(x: number, z: number) {
     let d = Infinity;
     for (const c of this.footprint) d = Math.min(d, Math.hypot(x - c.x, z - c.z) - c.r);
     return d;
   }
 
-  pushOut(pos, r) {
+  pushOut(pos: { x: number; z: number }, r: number) {
     for (const c of this.footprint) {
       const dx = pos.x - c.x, dz = pos.z - c.z;
       const d = Math.hypot(dx, dz), min = c.r + r;
@@ -333,7 +458,7 @@ class Building {
   }
 
   // world position of the muzzle / orb / fire
-  muzzle(out) {
+  muzzle(out: THREE.Vector3): THREE.Vector3 {
     if (this.def.kind === 'tesla' && this.orb) return this.orb.getWorldPosition(out);
     if (this.def.kind === 'fire' && this.flame) return this.flame.getWorldPosition(out).add(new THREE.Vector3(0, 0.3, 0));
     if (this.aim) {
@@ -377,7 +502,17 @@ const _c = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 
 export class Buildings {
-  constructor(scene, world) {
+  scene: THREE.Scene;
+  world: World;
+  list: Building[];
+  dying: Building[];
+  shots: Shot[];
+  arcs: { mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>; life: number }[];
+  changed: boolean;
+  glowTex: THREE.Texture;
+  stats: { built: number; upgraded: number; lost: number };
+
+  constructor(scene: THREE.Scene, world: World) {
     this.scene = scene;
     this.world = world;
     this.list = [];
@@ -393,7 +528,7 @@ export class Buildings {
     return this.list.filter((b) => !b.dead);
   }
 
-  place(id, x, z, rot, { instant = false } = {}) {
+  place(id: string, x: number, z: number, rot: number, { instant = false } = {}): Building {
     const b = new Building(id, x, z, rot, terrainHeight(x, z) - 0.02);
     if (instant) b.buildT = 1;
     this.scene.add(b.obj);
@@ -406,7 +541,7 @@ export class Buildings {
   }
 
   // Pack up (instant) or destroyed (collapses first).
-  remove(b, collapse = false) {
+  remove(b: Building, collapse = false) {
     b.dead = true;
     this.list = this.list.filter((o) => o !== b);
     const ex = this.world.extra;
@@ -420,7 +555,7 @@ export class Buildings {
     } else this.scene.remove(b.obj);
   }
 
-  damage(b, n) {
+  damage(b: Building, n: number): boolean {
     if (b.dead) return false;
     b.hp -= n;
     b.flash = 1;
@@ -435,7 +570,7 @@ export class Buildings {
 
   // ---------------------------------------------------------------- placement
   // Can `id` go at (x, z)? Returns null if fine, or the reason it can't.
-  check(id, x, z, rot, { base, player, roots }) {
+  check(id: string, x: number, z: number, rot: number, { base, player, roots }: PlaceCtx): string | null {
     const def = BUILD_DEFS[id];
     if (roots && roots.used + (ROOTS[id] || 1) > roots.cap) return `The Heartwood can't feed more roots (${roots.used}/${roots.cap}): upgrade instead, or bury a relic in it`;
     const dBase = Math.hypot(x - base.x, z - base.z);
@@ -463,7 +598,7 @@ export class Buildings {
 
   // ---------------------------------------------------------------- combat
   // ctx: { enemies, field, audio, particles, lights, mods, rain, camera }
-  update(dt, t, ctx) {
+  update(dt: number, t: number, ctx: TowerCtx) {
     const { enemies, field, audio, particles, lights } = ctx;
     const mods = ctx.mods || {};
     for (const b of this.list) {
@@ -603,7 +738,7 @@ export class Buildings {
     void audio;
   }
 
-  updateFire(b, dt, t, ctx, mods) {
+  updateFire(b: Building, dt: number, t: number, ctx: TowerCtx, mods: TowerMods) {
     const { enemies, particles, audio, lights } = ctx;
     const rainK = ctx.rain ? 0.6 : 1;
     const flare = b.recoil;
@@ -639,7 +774,7 @@ export class Buildings {
 
   // A cold blue light on the ground: every Blight in it glows and takes more damage, and a
   // Burrower tunnelling through it is dragged up and dazed.
-  updateLantern(b, dt, t, ctx, mods) {
+  updateLantern(b: Building, dt: number, t: number, ctx: TowerCtx, mods: TowerMods) {
     const { enemies, particles, lights } = ctx;
     const range = b.stat('range', mods) * (mods.lanternRange || 1);
     const expose = b.stat('expose') + (mods.lanternExpose || 0);
@@ -666,7 +801,7 @@ export class Buildings {
     }
   }
 
-  updateTrap(b, dt, t, ctx) {
+  updateTrap(b: Building, dt: number, t: number, ctx: TowerCtx) {
     const { enemies, particles, audio } = ctx;
     const def = b.def;
     // snare tendrils whip up, hold, and sink back
@@ -704,7 +839,7 @@ export class Buildings {
 
   // A homing bolt. With Splitting Shafts the first one splits on impact and a second,
   // weaker bolt seeks the nearest other Blight.
-  bolt(from, target, dmg, ctx, mods, canSplit, src = null) {
+  bolt(from: THREE.Vector3, target: any, dmg: number, ctx: TowerCtx, mods: TowerMods, canSplit: boolean, src: Building | null = null) {
     const { enemies, particles } = ctx;
     const mesh = new THREE.Mesh(boltGeo, boltMat);
     mesh.add(new THREE.Mesh(trailGeo, trailMat));
@@ -736,7 +871,7 @@ export class Buildings {
     });
   }
 
-  updateShots(dt, ctx) {
+  updateShots(dt: number, ctx: TowerCtx) {
     const { enemies, particles } = ctx;
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
@@ -761,7 +896,7 @@ export class Buildings {
     }
   }
 
-  fire(b, target, ctx, mods) {
+  fire(b: Building, target: any, ctx: TowerCtx, mods: TowerMods) {
     const { enemies, audio, particles, lights } = ctx;
     const from = b.muzzle(new THREE.Vector3());
     const dmg = b.stat('dmg', mods);
@@ -831,7 +966,7 @@ export class Buildings {
   }
 
   // a jagged bolt of lightning between two points, drawn as two crossed ribbons
-  arc(a, b) {
+  arc(a: THREE.Vector3, b: THREE.Vector3) {
     const segs = 10;
     _b.subVectors(b, a);
     const len = _b.length();
@@ -848,7 +983,7 @@ export class Buildings {
       pts.push(p);
     }
     pts.push(b.clone());
-    const pos = [], sideAttr = [], idx = [];
+    const pos: number[] = [], sideAttr: number[] = [], idx: number[] = [];
     const w = 0.09;
     for (const side of [side1, side2]) {
       const base = pos.length / 3;
@@ -873,14 +1008,14 @@ export class Buildings {
 }
 
 // ------------------------------------------------------------------ placement ghost
-const ringMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, fog: false, side: THREE.DoubleSide });
+const ringMat = (color: number, opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, fog: false, side: THREE.DoubleSide });
 const RING_SEG = 96;
 // A thin ring of fixed width that lies on the ground: world-space vertices, re-fitted to the
 // terrain whenever it moves (a scaled RingGeometry got wider with range and cut into slopes).
 function groundRing() {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((RING_SEG + 1) * 2 * 3), 3));
-  const idx = [];
+  const idx: number[] = [];
   for (let i = 0; i < RING_SEG; i++) {
     const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
     idx.push(a, b, c, b, d, c);
@@ -889,7 +1024,7 @@ function groundRing() {
   geo.userData.key = '';
   return geo;
 }
-function fitRing(geo, x, z, r, w = 0.14) {
+function fitRing(geo: THREE.BufferGeometry, x: number, z: number, r: number, w = 0.14) {
   const key = `${x.toFixed(2)},${z.toFixed(2)},${r.toFixed(2)}`;
   if (geo.userData.key === key) return;
   geo.userData.key = key;
@@ -906,8 +1041,44 @@ function fitRing(geo, x, z, r, w = 0.14) {
   geo.computeBoundingSphere();
 }
 
+// A translucent hologram of a building, so you can see where it goes. A depth-only copy drawn
+// first keeps the inside faces from stacking up into a bright jelly, and the baked glow is
+// switched off so nothing on it blooms. (Game's shader warm-up makes one of each too.)
+const isMesh = (o: THREE.Object3D): o is THREE.Mesh<THREE.BufferGeometry, THREE.Material> => !!(o as THREE.Mesh).isMesh;
+export function hologram(id: string): THREE.Object3D {
+  const obj = buildModel(id);
+  setEmit(obj, 0);
+  const depthMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+  const depth = obj.clone(true);
+  depth.traverse((o) => { if (isMesh(o)) { o.material = depthMat; o.renderOrder = 3; o.castShadow = false; } });
+  obj.traverse((o) => {
+    if (!isMesh(o)) return;
+    o.castShadow = false;
+    o.material.transparent = true;
+    o.material.opacity = 0.42;
+    o.material.depthWrite = false;
+    o.renderOrder = 4;
+  });
+  obj.add(depth);
+  return obj;
+}
+
+// what placement checks against: the Heartwood, where the player stands, the roots in use
+interface PlaceCtx { base: { x: number; z: number }; player: { x: number; z: number }; roots?: { used: number; cap: number } | null; mods?: TowerMods }
+
 export class BuildGhost {
-  constructor(scene) {
+  scene: THREE.Scene;
+  id: string | null;
+  obj: THREE.Object3D | null;
+  rot: number;
+  valid: boolean;
+  reason: string | null;
+  pos: THREE.Vector3;
+  ring: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  foot: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  others: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
+
+  constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.id = null;
     this.obj = null;
@@ -928,27 +1099,11 @@ export class BuildGhost {
     this.others = []; // range rings of towers already standing
   }
 
-  show(id) {
+  show(id: string) {
     if (this.id === id) return;
     this.hide();
     this.id = id;
-    this.obj = buildModel(id);
-    // a translucent hologram of the building, so you can see where it goes. A depth-only copy
-    // drawn first keeps the inside faces from stacking up into a bright jelly, and the baked
-    // glow is switched off so nothing on it blooms.
-    setEmit(this.obj, 0);
-    const depthMat = new THREE.MeshBasicMaterial({ colorWrite: false });
-    const depth = this.obj.clone(true);
-    depth.traverse((o) => { if (o.isMesh) { o.material = depthMat; o.renderOrder = 3; o.castShadow = false; } });
-    this.obj.traverse((o) => {
-      if (!o.isMesh) return;
-      o.castShadow = false;
-      o.material.transparent = true;
-      o.material.opacity = 0.42;
-      o.material.depthWrite = false;
-      o.renderOrder = 4;
-    });
-    this.obj.add(depth);
+    this.obj = hologram(id);
     this.scene.add(this.obj);
   }
 
@@ -962,7 +1117,7 @@ export class BuildGhost {
   }
 
   // March the view ray to the ground (2.5 to 10 m) and test the spot.
-  update(camera, buildings, ctx) {
+  update(camera: THREE.Camera, buildings: Buildings, ctx: PlaceCtx) {
     if (!this.obj) return;
     const dir = camera.getWorldDirection(_a);
     const o = camera.position;

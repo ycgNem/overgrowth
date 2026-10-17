@@ -30,6 +30,7 @@ export class TextureLib {
     this.cells = {};
   }
 
+  /** @param {(k: number) => void} [progress] how far along, 0..1 */
   async load(progress = () => {}) {
     const loader = new THREE.TextureLoader();
     // atlases keep the colour bled under transparent pixels: no premultiply on decode

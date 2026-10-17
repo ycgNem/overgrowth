@@ -4,7 +4,7 @@
 // The story's words live in Story.js; this is the run's side of it, saved with the run.
 import * as THREE from 'three';
 import { NOTES, noteById, SEALS, RADIO_PARTS, saveNote, loadNotes } from './Story.js';
-import { ITEMS, lootGate } from '../items/ItemDB.js';
+import { ITEMS, lootGate } from '../items/ItemDB.ts';
 import { grove, terrainHeight, terrainNormal, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
 import { poisAround } from '../world/poi/POI.js';
 import { cloneModel } from '../assets/Models.js';

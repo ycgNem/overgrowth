@@ -25,7 +25,7 @@ const errs = [];
 page.on('pageerror', (e) => errs.push('PAGEERR ' + e.message));
 await page.goto((process.env.BASE ?? 'http://localhost:5188/') + '?debug&t=0.7');
 await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
-await page.evaluate(async () => { window.__roots = await import('/src/defense/Towers.js'); });
+await page.evaluate(async () => { window.__roots = await import('/src/defense/Towers.ts'); });
 await page.evaluate(({ night, setup, diff, no, lantern, active, sign, abl }) => {
   const g = window.game, b = g.base;
   g.setDifficulty(diff);

@@ -7,12 +7,12 @@
 // game, with Resume and a way back to the title.
 import { version } from '../../package.json';
 import { ENEMY_TYPES, DAMAGE_TYPES, AFFIXES } from '../defense/Enemies.js';
-import { ROOTS, BUILD_DEFS, GRAFTS, PALETTE } from '../defense/Towers.js';
+import { ROOTS, BUILD_DEFS, GRAFTS, PALETTE } from '../defense/Towers.ts';
 import { BLIGHT_PALETTE } from '../defense/Enemies.js';
 import { BINDABLE, keyName } from '../core/Input.js';
 import { describeWave, SIGNS } from '../defense/Waves.js';
 import { NOTES, SEALS, RADIO_PARTS, loadNotes } from '../core/Story.js';
-import { ITEMS } from '../items/ItemDB.js';
+import { ITEMS } from '../items/ItemDB.ts';
 import { RECIPES } from '../items/Recipes.js';
 import { PERKS } from '../core/Perks.js';
 import { DIFFICULTIES, DIFFICULTY_IDS, difficulty, KITS, KIT_IDS, kitItems } from '../core/Difficulty.js';
