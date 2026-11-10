@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { cloneModel, part, parts } from '../assets/Models.js';
-import { setEmit } from '../art/merge.js';
+import { setEmit } from '../art/merge.ts';
 import { terrainHeight } from '../world/WorldGen.js';
 import { BENCHES, COFFER } from '../items/Recipes.ts';
 import { BASE_CLEAR } from './Base.js';

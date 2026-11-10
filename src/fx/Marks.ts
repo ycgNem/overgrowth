@@ -34,42 +34,50 @@ function normalFrom(h, W, H, strength) {
   return c;
 }
 
-// A wedge-shaped notch: torn dark bark round a lens of pale, splintery wood, the far wall of
-// the cut in shade. Drawn along x (the line of the blade).
+// A wedge-shaped notch: torn dark bark round a lens of fresh wood, the far wall of the cut in
+// shade. Drawn along x (the line of the blade). Nothing in it repeats: the rims wander on
+// smooth noise, each to its own (regular waves and evenly spaced splinters read as a zipper).
 function gashMaps() {
   const W = 256, H = 128;
-  const c = canvas(W, H), g = c.getContext('2d');
+  const c = canvas(W, H), g = c.getContext('2d')!;
   const r = mulberry32(17);
+  // smooth 1D noise, -1..1
+  const tab = Array.from({ length: 64 }, () => r() * 2 - 1);
+  const n1 = (x: number) => {
+    const i = Math.floor(x), f = x - i, k = f * f * (3 - 2 * f);
+    return tab[i & 63] + (tab[(i + 1) & 63] - tab[i & 63]) * k;
+  };
   const h = new Float32Array(W * H);
   const img = g.createImageData(W, H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const u = (x / W) * 2 - 1, v = (y / H) * 2 - 1;
-      // the lens: widest in the middle, pointed at the ends, with a ragged rim
-      // a blunt, ragged chunk hacked out (a pointed lens read as a leaf stuck on the bark)
-      const half = 0.5 * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u), 3.5)), 0.5) * (1 + 0.2 * Math.sin(u * 17 + Math.sin(u * 5) * 2) + 0.1 * Math.sin(u * 41));
+      const up = v < 0;
+      // a blunt chunk hacked out, each rim ragged in its own way, the cut a little off-centre
+      const o = up ? 0 : 23.7;
+      const body = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u * 1.04 + 0.03), 3.2)), 0.55);
+      const half = body * (up ? 0.4 : 0.48) * (1 + 0.3 * n1(u * 2.6 + o) + 0.16 * n1(u * 7.3 + o + 5) + 0.07 * n1(u * 19 + o + 9));
       const d = Math.abs(v) / Math.max(half, 1e-3); // < 1 inside the cut
       const i = (y * W + x) * 4;
       let a = 0, R = 0, G = 0, B = 0, ht = 0;
-      // smooth ragged noise for the torn edge (per-pixel noise read as speckle)
-      const rag = Math.sin(u * 31 + 1.7) * 0.5 + Math.sin(u * 13.3 + v * 4) * 0.35 + Math.sin(u * 71) * 0.15;
-      const lip = 1.38 + rag * 0.16;
+      const lip = 1.3 + 0.22 * n1(u * 5.1 + o + 31) + 0.1 * n1(u * 23 + o + 40);
       if (d < lip && half > 0.02) {
         if (d < 1) {
           // fresh wood in a V-shaped notch: the upper wall faces down into shade, the lower wall
-          // catches the light, the crease between them is dark; faint grain along the cut
-          const grain = 1 + 0.06 * Math.sin(u * 26 + Math.sin(v * 5) * 1.2) + (r() - 0.5) * 0.05;
-          const crease = 0.35 + 0.65 * Math.min(1, d / 0.18);
-          const wall = v < 0 ? 0.42 + 0.25 * d : 0.82 + 0.18 * d;
+          // catches the light, the crease between them is dark; long fibres along the cut
+          const grain = 1 + 0.09 * n1(u * 3 + v * 34) + 0.05 * n1(u * 11 + v * 61 + 7) + (r() - 0.5) * 0.04;
+          const crease = 0.3 + 0.7 * Math.min(1, d / 0.2);
+          const wall = up ? 0.36 + 0.24 * d : 0.74 + 0.2 * d;
           const k = grain * wall * crease;
-          R = 188 * k; G = 160 * k; B = 122 * k;
-          ht = -(1 - d) * (v < 0 ? 1.0 : 0.7);
+          // (damp sapwood, not dry pine: at full brightness it glared off dark bark like a sticker)
+          R = 138 * k; G = 114 * k; B = 84 * k;
+          ht = -(1 - d) * (up ? 1.0 : 0.7);
           a = 255;
         } else {
           // the torn bark lip, lifted a little: dark, with fibres of inner bark showing
           const k = (d - 1) / (lip - 1);
-          const fib = 0.5 + 0.5 * Math.sin(u * 90 + v * 3);
-          R = 70 + 50 * fib * (1 - k); G = 48 + 34 * fib * (1 - k); B = 30 + 18 * fib * (1 - k);
+          const fib = 0.5 + 0.5 * n1(u * 37 + v * 6 + o);
+          R = 58 + 46 * fib * (1 - k); G = 40 + 30 * fib * (1 - k); B = 26 + 16 * fib * (1 - k);
           ht = 0.3 * (1 - k);
           a = 255;
         }
@@ -79,14 +87,15 @@ function gashMaps() {
     }
   }
   g.putImageData(img, 0, 0);
-  // splinters standing out of the rim
-  for (let k = 0; k < 26; k++) {
-    const x = W * (0.2 + r() * 0.6), y = H * (r() < 0.5 ? 0.22 : 0.78) + (r() - 0.5) * 10;
-    g.strokeStyle = `rgba(${200 + r() * 30 | 0},${168 + r() * 25 | 0},${110 + r() * 20 | 0},0.9)`;
-    g.lineWidth = 1 + r() * 1.5;
+  // a few splinters lifted off the lower rim, lying nearly along the cut, no two alike
+  for (let k = 0; k < 7; k++) {
+    const x = W * (0.18 + r() * 0.64), y = H * (0.5 + (r() < 0.75 ? 1 : -1) * (0.2 + r() * 0.07));
+    const len = 8 + r() * r() * 30, dir = r() < 0.5 ? -1 : 1;
+    g.strokeStyle = `rgba(${150 + r() * 40 | 0},${118 + r() * 30 | 0},${78 + r() * 20 | 0},${0.55 + r() * 0.35})`;
+    g.lineWidth = 0.8 + r() * 1.6;
     g.beginPath();
     g.moveTo(x, y);
-    g.lineTo(x + (r() - 0.5) * 30, y + (y < H / 2 ? -1 : 1) * (4 + r() * 8));
+    g.lineTo(x + dir * len, y + (y < H / 2 ? -1 : 1) * (1 + r() * 5));
     g.stroke();
   }
   return { map: c, normal: normalFrom(h, W, H, 6) };
@@ -137,7 +146,15 @@ function curvedPlane() {
   return g;
 }
 
+interface Kind { mesh: THREE.InstancedMesh; list: any[]; next: number }
+
 export class Marks {
+  kinds: Record<string, Kind>;
+  _m = new THREE.Matrix4();
+  _q = new THREE.Quaternion();
+  _x = new THREE.Vector3();
+  _y = new THREE.Vector3();
+
   constructor(scene) {
     const gash = gashMaps(), scrape = scrapeMaps();
     const mk = (maps, opts) => {
@@ -156,10 +173,6 @@ export class Marks {
       wood: mk(gash, {}),
       stone: mk(scrape, { alphaTest: 0.08, transparent: true, depthWrite: false, roughness: 0.6 }),
     };
-    this._m = new THREE.Matrix4();
-    this._q = new THREE.Quaternion();
-    this._x = new THREE.Vector3();
-    this._y = new THREE.Vector3();
   }
 
   // kind: 'wood' | 'stone'; at: the struck point; normal: the surface's outward normal;

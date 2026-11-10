@@ -186,6 +186,8 @@ html, body {
 .hslot.sel { border-color: var(--brass); transform: translateY(-4px); box-shadow: inset 0 -3px 0 var(--rc, transparent), 0 0 0 2px rgba(214,169,74,0.5), 0 6px 18px rgba(0,0,0,0.5); }
 .hslot img { width: 80%; height: 80%; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.6)); }
 .hslot.empty img { visibility: hidden; }
+/* an empty slot is still a slot: without this the belt read as three icons and a gold box */
+.hslot.empty { border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.38); }
 .hslot i { position: absolute; left: 5px; top: 2px; font-style: normal; font-size: 12px; color: var(--ink-dim); }
 .hslot .count { position: absolute; right: 5px; bottom: 2px; font-size: 15px; font-weight: 700; }
 
@@ -200,7 +202,8 @@ html, body {
 #banner {
   position: absolute; top: 20%; left: 50%; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none;
   padding: 10px 60px 14px; white-space: nowrap;
-  background: radial-gradient(ellipse at center, rgba(6,10,4,0.6), rgba(6,10,4,0) 72%);
+  /* (no plate behind it: over the sky a dark gradient showed as a grey smear) */
+  text-shadow: 0 2px 3px rgba(0,0,0,0.85), 0 0 18px rgba(0,0,0,0.75);
 }
 #banner.night b { color: #e0b0ff; text-shadow: 0 0 22px rgba(180,80,255,0.7); }
 #banner.boss b { color: #ff9ad0; text-shadow: 0 0 26px rgba(255,60,160,0.8); }
@@ -358,6 +361,8 @@ html, body {
 .perk h3 { margin: 8px 0 8px; font-family: var(--display); font-size: 20px; color: var(--ink); }
 .perk p { margin: 0; font-size: 17px; line-height: 1.25; color: var(--ink-dim); }
 .perk kbd { margin-top: 12px; }
+/* the title is one unbroken line wider than the menu column: let it centre on the screen */
+#victory .menu-inner { max-width: none; }
 
 
 /* --------------------------------------------------------------- menu */

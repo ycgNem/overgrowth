@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { handleWoodTexture } from '../art/textures.js';
 import { buildMachete, loadHand } from './MacheteModel.js';
 import { clamp } from '../utils/math.js';
-import { getItemModel } from '../items/ItemModels.ts';
+import { getWorldItemModel } from '../items/ItemModels.ts';
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 const easeIn = (t) => t * t * t;
@@ -40,6 +40,18 @@ function slingModel() {
 }
 
 class SlingView {
+  root: THREE.Group;
+  fork: THREE.Object3D;
+  tips: THREE.Vector3[];
+  bands: THREE.Mesh[];
+  pouch: THREE.Mesh;
+  stone: THREE.Mesh;
+  snap = 0;
+  snapV = 0;
+  _a = new THREE.Vector3();
+  _b = new THREE.Vector3();
+  _up = new THREE.Vector3(0, 1, 0);
+
   constructor() {
     this.root = new THREE.Group();
     const { g, tips } = slingModel();
@@ -106,6 +118,14 @@ class SlingView {
 // A faint smear of disturbed air behind the blade during a slash: a ribbon between the
 // blade's middle and its tip over the last few frames, fading with age.
 class SwingTrail {
+  n: number;
+  pts: { a: THREE.Vector3; b: THREE.Vector3; age: number }[];
+  pos: Float32Array;
+  alpha: Float32Array;
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  _a = new THREE.Vector3();
+  _b = new THREE.Vector3();
+
   constructor(n = 14) {
     this.n = n;
     this.pts = []; // { a, b, age }
@@ -155,13 +175,55 @@ class SwingTrail {
   }
 }
 
+interface Pose { p: THREE.Vector3; q: THREE.Quaternion }
+
 export class Machete {
-  constructor(fov) {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  fill: THREE.AmbientLight;
+  /** follows the bob and sway */
+  root: THREE.Group;
+  /** swings; its pivot is at the grip */
+  pivot: THREE.Group;
+  model: THREE.Object3D;
+  hand: THREE.Object3D | null = null;
+  trail: SwingTrail;
+  sling: SlingView;
+  /** a consumable held up in the hand: the model sits in `itemModel`, the fist under it */
+  item: THREE.Group;
+  itemModel: THREE.Group;
+  itemId: string | null = null;
+  mode = 'machete';
+  want = 'machete';
+  equipT = 1;
+  useT = 0;
+  useKind: string | null = null;
+  useFired = false;
+  onUse: ((kind: string | null) => void) | null = null;
+  onHit: any = null;
+  poses: Record<string, Pose>;
+  from: Pose;
+  state = 'idle';
+  t = 0;
+  combo = 0;
+  cooldown = 0;
+  hold = 0;
+  impact = 0;
+  hitDone = false;
+  biteKind = 'flesh';
+  debugPose: any = null;
+  sway = new THREE.Vector2();
+  [key: string]: any;
+
+  constructor(fov: number) {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(fov, 1, 0.01, 10);
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x334422, 0.8);
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
-    this.scene.add(this.hemi, this.sun, this.sun.target);
+    this.fill = new THREE.AmbientLight(0x9fb4d8, 0);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.fill);
 
     this.root = new THREE.Group(); // follows bob/sway
     this.pivot = new THREE.Group(); // swings, pivot at the grip
@@ -179,6 +241,13 @@ export class Machete {
         new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -0.15, 1).normalize(), new THREE.Vector3(1, 0, 0.15).normalize()));
       sh.position.set(0, -0.045, 0.008);
       this.sling.fork.add(sh);
+      // and under whatever else is held up (a poultice, a firepot): the fist closed round its
+      // foot, the forearm running down and back out of the frame
+      const ih = h.clone();
+      ih.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(0, 1, 0), new THREE.Vector3(0.1, -0.35, 1).normalize(), new THREE.Vector3(1, 0.03, -0.09).normalize()));
+      ih.position.set(0, 0.045, 0.008);
+      this.item.add(ih);
     });
     this.root.add(this.pivot);
     this.scene.add(this.root);
@@ -190,6 +259,8 @@ export class Machete {
     this.root.add(this.sling.root);
     this.item = new THREE.Group();
     this.item.visible = false;
+    this.itemModel = new THREE.Group();
+    this.item.add(this.itemModel);
     this.root.add(this.item);
     this.itemId = null;
     this.mode = 'machete'; // machete | sling | item | none
@@ -245,7 +316,7 @@ export class Machete {
     return { p: new THREE.Vector3(...p), q };
   }
 
-  setPose(pose, w, fromP, fromQ) {
+  setPose(pose: Pose, w: number, fromP?: THREE.Vector3, fromQ?: THREE.Quaternion) {
     if (fromP) {
       this.pivot.position.lerpVectors(fromP, pose.p, w);
       this.pivot.quaternion.slerpQuaternions(fromQ, pose.q, w);
@@ -312,10 +383,17 @@ export class Machete {
       this.sling.root.visible = this.mode === 'sling';
       this.item.visible = this.mode === 'item';
       if (this.mode === 'item' && this.itemId !== w) {
-        this.item.clear();
-        const m = getItemModel(w);
-        m.scale.multiplyScalar(0.5);
-        this.item.add(m);
+        this.itemModel.clear();
+        const m = getWorldItemModel(w);
+        // to the size of something held in one hand, stood on the fist: its foot at the top of
+        // the grip (the models are drawn to read as icons and pickups, several times life size)
+        const size = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+        m.scale.multiplyScalar(0.13 / Math.max(size.x, size.y, size.z, 0.01));
+        const box = new THREE.Box3().setFromObject(m);
+        m.position.y -= box.min.y - 0.035;
+        m.position.x -= (box.min.x + box.max.x) / 2;
+        m.position.z -= (box.min.z + box.max.z) / 2;
+        this.itemModel.add(m);
         this.itemId = w;
       }
       if (this.mode === 'machete') {
@@ -330,7 +408,7 @@ export class Machete {
 
   updateItem(dt) {
     const it = this.item;
-    let px = 0.22, py = -0.26, pz = -0.45, rx = 0.3, ry = -0.5;
+    let px = 0.17, py = -0.15, pz = -0.42, rx = 0.2, ry = -0.5;
     if (this.useT > 0) {
       this.useT = Math.max(0, this.useT - dt / (this.useKind === 'throw' ? 0.55 : 0.8));
       const u = 1 - this.useT;
@@ -364,10 +442,10 @@ export class Machete {
       py += Math.sin(performance.now() * 0.002) * 0.006;
     }
     it.position.set(px, py, pz);
-    it.rotation.set(rx, ry + performance.now() * 0.0003, 0.1);
+    it.rotation.set(rx, ry, 0.1);
   }
 
-  update(dt, mainCamera, player, lighting, sling = {}) {
+  update(dt: number, mainCamera: THREE.PerspectiveCamera, player: any, lighting: any, sling: { draw?: number; loaded?: boolean; aim?: number } = {}) {
     if (this.hold > 0) {
       // hit-stop: the swing freezes on the impact
       this.hold -= dt;
@@ -471,6 +549,11 @@ export class Machete {
     this.hemi.color.copy(lighting.hemiSky);
     this.hemi.groundColor.copy(lighting.hemiGround);
     this.hemi.intensity = lighting.hemiIntensity;
+    // a cool fill that comes up as the sky's own light goes: at night the fist and blade went
+    // to a black hole in the picture
+    const c = lighting.hemiSky;
+    const sky = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * lighting.hemiIntensity;
+    this.fill.intensity = 1.6 * Math.max(0, 1 - sky / 0.25);
     this.scene.environment = lighting.env;
     this.scene.environmentIntensity = lighting.envIntensity * 0.7;
     this.scene.environmentRotation.setFromQuaternion(mainCamera.quaternion);

@@ -1122,8 +1122,8 @@ export function rustTexture(seed) {
   paintNoise(ctx, S, (i) => {
     const paint = n2[i] > 0.58;
     const v = 0.6 + n[i] * 0.6;
-    if (paint) return [70 * v, 88 * v, 82 * v];
-    return [120 * v, 62 * v, 30 * v];
+    if (paint) return [56 * v, 68 * v, 62 * v];
+    return [88 * v, 52 * v, 32 * v];
   });
   for (let k = 0; k < 60; k++) {
     const x = r() * S;

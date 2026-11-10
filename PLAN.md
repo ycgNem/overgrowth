@@ -313,9 +313,34 @@ The old list follows for reference.
 
 ## Start here (next session, written 2026-10-15)
 
-**1.0.3 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below) plus the
-"Lighter Loads", "Smooth Going" and "Iron and Order" patches. Read the **1.0 handoff** (the first handoff
-below), then `README.md`. Its "Open / next" list is where to pick up.
+**1.1.0 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below), the
+"Lighter Loads", "Smooth Going" and "Iron and Order" patches, and "New Growth". Read the **1.0 handoff**
+(further below), then `README.md`. Its "Open / next" list is where to pick up.
+
+### 1.1.0 "New Growth" (2026-11-10, released)
+
+**Trees** (`src/world/flora/trees.ts`, new):
+- `giant`, `understory`, `umbrella`, `palm`, `treeFern`, `mangrove`, `snag`. Each returns a `TreeModel` with `geometry`, its own far copy `lod`, `colliders`, and `crown` (read by `render/Canopy.js`).
+- `grow` forks the skeleton, `pad` puts bough cards at each shoot end, `finishCards` shades them once the crown's extent is known. Both copies come out of one pass (`Build` N and F).
+- The far pad is one spoke and two crossed standing cards: seen level from far off, flat spokes are lines.
+- The bough atlas (`public/textures/boughs.webp`) is composed by `art/textures/boughs.py` from the canopy atlas's twigs. Run it again after `process.py` rebuilds that atlas: `uv run --no-project --with numpy --with pillow --with scipy art/textures/boughs.py`.
+- `Flora.crown()` stays: `defense/Base.js` uses it for the Heartwood.
+
+**Distant copies**: `LOD_TYPES` in `World.js` now includes rocks; every type brings its own `lod` (`twice` in `Flora.ts` builds a plant twice from one seed), `lod.js` is only a fallback. Grass tufts past 12 m use a lighter shape (`Grass.ts`, `NEAR`). Measure with `node --experimental-strip-types e2e/tris.ts spawn base`.
+
+**Surfaces by material name** (`src/art/merge.ts`): `Hide`/`Chitin`/`Flesh` for creature skin; `BitRock`, `BitBark`, `BitMoss`, `BitWood`, `BitScrap` for hand-sized things. `getWorldItemModel` (`ItemModels.ts`) bakes an item model onto that material for pickups and the hand; icons keep the plain model; anything with glass stays unbaked.
+
+**Blight models**: `wisp.py`, `husk.py` and `rot_mother.py` are their own scripts now (no longer patches of another model's source). Animated node names are unchanged. `oglib.py` gained `spline`, `tube`, `grid_surface`, `nfaces`, `paint`, `mixc`.
+
+**Converted to TypeScript**: `Flora`, `Grass`, `Machete`, `merge`, `Marks`, `Enemies`. `tsc` reports 58 errors, all in untouched JS (65 before).
+
+**Open after the critic's pass** (ranked list in the session, not in the repo):
+- The other six Blight (Blightling, Rotboar, Spitter, Burrower, Thornback, Rot Egg) still wear the old look; move their bodies to `Hide`/`Chitin` materials.
+- The glove wants a real rebuild (`art/blender/hand.py`); it is only smoothed.
+- Plane wreck, temple dressing, Coffer, Heartwood veins, brazier flame, and the boon/graft icons (Unicode glyphs; want one SVG set).
+- Night 1 on Warden is held by the starter Bow Tower alone. Left as is: enemy toughness was just set in 1.0.3.
+- Dawn of day 2 stacks five messages in ten seconds.
+- `pack.mjs` "crate prised open" still fails now and then and passes on a rerun.
 
 ### 1.0.3 "Iron and Order" (2026-10-17, released)
 

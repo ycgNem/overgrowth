@@ -3,7 +3,7 @@
 // (n). Something the player put down (`dropped`) never comes by itself: it waits on the ground
 // until they tap E at it (Game.interact, `grab`).
 import * as THREE from 'three';
-import { getItemModel } from './ItemModels.ts';
+import { getWorldItemModel } from './ItemModels.ts';
 import { ITEMS, RARITY } from './ItemDB.ts';
 import { glowTexture } from '../art/textures.js';
 
@@ -20,8 +20,8 @@ function beamMaterial(color: string) {
   return beamMat.get(color);
 }
 
-const beamGeo = new THREE.CylinderGeometry(0.025, 0.07, 3.5, 8, 1, true);
-beamGeo.translate(0, 1.75, 0);
+const beamGeo = new THREE.CylinderGeometry(0.012, 0.045, 1.6, 8, 1, true);
+beamGeo.translate(0, 0.8, 0);
 
 export interface Pickup {
   id: string;
@@ -65,15 +65,17 @@ export class Pickups {
     const def = ITEMS[id];
     const rarity = RARITY[def.rarity];
     const root = new THREE.Group();
-    const model = getItemModel(id);
+    const model = getWorldItemModel(id);
     root.add(model);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.glowTex, color: rarity.color, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
-      transparent: true, opacity: 0.55,
+      transparent: true, opacity: 0.3,
     }));
-    glow.scale.setScalar(rarity.order >= 2 ? 1.4 : 0.9);
+    // a faint mark in the grass for the common things, a clear one for what's worth the walk;
+    // only the best finds stand a thin glint over themselves
+    glow.scale.setScalar(rarity.order >= 2 ? 1.0 : rarity.order === 1 ? 0.7 : 0.5);
     root.add(glow);
-    if (rarity.order >= 2) {
+    if (rarity.order >= 3) {
       const beam = new THREE.Mesh(beamGeo, beamMaterial(rarity.color));
       beam.position.y = -0.2;
       root.add(beam);
@@ -138,7 +140,7 @@ export class Pickups {
         p.model.rotation.x *= 0.9;
       }
       p.model.rotation.y += dt * 1.6;
-      p.glow.material.opacity = 0.4 + Math.sin(t * 3 + p.phase) * 0.15;
+      p.glow.material.opacity = (p.rarity.order >= 1 ? 0.3 : 0.16) + Math.sin(t * 3 + p.phase) * 0.08;
     }
     return got;
   }

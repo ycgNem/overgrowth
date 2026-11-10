@@ -2,6 +2,9 @@
 // as merged geometries; chunks then scatter them with InstancedMesh so thousands of plants
 // cost only a few draw calls.
 //
+// The trees are grown in trees.ts (each with its own lighter copy for the distance); the
+// undergrowth, rocks and floor dressing are built here.
+//
 // Leaves, fronds and twigs are photographed cut-outs (generated, keyed and packed into
 // atlases by art/textures/process.py, loaded by TextureLib). Geometry gives each one its
 // curve: blades arch and droop from their stalks, twig cards bend, fronds fan out. Wood
@@ -18,6 +21,7 @@ import {
   prep, paint, scaleUV, radialNormals, mergeSlots, taperedTube, blob, transform,
   leafBlade, twigCard, plankRoot, rosetteDisc,
 } from './geom.js';
+import { giant, understory, umbrella, palm, treeFern, mangrove, snag, type CellFn, type TreeModel } from './trees.ts';
 
 const TAU = Math.PI * 2;
 const _n = new THREE.Vector3(), _up = new THREE.Vector3(0, 0.55, 0);
@@ -45,54 +49,39 @@ function boxUV(geo, scale) {
   return geo;
 }
 
-// Several copies of a vine cell stacked into one long strip hanging from `top`.
-function hangingVine(cell, top, length, width, r, sway = 0.3) {
-  const seg = width / cell.aspect;
-  const n = Math.max(1, Math.round(length / seg));
-  const parts = [];
-  const yaw = r() * TAU;
-  for (let i = 0; i < n; i++) {
-    const g = leafBlade(cell, { length: seg * 1.02, segs: 3, across: 1, elev: -Math.PI / 2 + 0.02, droop: 0, fold: 0.05, upBias: 0.2 });
-    transform(g, { rotation: { y: yaw + (r() - 0.5) * 0.4 }, position: V(top.x + Math.sin(i * 1.3) * sway * (i / n), top.y - i * seg, top.z + Math.cos(i * 1.7) * sway * (i / n)) });
-    parts.push(g);
-  }
-  return parts;
-}
-
 function shade(geo, fn) {
   return paint(geo, fn);
 }
 
-// Push a trunk's vertices in and out along their radial direction: slow lumps and knots up
-// the stem, and fluting that deepens toward the foot, so no trunk is a perfect cylinder.
-// y0..y1: the trunk's height range (to find each vertex's centre on the curve).
-function gnarl(geo, curve, y0, y1, nz, amp) {
-  const p = geo.attributes.position, c = V(), q = V();
-  for (let i = 0; i < p.count; i++) {
-    q.fromBufferAttribute(p, i);
-    curve.getPointAt(clamp((q.y - y0) / (y1 - y0), 0, 1), c);
-    const dx = q.x - c.x, dz = q.z - c.z, a = Math.atan2(dz, dx);
-    const foot = Math.exp(-(q.y - y0) * 0.7);
-    const k = nz(q.y * 0.3, Math.cos(a) * 1.4 + Math.sin(a) * 0.8) * amp
-      + nz(q.y * 1.7, a * 2.3 + 5) * amp * 0.35
-      + (Math.abs(Math.sin(a * 2.5 + nz(q.y * 0.15, 9) * 2)) - 0.5) * amp * 1.6 * foot;
-    p.setXYZ(i, c.x + dx * (1 + k), q.y, c.z + dz * (1 + k));
-  }
-  geo.computeVertexNormals();
+// One species (or prop): its seeded variants and how they are drawn.
+export interface PlantType {
+  variants: TreeModel[];
+  material: THREE.Material | THREE.Material[];
+  shadow: boolean;
+  /** [hue jitter, lightness jitter] for the per-instance colour shift */
+  tint?: [number, number];
+  /** can be hacked with the machete: reach, loot table and chip colour */
+  cut?: { r: number; loot: string; color: number };
 }
 
 export class Flora {
+  lib: any;
+  cell: CellFn;
+  textures: Record<string, any>;
+  materials: Record<string, THREE.MeshStandardMaterial>;
+  types: Record<string, PlantType>;
+
   constructor(lib) {
     this.lib = lib;
     const S = lib.surface, A = lib.atlas;
-    const cell = (a, n) => lib.cell(a, n);
+    const cell: CellFn = (a, n) => lib.cell(a, n);
     this.cell = cell;
     this.textures = {
       moss: S.cushion.map, mossFlat: S.moss.map, rock: S.rock.map, bark: S.bark.map, stone: S.stone,
     };
 
     // relief: the surface's parallax depth in metres (0 = none)
-    const surf = (s, { relief = 0, ...opts } = {}) => {
+    const surf = (s: string, { relief = 0, ...opts }: { relief?: number } & THREE.MeshStandardMaterialParameters = {}) => {
       const m = new THREE.MeshStandardMaterial({
         // rough, porous surfaces: only a little of the sky in them
         map: S[s].map, normalMap: S[s].nmap, vertexColors: true, roughness: 0.92, metalness: 0, envMapIntensity: 0.45, ...opts,
@@ -145,6 +134,8 @@ export class Flora {
     const m = this.materials = {
       bark, palmBark, fernTrunk, rock, log, deadwood, pebble, stem, fungus,
       canopy: leaf('canopy', TREE_WIND, { flutter: 0.012, trans: 0.75 }),
+      // the giants' and mangroves' crowns: whole boughs of small leaves
+      boughs: leaf('boughs', TREE_WIND, { flutter: 0.012, trans: 0.7 }),
       canopyLow: leaf('canopy', { sway: 0.006 }, { flutter: 0.015, trans: 0.75 }),
       palm: leaf('fronds', TREE_WIND, { flutter: 0.02, rough: 0.5 }),
       fern: leaf('fronds', PLANT_WIND, { flutter: 0.02, trans: 0.8 }),
@@ -157,24 +148,29 @@ export class Flora {
     };
 
     const variants = (n, seed0, fn) => Array.from({ length: n }, (_, i) => fn(seed0 + i * 101));
+    // the big-leaved herbs and the rocks are built twice from the same seed: the second, for
+    // the distance, with a few segments to a leaf or a coarser ball (the same shape, a quarter
+    // of the triangles)
+    const twice = (n, seed0, fn) => variants(n, seed0, (s) => ({ ...fn(s, false), lod: fn(s, true).geometry }));
     // cut: can be hacked with the machete; loot: table rolled when cut.
     // tint: [hue jitter, lightness jitter] for the per-instance colour shift
     this.types = {
-      bigTree: { variants: variants(6, 1000, (s) => this.bigTree(s)), material: [m.bark, m.canopy], shadow: true, tint: [0.03, 0.12] },
-      palm: { variants: variants(3, 2000, (s) => this.palm(s)), material: [m.palmBark, m.palm, m.stem], shadow: true, tint: [0.03, 0.1] },
-      smallTree: { variants: variants(3, 3000, (s) => this.smallTree(s)), material: [m.bark, m.underTree], shadow: true, tint: [0.04, 0.14] },
-      midTree: { variants: variants(3, 3200, (s) => this.midTree(s)), material: [m.bark, m.canopyLow], shadow: true, tint: [0.03, 0.12] },
-      treeFern: { variants: variants(3, 3500, (s) => this.treeFern(s)), material: [m.fernTrunk, m.treeFern], shadow: true, tint: [0.03, 0.12] },
+      // six giants, two of each habit (trees.ts)
+      bigTree: { variants: Array.from({ length: 6 }, (_, i) => giant(1000 + i * 101, i % 3, cell)), material: [m.bark, m.boughs], shadow: true, tint: [0.03, 0.12] },
+      palm: { variants: variants(3, 2000, (s) => palm(s, cell)), material: [m.palmBark, m.palm, m.stem], shadow: true, tint: [0.03, 0.1] },
+      smallTree: { variants: Array.from({ length: 6 }, (_, i) => understory(3000 + i * 101, i % 3, cell)), material: [m.bark, m.underTree], shadow: true, tint: [0.04, 0.14] },
+      midTree: { variants: variants(3, 3200, (s) => umbrella(s, cell)), material: [m.palmBark, m.underTree], shadow: true, tint: [0.03, 0.12] },
+      treeFern: { variants: variants(3, 3500, (s) => treeFern(s, cell)), material: [m.fernTrunk, m.treeFern], shadow: true, tint: [0.03, 0.12] },
       fern: { variants: variants(3, 4000, (s) => this.fern(s)), material: m.fern, shadow: false, tint: [0.04, 0.16], cut: { r: 0.9, loot: 'fern', color: 0x6a9a2a } },
       bush: { variants: variants(3, 5000, (s) => this.bush(s)), material: [m.stem, m.under], shadow: false, tint: [0.04, 0.14], cut: { r: 1.1, loot: 'bush', color: 0x3f6e22 } },
-      banana: { variants: variants(3, 6000, (s) => this.banana(s)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.1], cut: { r: 1.2, loot: 'banana', color: 0x7aa83a } },
-      monstera: { variants: variants(3, 6500, (s) => this.monstera(s)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.12], cut: { r: 1.1, loot: 'banana', color: 0x2f6a22 } },
+      banana: { variants: twice(3, 6000, (s, far) => this.banana(s, far)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.1], cut: { r: 1.2, loot: 'banana', color: 0x7aa83a } },
+      monstera: { variants: twice(3, 6500, (s, far) => this.monstera(s, far)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.12], cut: { r: 1.1, loot: 'banana', color: 0x2f6a22 } },
       grass: { variants: [this.grass(7000, false), this.grass(7001, true), this.grass(7002, false)], material: m.grass, shadow: false, tint: [0.05, 0.16], cut: { r: 0.6, loot: 'grass', color: 0x8aa040 } },
       flower: { variants: [this.heliconia(8000), this.heliconia(8001)], material: [m.stem, m.broad], shadow: false, tint: [0.02, 0.08], cut: { r: 0.55, loot: 'flower', color: 0xd04030 } },
       orchid: { variants: variants(2, 8100, (s) => this.orchid(s)), material: m.under, shadow: false, tint: [0.02, 0.08], cut: { r: 0.5, loot: 'flower', color: 0xb060c0 } },
       mushrooms: { variants: [this.mushrooms(8002), this.mushrooms(8003)], material: m.fungus, shadow: false, cut: { r: 0.45, loot: 'flower', color: 0xd08040 } },
-      rock: { variants: variants(4, 9000, (s) => this.rock(s)), material: m.rock, shadow: true, tint: [0.02, 0.12] },
-      cliffRock: { variants: variants(4, 9100, (s) => this.cliffRock(s)), material: m.rock, shadow: true, tint: [0.02, 0.1] },
+      rock: { variants: twice(4, 9000, (s, far) => this.rock(s, far)), material: m.rock, shadow: true, tint: [0.02, 0.12] },
+      cliffRock: { variants: twice(4, 9100, (s, far) => this.cliffRock(s, far)), material: m.rock, shadow: true, tint: [0.02, 0.1] },
       log: { variants: variants(2, 9500, (s) => this.log(s)), material: m.log, shadow: true, tint: [0.02, 0.1] },
       // forest floor dressing
       branch: { variants: variants(3, 9600, (s) => this.branch(s)), material: m.deadwood, shadow: true, tint: [0.02, 0.12] },
@@ -182,11 +178,11 @@ export class Flora {
       pebbles: { variants: variants(2, 9800, (s) => this.pebbles(s)), material: m.pebble, shadow: false, tint: [0.02, 0.12] },
       deadFrond: { variants: variants(2, 9950, (s) => this.deadFrond(s)), material: m.deadLeaf, shadow: false, tint: [0.03, 0.12] },
       seedling: { variants: variants(3, 10000, (s) => this.seedlings(s)), material: m.under, shadow: false, tint: [0.05, 0.16], cut: { r: 0.5, loot: 'grass', color: 0x5f8f2f } },
-      taro: { variants: variants(3, 10100, (s) => this.taro(s)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.12], cut: { r: 1.0, loot: 'banana', color: 0x4f7a2a } },
-      mangrove: { variants: variants(3, 11000, (s) => this.mangrove(s)), material: [m.bark, m.canopyLow], shadow: true, tint: [0.03, 0.1] },
+      taro: { variants: twice(3, 10100, (s, far) => this.taro(s, far)), material: [m.stem, m.broad], shadow: true, tint: [0.03, 0.12], cut: { r: 1.0, loot: 'banana', color: 0x4f7a2a } },
+      mangrove: { variants: variants(3, 11000, (s) => mangrove(s, cell)), material: [m.bark, m.boughs], shadow: true, tint: [0.03, 0.1] },
       reeds: { variants: variants(3, 11100, (s) => this.reeds(s)), material: [m.stem, m.grass], shadow: false, tint: [0.05, 0.14], cut: { r: 0.6, loot: 'reeds', color: 0x9aa050 } },
       lily: { variants: variants(2, 11200, (s) => this.lilies(s)), material: [m.broad, m.under], shadow: false, tint: [0.03, 0.1] },
-      snag: { variants: variants(3, 11300, (s) => this.snag(s)), material: m.deadwood, shadow: true, tint: [0.02, 0.08] },
+      snag: { variants: variants(3, 11300, (s) => snag(s)), material: m.deadwood, shadow: true, tint: [0.02, 0.08] },
       bromeliad: { variants: variants(2, 10200, (s) => this.bromeliad(s)), material: m.canopyLow, shadow: false, tint: [0.03, 0.1], cut: { r: 0.6, loot: 'grass', color: 0x6a8a2a } },
     };
   }
@@ -232,439 +228,7 @@ export class Flora {
     }
   }
 
-  // ------------------------------------------------------------ trees
-
-  // Rainforest giant: a tall trunk on plank buttresses, a crown of leafy twigs in one of
-  // three habits, lianas and hanging vines, climbers on the trunk, epiphytes on the limbs.
-  bigTree(seed) {
-    const r = mulberry32(seed);
-    const nz = createNoise2D(seed);
-    const bark = [], leaves = [];
-    const H = range(r, 22, 29);
-    const lean = V(range(r, -1.4, 1.4), 0, range(r, -1.4, 1.4));
-    const rb = range(r, 0.8, 1.05);
-    const pts = [
-      V(0, -1.5, 0),
-      V(lean.x * 0.08 + range(r, -0.3, 0.3), H * 0.3, lean.z * 0.08 + range(r, -0.3, 0.3)),
-      V(lean.x * 0.45 + range(r, -0.5, 0.5), H * 0.66, lean.z * 0.45 + range(r, -0.5, 0.5)),
-      V(lean.x, H, lean.z),
-    ];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const radius = (t) => rb * (1 - 0.6 * t) + rb * 0.9 * Math.exp(-t * 14);
-    const uRep = Math.max(2, Math.round((TAU * rb) / 1.8));
-    const trunk = taperedTube(pts, radius, 26, 18, uRep, H / 1.8);
-    // knobbly, irregular trunk: push vertices in and out along their radial direction
-    {
-      const p = trunk.attributes.position;
-      const c = V(), q = V();
-      for (let i = 0; i < p.count; i++) {
-        q.fromBufferAttribute(p, i);
-        curve.getPointAt(clamp((q.y + 1.5) / (H + 1.5), 0, 1), c);
-        const dx = q.x - c.x, dz = q.z - c.z;
-        const a = Math.atan2(dz, dx);
-        const k = nz(q.y * 0.22, Math.cos(a) * 1.3 + Math.sin(a) * 0.7) * 0.09 + nz(q.y * 0.9, a * 2.1) * 0.03;
-        const s = 1 + k * (1 + 1.5 * Math.exp(-(q.y + 1.5) * 0.5));
-        p.setXYZ(i, c.x + dx * s, q.y, c.z + dz * s);
-      }
-      trunk.computeVertexNormals();
-    }
-    shade(trunk, (p, n, c) => {
-      const ao = 0.5 + 0.5 * smoothstep(-1, 4, p.y);
-      c.setRGB(ao, ao * 0.98, ao * 0.95);
-    });
-    bark.push(trunk);
-
-    // plank buttresses, the signature of rainforest giants
-    const nr = irange(r, 5, 7);
-    for (let i = 0; i < nr; i++) {
-      const a = (i / nr) * TAU + range(r, -0.3, 0.3);
-      const g = plankRoot({
-        angle: a, r0: rb, length: range(r, 2.2, 4.0), height: range(r, 2.4, 4.6), thick: range(r, 0.28, 0.4),
-        wiggle: range(r, -0.5, 0.5), segs: 18, uvScale: 0.55, seed: range(r, 0, 10),
-      });
-      shade(g, (p, n, c) => {
-        const ao = 0.38 + 0.62 * smoothstep(-0.4, 2.5, p.y);
-        c.setRGB(ao, ao * 0.97, ao * 0.92);
-      });
-      bark.push(g);
-    }
-    // surface roots snaking away between the buttresses, half buried
-    const ns = irange(r, 4, 7);
-    for (let i = 0; i < ns; i++) {
-      const a = ((i + 0.5) / ns) * TAU + range(r, -0.4, 0.4);
-      const len = range(r, 2.5, 5);
-      const rp = [];
-      for (let k = 0; k <= 5; k++) {
-        const t = k / 5;
-        const aa = a + Math.sin(t * 3 + i) * 0.25;
-        const d = rb * 0.8 + len * t;
-        rp.push(V(Math.cos(aa) * d, 0.06 - t * 0.14 + Math.sin(t * 7 + i * 2) * 0.05, Math.sin(aa) * d));
-      }
-      const r0 = range(r, 0.13, 0.22);
-      const g = taperedTube(rp, (t) => r0 * (1 - 0.75 * t) + 0.03, 12, 7, 1, len / 1.5);
-      shade(g, (p, n, c) => {
-        const ao = 0.5 + 0.5 * smoothstep(-0.1, 0.25, p.y);
-        c.setRGB(ao, ao, ao * 0.95);
-      });
-      bark.push(g);
-    }
-
-    // limbs out to the crown, in one of three habits so no two giants share a silhouette:
-    // the emergent umbrella (limbs only at the top, wide and flat), the deep crown (limbs
-    // from 0.6 H up, the low ones reaching furthest) and the lopsided one (grown into a gap)
-    const top = pts[3];
-    const crownC = top.clone().add(V(0, 2.2, 0));
-    const clusters = [];
-    const habit = r();
-    const umbrella = habit < 0.4, lopsided = habit > 0.72;
-    const spread = range(r, 0.65, 1.35);
-    const gap = r() * TAU;
-    const limb = (S, P, w) => {
-      const M = S.clone().lerp(P, 0.5).add(V(0, range(r, 0.6, 1.8), 0));
-      const br = taperedTube([S, M, P], (t) => w * (1 - t * 0.72), 9, 8, 1, 3);
-      shade(br, (p, n, c) => c.setRGB(0.8, 0.78, 0.74));
-      bark.push(br);
-      return M;
-    };
-    const nc = irange(r, 6, 8);
-    for (let i = 0; i < nc; i++) {
-      let a = (i / nc) * TAU + range(r, -0.35, 0.35);
-      if (lopsided && r() < 0.75) a = gap + range(r, -1.3, 1.3);
-      const hk = umbrella ? range(r, 0.93, 1.04) : range(r, 0.6, 1.05);
-      const reach = umbrella ? 1 : 1.15 - 0.45 * smoothstep(0.6, 1.05, hk);
-      const rad = range(r, 4.5, 8.5) * spread * reach;
-      const P = V(top.x + Math.cos(a) * rad, H * hk + range(r, -1.0, 2.5), top.z + Math.sin(a) * rad);
-      const S = curve.getPointAt(clamp(hk - range(r, 0.1, 0.22), 0.45, 0.95));
-      const M = limb(S, P, umbrella ? 0.42 : 0.36);
-      clusters.push({ P, R: range(r, 2.6, 3.6) * (0.8 + 0.2 * spread), from: M });
-      // a side limb splitting off toward its own cluster
-      if (r() < 0.7) {
-        const b = (r() < 0.5 ? -1 : 1) * range(r, 0.5, 0.9);
-        const Q = P.clone().lerp(S, 0.35).add(V(Math.cos(a + b) * range(r, 2, 3.5), range(r, 0.5, 2), Math.sin(a + b) * range(r, 2, 3.5)));
-        const B0 = S.clone().lerp(P, 0.55);
-        const sb = taperedTube([B0, B0.clone().lerp(Q, 0.5).add(V(0, 0.4, 0)), Q], (t) => 0.2 * (1 - t * 0.7), 6, 6, 1, 2);
-        shade(sb, (p, n, c) => c.setRGB(0.8, 0.78, 0.74));
-        bark.push(sb);
-        clusters.push({ P: Q, R: range(r, 2.0, 2.8), from: B0 });
-      }
-    }
-    // old growth keeps a low limb or two well under the crown
-    const nlow = r() < 0.65 ? irange(r, 1, 2) : 0;
-    for (let i = 0; i < nlow; i++) {
-      const a = r() * TAU, hk = range(r, 0.36, 0.52), out = range(r, 2.5, 4.2);
-      const S = curve.getPointAt(hk);
-      const P = S.clone().add(V(Math.cos(a) * out, range(r, 1.0, 2.2), Math.sin(a) * out));
-      clusters.push({ P, R: range(r, 1.5, 2.2), from: limb(S, P, 0.2), k: 0.5 });
-    }
-    clusters.push({ P: crownC.clone().add(V(0, 0.5, 0)), R: range(r, 3.2, 4.2) * (0.8 + 0.2 * spread), from: top });
-    let lowY = H - 3.5;
-    for (const c of clusters) lowY = Math.min(lowY, c.P.y - c.R * 0.5);
-    const twigs = ['twig0', 'twig1', 'twig2'].map((n) => this.cell('canopy', n));
-    this.crown(r, leaves, clusters, crownC, { cards: [14, 20], size: [2.2, 3.3], cells: twigs, topY: H + 5, bottomY: lowY });
-
-    // climbers: strips of vine spiralling up the trunk, flat against the bark, starting
-    // between two buttresses
-    const climb = this.cell('canopy', 'vine0');
-    const ncl = r() < 0.8 ? irange(r, 1, 2) : 0;
-    for (let i = 0; i < ncl; i++) {
-      const a0 = ((Math.floor(r() * nr) + 0.5) / nr) * TAU;
-      const turns = range(r, 0.15, 0.55) * (r() < 0.5 ? -1 : 1);
-      const w = range(r, 0.5, 0.7), seg = w / climb.aspect;
-      const y0 = 0.1, y1 = H * range(r, 0.4, 0.8);
-      const n = Math.max(2, Math.round((y1 - y0) / seg));
-      for (let k = 0; k < n; k++) {
-        const y = y0 + k * seg;
-        const t = clamp((y + 1.5) / (H + 1.5), 0, 1);
-        const c = curve.getPointAt(t);
-        const ang = a0 + turns * TAU * (k / n) + range(r, -0.08, 0.08);
-        const rr = radius(t) * (1.14 + 0.15 * Math.exp(-(y + 1.5) * 0.5)) + 0.06;
-        const g = leafBlade(climb, { length: seg * 1.04, segs: 2, across: 1, elev: Math.PI / 2 - 0.03, droop: 0, fold: 0.12, upBias: 0.15 });
-        transform(g, { rotation: { y: -ang }, position: V(c.x + Math.cos(ang) * rr, y, c.z + Math.sin(ang) * rr) });
-        shade(g, (p, nn, col) => {
-          const s = 0.5 + 0.35 * smoothstep(0, H * 0.6, p.y);
-          col.setRGB(s * 0.95, s, s * 0.88);
-        });
-        leaves.push(g);
-      }
-    }
-
-    // epiphytes: bromeliads riding on the limbs
-    const brom = this.cell('canopy', 'brom0');
-    const ne = irange(r, 2, 5);
-    for (let i = 0; i < ne; i++) {
-      const cl = clusters[Math.floor(r() * (clusters.length - 1))];
-      const at = cl.from.clone().lerp(cl.P, range(r, 0.2, 0.6)).add(V(0, 0.3, 0));
-      leaves.push(...this.rosette(r, brom, at, range(r, 0.5, 0.9), irange(r, 5, 7), 0.9));
-    }
-
-    // lianas looping down to the ground, and curtains of hanging vines
-    const nl = irange(r, 2, 4);
-    for (let i = 0; i < nl; i++) {
-      const cl = clusters[Math.floor(r() * clusters.length)];
-      const A = cl.P.clone().add(V(0, -cl.R * 0.4, 0));
-      const ang = r() * TAU, gd = range(r, 2.5, 6);
-      const G = V(Math.cos(ang) * gd, -0.3, Math.sin(ang) * gd);
-      const m1 = A.clone().lerp(G, 0.35).add(V(range(r, -1.5, 1.5), -range(r, 0.5, 2), range(r, -1.5, 1.5)));
-      const m2 = A.clone().lerp(G, 0.7).add(V(range(r, -1.5, 1.5), -range(r, 0.5, 1.5), range(r, -1.5, 1.5)));
-      const rad = range(r, 0.06, 0.12);
-      const l = taperedTube([A, m1, m2, G], (t) => rad * (1 - 0.3 * t), 24, 6, 1, 8);
-      shade(l, (p, n, c) => c.setRGB(0.55, 0.55, 0.45));
-      bark.push(l);
-    }
-    const vine = this.cell('canopy', 'vine0');
-    const nh = irange(r, 4, 9);
-    for (let i = 0; i < nh; i++) {
-      const cl = clusters[Math.floor(r() * clusters.length)];
-      const A = cl.P.clone().add(V(range(r, -1, 1) * cl.R * 0.8, -cl.R * 0.35, range(r, -1, 1) * cl.R * 0.8));
-      const parts = hangingVine(vine, A, range(r, 3, 11), range(r, 0.45, 0.7), r);
-      for (const g of parts) {
-        shade(g, (p, n, c) => {
-          const s = 0.55 + 0.35 * smoothstep(H - 12, H, p.y);
-          c.setRGB(s, s, s * 0.9);
-        });
-        leaves.push(g);
-      }
-    }
-
-    let cr = 0;
-    for (const { P, R } of clusters) cr = Math.max(cr, Math.hypot(P.x - top.x, P.z - top.z) + R);
-    return { geometry: mergeSlots([bark, leaves]), colliders: [{ x: 0, z: 0, r: rb * 1.2 }], canopy: 9, crown: { r: cr, top: H + 5, x: top.x, z: top.z } };
-  }
-
-  // Understory tree: a slender, slightly crooked trunk under a rounded crown of small-leaved twigs.
-  smallTree(seed) {
-    const r = mulberry32(seed);
-    const bark = [], leaves = [];
-    const H = range(r, 7, 13);
-    const lx = range(r, -0.8, 0.8), lz = range(r, -0.8, 0.8);
-    const pts = [V(0, -0.5, 0), V(lx * 0.25 + range(r, -0.2, 0.2), H * 0.45, lz * 0.25 + range(r, -0.2, 0.2)), V(lx, H, lz)];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const trunk = taperedTube(pts, (t) => 0.2 * (1 - 0.5 * t) + 0.14 * Math.exp(-t * 10), 22, 12, 1, H / 1.8);
-    gnarl(trunk, curve, -0.5, H, createNoise2D(seed + 7), 0.13);
-    shade(trunk, (p, n, c) => {
-      const ao = 0.55 + 0.45 * smoothstep(-0.5, 3, p.y);
-      c.setRGB(ao * 0.95, ao, ao * 0.9);
-    });
-    bark.push(trunk);
-    const center = V(lx, H + 0.4, lz);
-    const clusters = [];
-    const nc = irange(r, 4, 6);
-    for (let i = 0; i < nc; i++) {
-      const a = (i / nc) * TAU + r();
-      const rad = i === 0 ? 0 : range(r, 1.3, 2.6);
-      const P = V(lx + Math.cos(a) * rad, H + range(r, -1.4, 1.0), lz + Math.sin(a) * rad);
-      let from = V(lx, H * 0.8, lz);
-      if (rad > 0) {
-        const S = curve.getPointAt(range(r, 0.55, 0.9));
-        from = S.clone().lerp(P, 0.5).add(V(0, 0.4, 0));
-        const br = taperedTube([S, from, P], (t) => 0.1 * (1 - t * 0.6), 5, 6, 1, 1);
-        shade(br, (p, n, c) => c.setRGB(0.85, 0.85, 0.8));
-        bark.push(br);
-      }
-      clusters.push({ P, R: range(r, 1.3, 1.9), from });
-    }
-    const twigs = ['twigs0', 'twigs1'].map((n) => this.cell('under', n));
-    this.crown(r, leaves, clusters, center, { cards: [12, 18], size: [1.2, 1.8], cells: twigs, topY: H + 2, bottomY: H - 2.2 });
-    let cr = 0;
-    for (const { P, R } of clusters) cr = Math.max(cr, Math.hypot(P.x - lx, P.z - lz) + R);
-    return { geometry: mergeSlots([bark, leaves]), colliders: [{ x: 0, z: 0, r: 0.3 }], canopy: 2.5, crown: { r: cr, top: H + 2, x: lx, z: lz } };
-  }
-
-  // Understory tree: a tall, thin trunk holding its leaves in two or three loose tiers, the
-  // layer between the shrubs and the giants' crowns that makes a forest read as a jungle.
-  midTree(seed) {
-    const r = mulberry32(seed);
-    const bark = [], leaves = [];
-    const H = range(r, 12, 18);
-    const lx = range(r, -1.2, 1.2), lz = range(r, -1.2, 1.2);
-    const pts = [
-      V(0, -0.5, 0),
-      V(lx * 0.2 + range(r, -0.3, 0.3), H * 0.4, lz * 0.2 + range(r, -0.3, 0.3)),
-      V(lx * 0.6, H * 0.75, lz * 0.6),
-      V(lx, H, lz),
-    ];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const trunk = taperedTube(pts, (t) => 0.26 * (1 - 0.55 * t) + 0.16 * Math.exp(-t * 10), 26, 12, 1, H / 2.7);
-    gnarl(trunk, curve, -0.5, H, createNoise2D(seed + 7), 0.12);
-    shade(trunk, (p, n, c) => {
-      const ao = 0.6 + 0.4 * smoothstep(-0.5, 4, p.y);
-      c.setRGB(ao * 0.95, ao, ao * 0.9);
-    });
-    bark.push(trunk);
-    const clusters = [];
-    const tiers = irange(r, 2, 3);
-    for (let i = 0; i < tiers; i++) {
-      const S = curve.getPointAt(Math.min(0.97, 0.55 + (i / tiers) * 0.42));
-      const nb = irange(r, 2, 3);
-      for (let b = 0; b < nb; b++) {
-        const a = r() * TAU;
-        const out = range(r, 1.4, 2.8) * (1 - i * 0.2);
-        const P = S.clone().add(V(Math.cos(a) * out, range(r, 0.3, 1.2), Math.sin(a) * out));
-        const from = S.clone().lerp(P, 0.4).add(V(0, 0.3, 0));
-        const br = taperedTube([S, from, P], (u) => 0.08 * (1 - u * 0.6), 5, 5, 1, 1);
-        shade(br, (p, n, c) => c.setRGB(0.85, 0.85, 0.8));
-        bark.push(br);
-        clusters.push({ P, R: range(r, 1.2, 1.7), from });
-      }
-    }
-    clusters.push({ P: pts[3].clone().add(V(0, 0.5, 0)), R: range(r, 1.5, 2.0), from: pts[2] });
-    const twigs = ['twig0', 'twig1', 'twig2', 'twig3'].map((n) => this.cell('canopy', n));
-    this.crown(r, leaves, clusters, V(lx, H * 0.8, lz), { cards: [7, 10], size: [1.5, 2.2], flat: 0.5, cells: twigs, topY: H + 1.5, bottomY: H * 0.55 });
-    let cr = 0;
-    for (const { P, R } of clusters) cr = Math.max(cr, Math.hypot(P.x - lx, P.z - lz) + R);
-    return { geometry: mergeSlots([bark, leaves]), colliders: [{ x: 0, z: 0, r: 0.32 }], canopy: 2.5, crown: { r: cr, top: H + 1.5, x: lx, z: lz } };
-  }
-
-  // Coconut palm: a ringed, leaning, gently curved trunk; a crown of arching pinnate fronds,
-  // a few dead ones hanging; coconuts under the crown.
-  palm(seed) {
-    const r = mulberry32(seed);
-    const nz = createNoise2D(seed);
-    const bark = [], leaves = [], nuts = [];
-    const H = range(r, 8, 13);
-    const la = r() * TAU, lean = range(r, 1.0, 3.2);
-    const L = V(Math.cos(la) * lean, 0, Math.sin(la) * lean);
-    const pts = [V(0, -0.5, 0), V(L.x * 0.06, H * 0.33, L.z * 0.06), V(L.x * 0.38, H * 0.66, L.z * 0.38), V(L.x, H, L.z)];
-    const trunk = taperedTube(pts, (t) => 0.24 * (1 - 0.25 * t) + 0.16 * Math.exp(-t * 9), 22, 10, 1, H / 1.6);
-    shade(trunk, (p, n, c) => {
-      const ao = 0.55 + 0.45 * smoothstep(-0.5, 3, p.y);
-      c.setRGB(ao, ao, ao * 0.96);
-    });
-    bark.push(trunk);
-    const top = pts[3];
-    const crown = blob(0.36, 1, nz, 0.15, 1.2);
-    transform(crown, { position: top.clone().add(V(0, 0.1, 0)) });
-    shade(crown, (p, n, c) => c.setRGB(0.55, 0.5, 0.4));
-    bark.push(crown);
-    if (r() < 0.8) {
-      const nco = irange(r, 3, 7);
-      for (let k = 0; k < nco; k++) {
-        const a = r() * TAU;
-        const g = prep(new THREE.SphereGeometry(0.15, 10, 7));
-        g.scale(1, 1.15, 1);
-        transform(g, { position: top.clone().add(V(Math.cos(a) * 0.32, -0.28 - r() * 0.15, Math.sin(a) * 0.32)) });
-        const green = r() < 0.4;
-        shade(g, (p, n, c) => (green ? c.setRGB(0.32, 0.42, 0.12, SRGB) : c.setRGB(0.42, 0.28, 0.14, SRGB)));
-        nuts.push(g);
-      }
-    }
-    const fr = ['palm0', 'palm1'].map((n) => this.cell('fronds', n));
-    const nf = irange(r, 13, 17);
-    for (let i = 0; i < nf; i++) {
-      const yaw = (i / nf) * TAU + range(r, -0.2, 0.2);
-      const dead = i % 5 === 0 && r() < 0.6;
-      const g = leafBlade(fr[i % 2], {
-        length: range(r, 4.2, 5.6), segs: 12, across: 2,
-        elev: dead ? range(r, -1.2, -0.7) : range(r, 0.0, 0.85),
-        droop: dead ? 0.1 : range(r, 0.5, 0.85), fold: 0.12, twist: range(r, -0.25, 0.25), upBias: 0.5,
-      });
-      transform(g, { rotation: { y: yaw }, position: top });
-      const t = dead ? [0.85, 0.6, 0.32] : [range(r, 0.9, 1.0), 1, range(r, 0.85, 1.0)];
-      shade(g, (p, n, c) => {
-        const k = dead ? 0.8 : 0.75 + 0.25 * smoothstep(top.y - 3, top.y + 1, p.y);
-        c.setRGB(t[0] * k, t[1] * k, t[2] * k);
-      });
-      leaves.push(g);
-    }
-    return { geometry: mergeSlots([bark, leaves, nuts]), colliders: [{ x: 0, z: 0, r: 0.36 }], canopy: 3, crown: { r: 4.6, top: H + 1, x: L.x, z: L.z } };
-  }
-
-  // Tree fern: a thin, shaggy trunk carrying a parasol of long arching fronds.
-  treeFern(seed) {
-    const r = mulberry32(seed);
-    const trunkP = [], leaves = [];
-    const H = range(r, 2.6, 5.2);
-    const lx = range(r, -0.4, 0.4), lz = range(r, -0.4, 0.4);
-    const pts = [V(0, -0.3, 0), V(lx * 0.3, H * 0.5, lz * 0.3), V(lx, H, lz)];
-    const trunk = taperedTube(pts, (t) => 0.17 * (1 - 0.15 * t) + 0.07 * Math.exp(-t * 6), 10, 9, 1, H / 1.2);
-    shade(trunk, (p, n, c) => {
-      const ao = 0.75 + 0.25 * smoothstep(-0.3, 2, p.y);
-      c.setRGB(ao * 0.9, ao * 0.82, ao * 0.7);
-    });
-    trunkP.push(trunk);
-    const top = pts[2];
-    const cells = ['fern0', 'fern1'].map((n) => this.cell('fronds', n));
-    const nf = irange(r, 12, 16);
-    for (let i = 0; i < nf; i++) {
-      const yaw = (i / nf) * TAU + range(r, -0.15, 0.15);
-      const g = leafBlade(cells[i % 2], {
-        length: range(r, 2.2, 3.2), segs: 9, across: 2, elev: range(r, 0.25, 0.85), droop: range(r, 0.7, 1.0),
-        fold: 0.1, twist: range(r, -0.2, 0.2), upBias: 0.5,
-      });
-      transform(g, { rotation: { y: yaw }, position: top });
-      const s = range(r, 0.85, 1.05);
-      shade(g, (p, n, c) => {
-        const k = 0.7 + 0.3 * smoothstep(top.y - 2, top.y + 0.8, p.y);
-        c.setRGB(s * k, s * k, s * k * 0.85);
-      });
-      leaves.push(g);
-    }
-    return { geometry: mergeSlots([trunkP, leaves]), colliders: [{ x: 0, z: 0, r: 0.22 }], canopy: 2, crown: { r: 2.8, top: H + 0.4, x: lx, z: lz } };
-  }
-
   // --------------------------------------------------------- the drowned grove
-
-  // Mangrove: a short, crooked trunk standing on a skirt of prop roots that arch out and dive
-  // into the water, under a dense, dark crown of leathery leaves.
-  mangrove(seed) {
-    const r = mulberry32(seed);
-    const bark = [], leaves = [];
-    const H = range(r, 5.5, 8.5);
-    const R0 = range(r, 1.1, 1.6); // where the trunk leaves its roots
-    const lx = range(r, -0.7, 0.7), lz = range(r, -0.7, 0.7);
-    const pts = [V(0, R0 - 0.3, 0), V(lx * 0.35, R0 + (H - R0) * 0.5, lz * 0.35), V(lx, H, lz)];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const trunk = taperedTube(pts, (t) => 0.21 * (1 - 0.45 * t), 14, 10, 1, H / 2);
-    gnarl(trunk, curve, R0 - 0.3, H, createNoise2D(seed + 3), 0.09);
-    shade(trunk, (p, n, c) => {
-      const ao = 0.62 + 0.38 * smoothstep(R0, H, p.y);
-      c.setRGB(ao * 0.8, ao * 0.78, ao * 0.72);
-    });
-    bark.push(trunk);
-    // the prop roots: out from the trunk's foot and down in arcs into the water, dark and
-    // slick below the waterline
-    const nr = irange(r, 7, 11);
-    for (let i = 0; i < nr; i++) {
-      const a = (i / nr) * TAU + range(r, -0.25, 0.25);
-      const out = range(r, 1.3, 2.5);
-      const from = V(Math.cos(a) * 0.1, R0 + range(r, -0.4, 0.7), Math.sin(a) * 0.1);
-      const mid = V(Math.cos(a) * out * 0.5, from.y + range(r, 0.1, 0.45), Math.sin(a) * out * 0.5);
-      const to = V(Math.cos(a) * out, -0.5, Math.sin(a) * out);
-      const root = taperedTube([from, mid, to], (t) => 0.08 * (1 - 0.35 * t), 10, 6, 1, 2);
-      shade(root, (p, n, c) => {
-        const wet = 0.45 + 0.55 * smoothstep(-0.1, 0.35, p.y);
-        c.setRGB(wet * 0.75, wet * 0.72, wet * 0.66);
-      });
-      bark.push(root);
-    }
-    // a few aerial roots hanging straight down from the low limbs
-    for (let i = 0; i < irange(r, 2, 4); i++) {
-      const a = r() * TAU, d = range(r, 0.8, 1.6), y0 = R0 + range(r, 1.2, 2.4);
-      const p0 = V(Math.cos(a) * d, y0, Math.sin(a) * d);
-      bark.push(taperedTube([p0, p0.clone().add(V(0.05, -y0 * 0.5, 0)), V(p0.x + 0.08, -0.3, p0.z)], (t) => 0.025 * (1 - 0.3 * t), 6, 4, 1, 2));
-    }
-    const center = V(lx, H + 0.2, lz);
-    const clusters = [];
-    const nc = irange(r, 5, 7);
-    for (let i = 0; i < nc; i++) {
-      const a = (i / nc) * TAU + r();
-      const rad = i === 0 ? 0 : range(r, 1.4, 2.8);
-      const P = V(lx + Math.cos(a) * rad, H + range(r, -1.2, 0.6), lz + Math.sin(a) * rad);
-      const S = curve.getPointAt(range(r, 0.55, 0.9));
-      const from = S.clone().lerp(P, 0.5).add(V(0, 0.3, 0));
-      if (rad > 0) {
-        const br = taperedTube([S, from, P], (t) => 0.09 * (1 - t * 0.6), 5, 6, 1, 1);
-        shade(br, (p, n, c) => c.setRGB(0.75, 0.73, 0.68));
-        bark.push(br);
-      }
-      clusters.push({ P, R: range(r, 1.4, 1.9), from });
-    }
-    const twigs = ['twig0', 'twig2', 'twig3'].map((n) => this.cell('canopy', n));
-    this.crown(r, leaves, clusters, center, { cards: [10, 15], size: [1.3, 1.8], flat: 0.55, cells: twigs, topY: H + 1.6, bottomY: H - 1.8 });
-    let cr = 0;
-    for (const { P, R } of clusters) cr = Math.max(cr, Math.hypot(P.x - lx, P.z - lz) + R);
-    return { geometry: mergeSlots([bark, leaves]), colliders: [{ x: 0, z: 0, r: 0.9, top: R0 + 0.2 }], canopy: 2.5, crown: { r: cr, top: H + 1.6, x: lx, z: lz } };
-  }
 
   // Reed bed: a dense clump of tall blades with a few cattail spikes standing out of it.
   reeds(seed) {
@@ -742,42 +306,6 @@ export class Flora {
     return { geometry: mergeSlots([pads, flowers]), colliders: [] };
   }
 
-  // Dead snag: a drowned tree, bleached and bare, its top snapped off and a few broken limbs.
-  snag(seed) {
-    const r = mulberry32(seed);
-    const nz = createNoise2D(seed);
-    const parts = [];
-    const H = range(r, 5, 11);
-    const lx = range(r, -0.6, 0.6), lz = range(r, -0.6, 0.6);
-    const pts = [V(0, -0.6, 0), V(lx * 0.3, H * 0.5, lz * 0.3), V(lx, H, lz)];
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const R = range(r, 0.2, 0.32);
-    const trunk = taperedTube(pts, (t) => R * (1 - 0.55 * t) + R * 0.6 * Math.exp(-t * 9), 16, 10, 1, H / 2);
-    gnarl(trunk, curve, -0.6, H, nz, 0.1);
-    // the snapped top: jagged splinters
-    const p = trunk.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      if (p.getY(i) < H - 0.05) continue;
-      const a = Math.atan2(p.getZ(i) - lz, p.getX(i) - lx);
-      p.setY(i, p.getY(i) + Math.abs(nz(Math.cos(a) * 3, Math.sin(a) * 3)) * 0.9 + (Math.abs(Math.sin(a * 5)) > 0.8 ? 0.4 : 0));
-    }
-    trunk.computeVertexNormals();
-    shade(trunk, (q, nn, c) => {
-      const wet = 0.5 + 0.5 * smoothstep(-0.2, 0.9, q.y);
-      c.setRGB(wet * 0.85, wet * 0.83, wet * 0.78);
-    });
-    parts.push(trunk);
-    for (let i = 0; i < irange(r, 2, 4); i++) {
-      const t = range(r, 0.35, 0.8), S = curve.getPointAt(t);
-      const a = r() * TAU, L = range(r, 0.8, 2.2);
-      const E = S.clone().add(V(Math.cos(a) * L, L * range(r, 0.1, 0.7), Math.sin(a) * L));
-      const br = taperedTube([S, S.clone().lerp(E, 0.5).add(V(0, 0.1, 0)), E], (u) => R * 0.35 * (1 - u * 0.7), 5, 6, 1, 1);
-      shade(br, (q, nn, c) => c.setRGB(0.8, 0.78, 0.74));
-      parts.push(br);
-    }
-    return { geometry: mergeSlots([parts]), colliders: [{ x: 0, z: 0, r: R + 0.05 }] };
-  }
-
   // --------------------------------------------------------- undergrowth
 
   // Ground fern: a rosette of arching fronds.
@@ -852,11 +380,11 @@ export class Flora {
 
 
   // Banana: a fleshy pseudo-stem holding huge torn paddle leaves; the oldest hang dry.
-  banana(seed) {
+  banana(seed, far = false) {
     const r = mulberry32(seed);
     const stems = [], leaves = [];
     const SH = range(r, 1.1, 1.8);
-    const ps = taperedTube([V(0, -0.2, 0), V(0, SH * 0.5, 0), V(0, SH, 0)], (t) => 0.14 * (1 - 0.35 * t), 5, 9, 1, 1);
+    const ps = taperedTube([V(0, -0.2, 0), V(0, SH * 0.5, 0), V(0, SH, 0)], (t) => 0.14 * (1 - 0.35 * t), far ? 2 : 5, far ? 4 : 9, 1, 1);
     shade(ps, (p, n, c) => {
       const ao = 0.6 + 0.4 * smoothstep(0, SH, p.y);
       c.setRGB(0.5 * ao, 0.57 * ao, 0.28 * ao, SRGB);
@@ -870,11 +398,11 @@ export class Flora {
       const h0 = SH * range(r, 0.8, 1.0);
       const d = V(Math.cos(yaw), 0, -Math.sin(yaw));
       const Q = V(d.x * 0.35, h0 + range(r, 0.25, 0.6), d.z * 0.35);
-      const pet = taperedTube([V(0, h0, 0), V(d.x * 0.15, h0 + 0.3, d.z * 0.15), Q], () => 0.035, 4, 5, 1, 1);
+      const pet = taperedTube([V(0, h0, 0), V(d.x * 0.15, h0 + 0.3, d.z * 0.15), Q], () => (far ? 0.045 : 0.035), far ? 1 : 4, far ? 3 : 5, 1, 1);
       shade(pet, (p, n, c) => c.setRGB(0.42, 0.55, 0.22, SRGB));
       stems.push(pet);
       const g = leafBlade(cells[Math.floor(r() * 3)], {
-        length: range(r, 1.8, 2.7), segs: 9, across: 2,
+        length: range(r, 1.8, 2.7), segs: far ? 3 : 9, across: 2,
         elev: old ? range(r, -1.1, -0.6) : range(r, 0.2, 0.8), droop: old ? 0.1 : range(r, 0.45, 0.8),
         fold: 0.08, curl: -0.08, twist: range(r, -0.2, 0.2), upBias: 0.4,
       });
@@ -887,7 +415,7 @@ export class Flora {
   }
 
   // Monstera: split, holed leaves held out on long stalks at different heights.
-  monstera(seed) {
+  monstera(seed, far = false) {
     const r = mulberry32(seed);
     const stems = [], leaves = [];
     const cells = ['monst0', 'monst1'].map((n) => this.cell('broad', n));
@@ -897,7 +425,7 @@ export class Flora {
       const ph = range(r, 0.45, 1.5), out = range(r, 0.25, 0.7);
       const d = V(Math.cos(yaw), 0, -Math.sin(yaw));
       const Q = V(d.x * out, ph, d.z * out);
-      const pet = taperedTube([V(0, -0.05, 0), V(d.x * out * 0.25, ph * 0.7, d.z * out * 0.25), Q], (t) => 0.03 * (1 - 0.3 * t), 6, 5, 1, 1);
+      const pet = taperedTube([V(0, -0.05, 0), V(d.x * out * 0.25, ph * 0.7, d.z * out * 0.25), Q], (t) => (far ? 0.04 : 0.03) * (1 - 0.3 * t), far ? 2 : 6, far ? 3 : 5, 1, 1);
       shade(pet, (p, n, c) => {
         const ao = 0.6 + 0.4 * smoothstep(0, ph, p.y);
         c.setRGB(0.4 * ao, 0.52 * ao, 0.24 * ao, SRGB);
@@ -905,7 +433,7 @@ export class Flora {
       stems.push(pet);
       const len = range(r, 0.7, 1.15);
       const g = leafBlade(cells[Math.floor(r() * 2)], {
-        length: len, segs: 6, across: 4, elev: range(r, 0.0, 0.5), droop: range(r, 0.35, 0.7), fold: 0.18, curl: -0.15, upBias: 0.35,
+        length: len, segs: far ? 2 : 6, across: far ? 2 : 4, elev: range(r, 0.0, 0.5), droop: range(r, 0.35, 0.7), fold: 0.18, curl: -0.15, upBias: 0.35,
       });
       transform(g, { position: V(-len * 0.08, 0, 0) });
       transform(g, { rotation: { y: yaw }, position: Q });
@@ -1095,7 +623,7 @@ export class Flora {
 
 
   // Elephant ear: huge heart-shaped leaves held out on long stalks.
-  taro(seed) {
+  taro(seed, far = false) {
     const r = mulberry32(seed);
     const stems = [], leaves = [];
     const cells = ['taro0', 'taro1'].map((n) => this.cell('broad', n));
@@ -1105,7 +633,7 @@ export class Flora {
       const ph = range(r, 0.9, 1.6), out = range(r, 0.2, 0.5);
       const d = V(Math.cos(yaw), 0, -Math.sin(yaw));
       const Q = V(d.x * out, ph, d.z * out);
-      const pet = taperedTube([V(0, -0.05, 0), V(d.x * out * 0.3, ph * 0.6, d.z * out * 0.3), Q], (t) => 0.045 * (1 - 0.4 * t), 5, 6, 1, 1);
+      const pet = taperedTube([V(0, -0.05, 0), V(d.x * out * 0.3, ph * 0.6, d.z * out * 0.3), Q], (t) => (far ? 0.055 : 0.045) * (1 - 0.4 * t), far ? 2 : 5, far ? 3 : 6, 1, 1);
       shade(pet, (q, n, c) => {
         const ao = 0.6 + 0.4 * smoothstep(0, ph, q.y);
         c.setRGB(0.4 * ao, 0.52 * ao, 0.24 * ao, SRGB);
@@ -1113,7 +641,7 @@ export class Flora {
       stems.push(pet);
       const len = range(r, 1.1, 1.7);
       const g = leafBlade(cells[Math.floor(r() * 2)], {
-        length: len, segs: 7, across: 4, elev: range(r, 0.2, 0.6), droop: range(r, 0.7, 1.0), fold: 0.25, curl: -0.1, upBias: 0.35,
+        length: len, segs: far ? 3 : 7, across: far ? 2 : 4, elev: range(r, 0.2, 0.6), droop: range(r, 0.7, 1.0), fold: 0.25, curl: -0.1, upBias: 0.35,
       });
       transform(g, { position: V(-len * 0.12, 0, 0) }); // the stalk joins near the notch
       transform(g, { rotation: { y: yaw }, position: Q });
@@ -1132,7 +660,7 @@ export class Flora {
   // planes, lumpy and pitted, stacked with their faces stepped back like the ledges a jungle
   // cliff weathers into. Built facing +z (open air); the world turns it down the slope and
   // beds its back into the face.
-  cliffRock(seed) {
+  cliffRock(seed, far = false) {
     const r = mulberry32(seed);
     const nz = createNoise2D(seed);
     const parts = [];
@@ -1140,7 +668,7 @@ export class Flora {
     let y = -0.6, back = 0, top = 0, wMax = 0;
     for (let i = 0; i < n; i++) {
       const w = range(r, 2.6, 4.2) * (1 - i * 0.12), h = range(r, 0.8, 1.4), d = range(r, 1.8, 2.6);
-      let g = new THREE.IcosahedronGeometry(1, 3);
+      let g = new THREE.IcosahedronGeometry(1, far ? 1 : 3);
       g.deleteAttribute('normal');
       g.deleteAttribute('uv');
       const p = g.attributes.position, v = V();
@@ -1184,11 +712,11 @@ export class Flora {
     return { geometry: mergeSlots([parts]), colliders: [{ x: 0, z: -0.4, r: wMax * 0.42, top }] };
   }
 
-  rock(seed) {
+  rock(seed, far = false) {
     const r = mulberry32(seed);
     const nz = createNoise2D(seed);
     const squash = range(r, 0.6, 0.9);
-    let g = new THREE.IcosahedronGeometry(1, 4);
+    let g = new THREE.IcosahedronGeometry(1, far ? 2 : 4);
     g.deleteAttribute('normal');
     g.deleteAttribute('uv');
     const p = g.attributes.position;

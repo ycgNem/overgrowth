@@ -624,10 +624,11 @@ export function makeTerrainMaterial(lib) {
           }
           // turf: grass grows up through the leaves, and only the leaves lying highest stay on top
           if (gk > 0.001) {
-            Layer Lt = ogLayer(tTurf, nTurf, pp, 0.55, 1.1, vec2(0.53, 0.19), sw, dpx, dpy);
-            // sunny dry turf goes golden, damp turf stays deep green
+            Layer Lt = ogLayer(tTurf, nTurf, pp, 1.0, 1.1, vec2(0.53, 0.19), sw, dpx, dpy);
+            // sunny turf a shade warmer, damp turf deep green (kept close to the 3D blades growing out
+            // of it: a golden turf under blue-green blades read as two different lawns)
             float gd = smoothstep(0.3, 0.8, ogNoise(p * 0.05 + 61.0));
-            Lt.col *= mix(vec3(0.88, 1.02, 0.86), vec3(1.12, 1.06, 0.78), gd);
+            Lt.col *= mix(vec3(0.88, 1.02, 0.86), vec3(1.03, 1.04, 0.9), gd);
             // past the 3D blades the turf takes on their lit green, so the meadow doesn't turn
             // into a grainy olive carpet where they stop
             Lt.col = mix(Lt.col, Lt.col * vec3(0.95, 1.18, 0.8), smoothstep(10.0, 26.0, dist) * 0.6);
@@ -657,7 +658,7 @@ export function makeTerrainMaterial(lib) {
           vec3 nS;
           if (w.x > 0.002) {
             Layer S;
-            if (gk > 0.5) S = ogLayerSide(tTurf, nTurf, 0.55, 1.1, vec2(0.53, 0.19), sw, ax, dPx, dPy, nS);
+            if (gk > 0.5) S = ogLayerSide(tTurf, nTurf, 1.0, 1.1, vec2(0.53, 0.19), sw, ax, dPx, dPy, nS);
             else S = ogLayerSide(tLitter2, nLitter2, LS2, 0.6, vec2(0.11, 0.47), sw, ax, dPx, dPy, nS);
             float kLl = ogSteepK(Ll.h, S.h, steep, ogWk);
             Ll.col = mix(Ll.col, S.col, kLl); Ll.h = mix(Ll.h, S.h, kLl); Ll.n *= 1.0 - kLl; sideL = nS * kLl;

@@ -110,8 +110,9 @@ src/
   core/Journal.ts      first-day tutorial steps, then rolling optional goals
   core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering
   assets/Models.js     loads the Blender GLBs, clones them, finds animated parts
-  art/merge.js         flattens models to one draw call per moving part (baked colour/emissive),
-                       tri-planar bark/stone/moss detail on their parts
+  art/merge.ts         flattens models to one draw call per moving part (baked colour/emissive),
+                       tri-planar bark/stone/moss detail on their parts, chosen by material name
+                       (Bit* names: the same photos at a hand-held thing's scale)
   art/TextureLib.js    loads the generated surfaces and leaf atlases (public/textures)
   art/textures.js      small canvas textures (glows, sparks, item details, water normals)
   art/shaders.js       material patches: wind, foliage translucency, moss, terrain splat, fog
@@ -126,17 +127,20 @@ src/
   world/Trample.js     the lanes the Blight wear into the ground, settled at dawn
   world/Litter.js      3D fallen leaves and sticks on the ground around the player
   world/Cover.js       seedlings, small ferns and dead fronds within 25 m of the player
-  world/Grass.js       3D grass tufts on the turf (and sedge under the trees) within 20 m
-  world/flora/         plant library (Flora.js), geometry helpers (geom.js) and the thinned
-                       far copies of trees (lod.js)
+  world/Grass.ts       3D grass tufts on the turf (and sedge under the trees) within 20 m,
+                       a lighter shape of each tuft past 12 m
+  world/flora/         plant library (Flora.ts), the trees (trees.ts: a skeleton that forks,
+                       pads of bough cards at the shoot ends, and a purpose-built far copy of
+                       every tree from the same pass), geometry helpers (geom.js), and lod.js
+                       (a thinned far copy for any plant that doesn't bring its own)
   world/poi/POI.js     points of interest: placement rules + builders
   world/Sky.js         sky dome shader, sun/moon, day-night palette, environment map
   world/Water.js       river/lake surface
   player/Player.js     movement, jump buffering, stamina, swimming, health, head-bob
-  player/Machete.js    viewmodel: machete, slingshot, held items and their animations
+  player/Machete.ts    viewmodel: machete, slingshot, held items and their animations
                        (rendered in a second pass)
   player/MacheteModel.js the machete (blade, scales, rivets) and the gloved hand (hand.glb)
-  fx/Marks.js          gashes the machete cuts in bark, scrapes it leaves on stone
+  fx/Marks.ts          gashes the machete cuts in bark, scrapes it leaves on stone
   world/Stubs.js       the cut stalks a machete leaves standing
   items/ItemDB.ts      items (materials, salvage, relics, buildables, consumables) + loot tables
   items/Recipes.js     crafting recipes
@@ -145,7 +149,7 @@ src/
   items/Pickups.ts     items in the world (pop, bob, glow, magnet)
   defense/Base.js      the Heartwood (light, beam, hit reactions), base-site search, Blight rifts
   defense/FlowField.js enemy path-finding: one Dijkstra field around the base
-  defense/Enemies.js   Blightling, Rotboar, Wisp, Spitter, Burrower, Thornback: steering,
+  defense/Enemies.ts   Blightling, Rotboar, Wisp, Spitter, Burrower, Thornback: steering,
                        wind-ups, pounces, bile globs and puddles, digging,
                        statuses (burn/root/slow), boss slam, spawn and death animations
   defense/Towers.ts    buildings, tiers, repair, targeting, projectiles, placement ghost
@@ -159,7 +163,9 @@ src/
   audio/AudioSys.js    synthesised ambience + sound effects
   ui/HUD.ts, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
 art/blender/           one Python script per Blender model, export_all.py, the saved .blend
-art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures
+art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures;
+                       boughs.py composes the trees' bough cards from the canopy atlas's twigs
+                       (run it again after process.py rebuilds that atlas)
 public/models/         the exported GLBs
 public/textures/       generated tiles (albedo + packed normal/height) and leaf atlases
 ```
@@ -196,9 +202,11 @@ is +Z in three.js.
   looted containers are remembered in sets keyed by chunk and index.
 - **Instancing.** Each plant species/variant is one merged geometry drawn with
   `InstancedMesh`, so ~1,000 plants per chunk cost a handful of draw calls.
-- **Card canopies with "fluffy" normals.** Tree crowns are clusters of alpha-tested leaf
-  cards whose normals point away from the crown centre (`radialNormals`), which makes them
-  light like soft volumes instead of flat planes.
+- **Card canopies with "fluffy" normals.** Tree crowns are pads of alpha-tested bough
+  cards fanned at the end of every shoot, their normals swept away from the crown's heart
+  (`finishCards` in `trees.ts`), which makes them light like soft volumes instead of flat
+  planes. Each tree builds its distant copy in the same pass (fewer, bigger cards and a
+  coarser skeleton), so nothing is decimated after the fact.
 - **Patching built-in materials.** `art/shaders.js` uses `onBeforeCompile` to add wind sway,
   moss on upward faces, 4-way terrain splatting and valley mist, while keeping three.js
   PBR lighting, shadows and fog.
@@ -255,7 +263,7 @@ live in `.claude/agents/`:
   and an entry in `BUILD_DEFS` (`defense/Towers.ts`) with its range, rate and damage. Give it a
   new `kind` and a branch in `Buildings.fire` if it shoots something new.
 - **New enemy:** a Blender model with `Head`/`Leg*` nodes, an entry in `ENEMY_TYPES`
-  (`defense/Enemies.js`), a loot table, and a place in `waveFor` (`defense/Waves.js`).
+  (`defense/Enemies.ts`), a loot table, and a place in `waveFor` (`defense/Waves.js`).
 - **New plant:** add a builder method in `world/flora/Flora.js`, register it in
   `this.types` (with `cut` if the machete should cut it), then scatter it in `World.plan`.
 - **New point of interest:** add a builder in `world/poi/POI.js`, register it in `BUILDERS`

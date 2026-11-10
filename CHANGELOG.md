@@ -1,5 +1,35 @@
 # Patch notes
 
+## 1.1.0: New Growth (2026-11-10)
+
+- **Every tree is new.**
+  - The giants, the understory trees, the umbrella trees, the palms, the tree ferns and the mangroves are rebuilt: branches that fork, leaves held in pads at the ends of the shoots, mangroves on arching prop roots.
+  - Distant trees are purpose-made copies of the same tree, so far crowns are rounded clumps and not thinned-out plates.
+- **The game draws about a third of what it did.**
+  - At the spawn: 4.07 million triangles down to 1.32 million, and a frame from 3.6 ms to 2.4 ms.
+  - At camp: a frame from 5.4 ms to 2.9 ms.
+  - Trees, big-leaved plants, rocks and grass tufts all have lighter shapes for the distance.
+- **Three of the Blight are remodelled.**
+  - The Wisp is a rot-moth: a cracked mask, veined torn wings, its core burning inside a cage of ribs.
+  - The Husk is one of the lost expedition: hunched, in a pith helmet and rags, a pack still on its back.
+  - The Rot Mother carries a veined brood sac of eggs in a cradle of bone, under a broken crown of antlers.
+- **The Blight keep out of your face.** Blightlings land a stride short when they pounce, and nothing walks into the camera any more.
+- **Your hand.** The glove is smooth, not carved from clay, and you can see it at night. A poultice, firepot or salve now sits in your hand, whole on the screen.
+- **Things on the ground look like what they are.** Stones, sticks, logs, moss and scrap take the forest's own rock, bark, moss and old metal. Common finds have only a faint mark; only epic and legendary finds stand a glint over themselves.
+- **The ground and the sky.** Turf is fine-bladed and the same green as the grass growing out of it. Clouds are clouds, not marbled smoke.
+- **Smaller things.**
+  - The Spike Trap is sharpened stakes in a scrape of earth under dead leaves, not a pallet.
+  - A machete cut in a trunk is a ragged notch of damp wood.
+  - Scrap heaps are dark rust.
+  - Stone on the standing stones and ruins is sharper up close.
+- **The screen is tidier.**
+  - The day and night banner has no grey smear behind it, and a place's name waits for the banner to clear.
+  - Empty belt slots show.
+  - The victory title is centred.
+  - Upgrade prompts stay away while the Blight are within 8 m at night; repair prompts still show.
+- **First day.** A new run's first Blight Bloom waits a little over a minute, so its warning no longer lands on the first lesson. The intro card gives the satchel's real limit, 25 kg.
+- **Fixes.** The Rot Mother lays her eggs behind her sac, not inside it. A Wisp made to walk no longer sinks into the soil.
+
 ## 1.0.3: Iron and Order (2026-10-17)
 
 - **The satchel is easier to handle.**

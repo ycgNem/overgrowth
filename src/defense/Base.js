@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { cloneModel, part } from '../assets/Models.js';
 import { terrainHeight, terrainNormal, WATER_LEVEL, findBaseSite } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
-import { setFlash } from '../art/merge.js';
+import { setFlash } from '../art/merge.ts';
 import { mulberry32, range } from '../utils/rng.js';
 import { twigCard, radialNormals, mergeSlots } from '../world/flora/geom.js';
 

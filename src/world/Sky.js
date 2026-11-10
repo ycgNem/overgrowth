@@ -41,14 +41,14 @@ float noise(vec2 p) {
   return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
 }
 float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.03 + 17.1; a *= 0.5; } return s; }
-// cumulus coverage at a point of the cloud layer: warped fbm, puffy (billowed) detail
+// cumulus coverage at a point of the cloud layer: broad masses with lumpy edges. (The edges
+// used to come from a ridged noise, whose ridges are lines: the clouds read as marbled smoke.)
+float fbm3(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { s += a * noise(p); p = p * 2.07 + 9.3; a *= 0.5; } return s / 0.875; }
 float cloudAt(vec2 uv, float cover) {
-  vec2 w = vec2(fbm(uv * 0.6 + 3.1), fbm(uv * 0.6 - 7.7)) - 0.5;
-  vec2 q = uv + w * 0.9;
-  float base = fbm(q * 0.9);
-  float puff = 1.0 - abs(noise(q * 5.0) * 2.0 - 1.0);
-  float c = base + (puff - 0.5) * 0.12;
-  return smoothstep(0.52 - cover * 0.14, 0.78, c);
+  vec2 w = vec2(noise(uv * 0.6 + 3.1), noise(uv * 0.6 - 7.7)) - 0.5;
+  vec2 q = uv + w * 0.3;
+  float c = fbm(q * 0.8) + (fbm3(q * 3.3 + 11.0) - 0.5) * 0.2;
+  return smoothstep(0.56 - cover * 0.14, 0.7, c);
 }
 void main() {
   vec3 d = normalize(vDir);

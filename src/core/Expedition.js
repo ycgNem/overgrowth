@@ -8,7 +8,7 @@ import { ITEMS, lootGate } from '../items/ItemDB.ts';
 import { grove, terrainHeight, terrainNormal, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
 import { poisAround } from '../world/poi/POI.js';
 import { cloneModel } from '../assets/Models.js';
-import { flatten } from '../art/merge.js';
+import { flatten } from '../art/merge.ts';
 import { glowTexture } from '../art/textures.js';
 import { globalUniforms } from '../art/shaders.js';
 import { addRecords } from './Save.js';
@@ -64,7 +64,7 @@ export function warmBeams() {
 }
 
 // the Stone Seal, set up in the ruins: a dressed standing stone with a channel of runes. Its
-// material is named Stone so merge.js gives it the ruins' photographed stone, and it is merged
+// material is named Stone so merge.ts gives it the ruins' photographed stone, and it is merged
 // to a single draw like a Blender model
 const stoneMat = new THREE.MeshStandardMaterial({ name: 'Stone', color: 0x8a857a, roughness: 0.95 });
 const runeMat = new THREE.MeshStandardMaterial({ name: 'Rune', color: 0x10201a, emissive: 0x70e0b0, emissiveIntensity: 0.9, roughness: 0.6 });

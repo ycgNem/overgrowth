@@ -8,25 +8,25 @@
 import * as THREE from 'three';
 import { PostFX } from '../render/PostFX.js';
 import { TextureLib } from '../art/TextureLib.js';
-import { setDetailTextures } from '../art/merge.js';
+import { setDetailTextures } from '../art/merge.ts';
 import { CanopyMap, installCanopy, canopyBox } from '../render/Canopy.js';
 import { globalUniforms } from '../art/shaders.js';
-import { Flora } from '../world/flora/Flora.js';
+import { Flora } from '../world/flora/Flora.ts';
 import { World, FORAGE_TINT, CACHE_EMPTY } from '../world/World.js';
 import { Trample } from '../world/Trample.js';
 import { Rot } from '../world/Rot.js';
 import { Litter } from '../world/Litter.js';
 import { Cover } from '../world/Cover.js';
-import { Grass } from '../world/Grass.js';
+import { Grass } from '../world/Grass.ts';
 import { Sky } from '../world/Sky.js';
 import { Water } from '../world/Water.js';
 import { findSpawn, grove, sampleTerrain, terrainHeight, WATER_LEVEL, CHUNK_SIZE } from '../world/WorldGen.js';
 import { POI_INFO, poisAround, buildPOI } from '../world/poi/POI.js';
 import { Player } from '../player/Player.js';
-import { Machete } from '../player/Machete.js';
+import { Machete } from '../player/Machete.ts';
 import { Input, keyName } from './Input.js';
 import { Particles } from '../fx/Particles.js';
-import { Marks } from '../fx/Marks.js';
+import { Marks } from '../fx/Marks.ts';
 import { Ambient } from '../fx/Ambient.js';
 import { LightPool } from '../fx/LightPool.js';
 import { Weather } from '../fx/Weather.js';
@@ -43,7 +43,7 @@ import { smoothstep, damp, clamp } from '../utils/math.js';
 import { loadModels, MODEL_NAMES } from '../assets/Models.js';
 import { Base, Rift, pickRifts, pickGroveRift, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
 import { FlowField } from '../defense/FlowField.js';
-import { Enemies, BLIGHT_HARDER } from '../defense/Enemies.js';
+import { Enemies, BLIGHT_HARDER } from '../defense/Enemies.ts';
 import { Buildings, BuildGhost, hologram, BUILD_DEFS, TIER_NAMES, ROOTS, GRAFTS } from '../defense/Towers.ts';
 import type { Building, TowerCtx } from '../defense/Towers.ts';
 import type { Recipe } from '../items/Inventory.ts';
@@ -887,7 +887,10 @@ export class Game {
       try { localStorage.setItem('og.intro', '1'); } catch { /* storage blocked */ }
       this.showIntro();
     }
-    if (w.phase === 'day') setTimeout(() => { if (!this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(); }, 2500);
+    // (a new run's first Bloom waits until the first steps are behind you: its warning used to
+    // land on top of "look down and pick things up")
+    const wait = !this.loaded && !this.debug && w.night === 1 ? 75000 : 2500;
+    if (w.phase === 'day') setTimeout(() => { if (!this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(); }, wait);
   }
 
   // the "Your vigil" card (a new run's first, and How to play on the pause menu)
@@ -2430,6 +2433,8 @@ export class Game {
     const name = `${TIER_NAMES[b.tier] ? `${TIER_NAMES[b.tier]} ` : ''}${ITEMS[b.id].name}${glyphs ? ` ${glyphs}` : ''}`;
     const day = this.waves.phase === 'day' || this.waves.phase === 'dawn';
     const hp = `${Math.ceil(b.hp)}/${b.maxHp}`;
+    // in a fight the middle of the screen is for the fight: only a repair is worth a prompt
+    if (!day && !b.repairable && this.enemies.list.some((e) => !e.dying && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 8)) return;
     let packHint = day ? ' · hold <kbd>F</kbd> to pack up' : '';
     // F: pack it back into the satchel (day only); its grafts come off with it
     if (day && input.down('KeyF')) {
@@ -2763,7 +2768,8 @@ export class Game {
     const n = this.waves.night >= 15 ? 3 : 2;
     for (let i = 0; i < n; i++) {
       const a = e.yaw + Math.PI + (i - (n - 1) / 2) * 0.8;
-      const x = e.pos.x + Math.sin(a) * 3, z = e.pos.z + Math.cos(a) * 3;
+      // (clear of the brood sac, which runs to four and a half metres behind her)
+      const x = e.pos.x + Math.sin(a) * 5.5, z = e.pos.z + Math.cos(a) * 5.5;
       const egg = this.enemies.spawn('rot_egg', x, z, this.waves.hpScale * 0.7);
       egg.rise = 0.4;
       this.particles.dust(new THREE.Vector3(x, e.pos.y + 0.1, z), 12, 0.8, 0x5a3a4a);

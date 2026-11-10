@@ -1,12 +1,12 @@
 // Blender-made models (public/models/*.glb, built by art/blender/*.py).
 //
-// Each model is loaded once, flattened (one draw call per animated part, see art/merge.js)
+// Each model is loaded once, flattened (one draw call per animated part, see art/merge.ts)
 // and cloned for every use. Geometry and the shared baked material are reused by clones.
 // If a file is missing the game still runs: a plain placeholder stands in.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { flatten, ownMaterials } from '../art/merge.js';
+import { flatten, ownMaterials } from '../art/merge.ts';
 
 export const MODEL_NAMES = [
   'heartwood', 'bow_tower', 'spore_mortar', 'tesla_totem', 'ember_brazier', 'vine_snare', 'barricade',

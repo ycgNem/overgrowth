@@ -14,7 +14,7 @@
 // and burns away to ash.
 import * as THREE from 'three';
 import { cloneModel, part } from '../assets/Models.js';
-import { setFlash, setRim, setDissolve, setTint } from '../art/merge.js';
+import { setFlash, setRim, setDissolve, setTint } from '../art/merge.ts';
 import { terrainHeight } from '../world/WorldGen.js';
 import { clamp, damp, angleDelta } from '../utils/math.js';
 import { GOAL_RADIUS } from './Base.js';
@@ -25,7 +25,7 @@ let wispGlowMat = null;
 function wispGlow() {
   if (!wispGlowMat) {
     wispGlowMat = new THREE.SpriteMaterial({
-      map: glowTexture(), color: 0xb060ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55, fog: false,
+      map: glowTexture(), color: 0xb060ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.4, fog: false,
     });
   }
   const s = new THREE.Sprite(wispGlowMat);
@@ -131,15 +131,23 @@ const moundMat = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 
 const _v = new THREE.Vector3();
 const ease = (t) => 1 - (1 - t) ** 3;
 
+/** one of the Blight in the world (its state is a loose bag of timers and flags) */
+export type Enemy = any;
+/** what a blow carries */
+export interface Hit { crit?: boolean; source?: string; stagger?: number; type?: string; pierceArmour?: boolean; k?: number; shield?: boolean }
+
 export class Enemies {
-  constructor(scene) {
+  scene: THREE.Scene;
+  list: Enemy[] = [];
+  kills = 0;
+  killsByType: Record<string, number> = {};
+  /** spit in the air, and what it leaves on the ground */
+  globs: any[] = [];
+  puddles: any[] = [];
+  types = ENEMY_TYPES; // (for e2e probes)
+
+  constructor(scene: THREE.Scene) {
     this.scene = scene;
-    this.list = [];
-    this.kills = 0;
-    this.killsByType = {};
-    this.globs = [];
-    this.puddles = [];
-    this.types = ENEMY_TYPES; // (for e2e probes)
   }
 
   get alive() {
@@ -153,11 +161,12 @@ export class Enemies {
   // walk: a Wisp that can't fly tonight (the Stillness sign) crawls on the ground instead
   spawn(type, x, z, hpScale = 1, { walk = false } = {}) {
     let def = ENEMY_TYPES[type];
-    if (walk && def.flying) def = { ...def, flying: false, altitude: 0, speed: def.speed * 0.8, gait: 8, swing: 0, aggro: 4, chest: 0.4 };
+    // (its body hangs below its origin, the core: on foot it is carried that much higher)
+    if (walk && def.flying) def = { ...def, flying: false, altitude: 0, lift: 1.1 * def.scale, speed: def.speed * 0.8, gait: 8, swing: 0, aggro: 4, chest: 0.4 };
     const obj = cloneModel(def.model, { own: true });
     obj.scale.setScalar(def.scale);
     const gy = terrainHeight(x, z);
-    const e = {
+    const e: Enemy = {
       type, def, obj,
       pos: new THREE.Vector3(x, def.flying ? gy + 1 : gy, z),
       vel: new THREE.Vector3(),
@@ -193,7 +202,7 @@ export class Enemies {
 
   // Damage one enemy. Returns true if this hit killed it.
   // opts: { crit, source: 'melee'|'sling'|'tower'|'burn'|'trap', stagger }
-  damage(e, n, ctx, knock, opts = {}) {
+  damage(e: Enemy, n: number, ctx: any, knock?: any, opts: Hit = {}) {
     if (e.dying || n <= 0) return false;
     // a Glowcap Lantern's light shows up every weak seam
     if (e.litT > 0) n *= e.lit;
@@ -543,7 +552,8 @@ export class Enemies {
     e.pounceCD -= dt;
     if (def.pounce && !e.leap && seesPlayer && e.rise <= 0 && e.rootT <= 0 && e.stagger <= 0 && e.pounceCD <= 0
       && toPlayer > 2.2 && toPlayer < 5.2 && e.windT <= 0) {
-      const k = (toPlayer - 1.1) / toPlayer;
+      // (it lands a stride short: at 1.1 m the model came down inside the camera)
+      const k = (toPlayer - 1.6) / toPlayer;
       e.leap = {
         t: 0, dur: 0.5, from: e.pos.clone(),
         to: new THREE.Vector3(e.pos.x + (player.x - e.pos.x) * k, 0, e.pos.z + (player.z - e.pos.z) * k), hit: false,
@@ -559,7 +569,7 @@ export class Enemies {
       e.pos.z = L.from.z + (L.to.z - L.from.z) * k;
       const gy = base.groundAt(e.pos.x, e.pos.z);
       e.pos.y = gy + Math.sin(k * Math.PI) * 1.3;
-      if (!L.hit && k > 0.75 && ctx.playerAlive && Math.hypot(player.x - e.pos.x, player.z - e.pos.z) < 1.5) {
+      if (!L.hit && k > 0.75 && ctx.playerAlive && Math.hypot(player.x - e.pos.x, player.z - e.pos.z) < 2.0) {
         L.hit = true;
         ctx.hitPlayer(def.dmg * 1.2, e);
       }
@@ -587,6 +597,15 @@ export class Enemies {
         const w = def.boss ? 0.5 : 4;
         wx += (dx / d) * push * w;
         wz += (dz / d) * push * w;
+      }
+    }
+    // and off the player: they crowd to biting distance, not into the camera
+    if (!def.flying && ctx.playerAlive && toPlayer > 1e-3) {
+      const min = def.radius * (def.scale || 1) * 0.8 + 0.75;
+      if (toPlayer < min) {
+        const push = ((min - toPlayer) / min) * 6;
+        wx += ((e.pos.x - player.x) / toPlayer) * push;
+        wz += ((e.pos.z - player.z) / toPlayer) * push;
       }
     }
     e.vel.x = damp(e.vel.x, wx, 6, dt);
@@ -924,7 +943,8 @@ export class Enemies {
     }
     if (e.jaw) e.jaw.rotation.x = e.jaw.userData.rest.x + wind * 0.75 + e.roar * 0.6 + open + (wind ? 0 : Math.sin(t * 6 + e.phase) * 0.08);
     if (e.tail) e.tail.rotation.y = e.tail.userData.rest.y + Math.sin(e.phase * 0.5) * 0.4;
-    if (e.sac) e.sac.scale.setScalar(1 + Math.sin(t * 3.2) * 0.07 + slam * 0.15 + e.flash * 0.1 + (def.spit ? wind * 0.35 : 0));
+    // (a boss's sac sits in a cradle of ribs: it swells to them, not through them)
+    if (e.sac) e.sac.scale.setScalar(Math.min(1 + Math.sin(t * 3.2) * 0.07 + slam * 0.15 + e.flash * 0.1 + (def.spit ? wind * 0.35 : 0), def.boss ? 1.14 : 2));
     void slam;
   }
 
@@ -940,7 +960,7 @@ export class Enemies {
       const s = e.slamT;
       rear = s > 0.25 ? -0.45 * ease((1 - s) / 0.75) : -0.45 * (s / 0.25) ** 2;
     }
-    e.obj.position.set(e.pos.x, e.pos.y + bob - e.rise * 1.2, e.pos.z);
+    e.obj.position.set(e.pos.x, e.pos.y + bob - e.rise * 1.2 + (def.lift || 0), e.pos.z);
     e.obj.rotation.set(rear, e.yaw + struggle, struggle * 0.5);
     e.obj.translateZ(e.lunge * 0.3 * def.scale - wind * 0.12);
     const sq = e.hitT * 0.12;

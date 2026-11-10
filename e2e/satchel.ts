@@ -279,7 +279,7 @@ await page.screenshot({ path: 'e2e/out/coffer-brass.png' });
 
 // 9. the Blight: a fifth more health and bite than before
 const bl = await ev(async () => {
-  const { ENEMY_TYPES } = await import('/src/defense/Enemies.js' as any);
+  const { ENEMY_TYPES } = await import('/src/defense/Enemies.ts' as any);
   return { blightling: [ENEMY_TYPES.blightling.hp, ENEMY_TYPES.blightling.dmg], thornback: [ENEMY_TYPES.thornback.hp, ENEMY_TYPES.thornback.dmg] };
 });
 ok(`Blight 20% tougher (${JSON.stringify(bl)})`, Math.abs(bl.blightling[0] - 48) < 1e-6 && Math.abs(bl.blightling[1] - 9.6) < 1e-6 && Math.abs(bl.thornback[0] - 2160) < 1e-6);

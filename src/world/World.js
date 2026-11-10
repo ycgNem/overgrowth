@@ -11,7 +11,7 @@ import { createNoise2D } from '../utils/noise.js';
 import { smoothstep, clamp } from '../utils/math.js';
 import { poiSpec, poisAround, buildPOISteps } from './poi/POI.js';
 import { makeTerrainMaterial } from '../art/shaders.js';
-import { mergeToGeometry, bakedMaterial } from '../art/merge.js';
+import { mergeToGeometry, bakedMaterial } from '../art/merge.ts';
 import { getItemModel } from '../items/ItemModels.ts';
 import { ITEMS } from '../items/ItemDB.ts';
 import { Stubs } from './Stubs.js';
@@ -30,7 +30,7 @@ export const STEP_HEIGHT = 0.55;
 const LOD_DIST = 38;
 // the plants whose shadows still read past LOD_DIST: big crowns
 const TREE_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove']);
-const LOD_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove', 'treeFern', 'banana', 'monstera', 'taro']);
+const LOD_TYPES = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'mangrove', 'treeFern', 'banana', 'monstera', 'taro', 'rock', 'cliffRock']);
 const FAR = {
   fern: 80, bush: 85, grass: 60, flower: 65, orchid: 50, mushrooms: 45, pebbles: 40, deadFrond: 45, seedling: 50,
   bromeliad: 60, reeds: 90, lily: 75, branch: 60, stump: 75,
@@ -979,7 +979,7 @@ export class World {
       const variant = def.variants[+v];
       const pool = this.pools.get(`plant:${bk}`, () => new Pool(this.scene, variant.geometry, def.material, {
         slope: true, shadow: def.shadow, far: FAR[type] ?? Infinity,
-        lod: LOD_TYPES.has(type) ? lodGeometry(variant.geometry, def.material) : null, lodDist: LOD_DIST,
+        lod: LOD_TYPES.has(type) ? variant.lod ?? lodGeometry(variant.geometry, def.material) : null, lodDist: LOD_DIST,
         lodShadow: TREE_TYPES.has(type),
       }));
       const mesh = pool.alloc(list.length);

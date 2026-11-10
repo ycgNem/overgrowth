@@ -1,5 +1,7 @@
 // Small hand-built 3D models for every item. Built once, then cloned for
 // pickups; also rendered to images for the inventory icons.
+import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeToGeometry, sharedBaked } from '../art/merge.ts';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { rustTexture } from '../art/textures.js';
@@ -17,12 +19,12 @@ function mats(): Mats {
 function makeMats() {
   return {
     rust: std({ map: rustTexture(3), roughness: 0.85, metalness: 0.3 }),
-    steel: std({ color: 0x8a8f94, roughness: 0.4, metalness: 0.9 }),
-    darkSteel: std({ color: 0x4a4038, roughness: 0.7, metalness: 0.6 }),
-    brass: std({ color: 0xc9a046, roughness: 0.32, metalness: 1 }),
+    steel: std({ name: 'BitScrap', color: 0x8a8f94, roughness: 0.4, metalness: 0.9 }),
+    darkSteel: std({ name: 'BitScrap', color: 0x4a4038, roughness: 0.7, metalness: 0.6 }),
+    brass: std({ name: 'BitScrap', color: 0xb8923e, roughness: 0.32, metalness: 1 }),
     gold: std({ color: 0xffc94a, roughness: 0.22, metalness: 1, emissive: 0x3a2400 }),
     silver: std({ color: 0xd8dde2, roughness: 0.2, metalness: 1 }),
-    copper: std({ color: 0xc8693a, roughness: 0.3, metalness: 1 }),
+    copper: std({ name: 'BitScrap', color: 0xc8693a, roughness: 0.3, metalness: 1 }),
     glass: std({ color: 0x3f8f4a, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.6 }),
     clearGlass: std({ color: 0xcfe8f0, roughness: 0.05, transparent: true, opacity: 0.35 }),
     rope: std({ color: 0xa88a5a, roughness: 0.95 }),
@@ -32,19 +34,24 @@ function makeMats() {
     white: std({ color: 0xf2efe6, roughness: 0.5 }),
     red: std({ color: 0xc02a1a, roughness: 0.5 }),
     black: std({ color: 0x1a1a1a, roughness: 0.6 }),
-    battery: std({ color: 0x2f4a2a, roughness: 0.5, metalness: 0.2 }),
-    label: std({ color: 0x9a6a3a, roughness: 0.7 }),
+    battery: std({ name: 'BitScrap', color: 0x2f4a2a, roughness: 0.5, metalness: 0.2 }),
+    label: std({ name: 'BitScrap', color: 0x9a6a3a, roughness: 0.7 }),
     filament: std({ color: 0xff8a2a, emissive: 0xff6a10, emissiveIntensity: 2 }),
     turquoise: std({ color: 0x30d0c0, roughness: 0.3, emissive: 0x0a3030 }),
     orchid: std({ color: 0xf6f2ff, roughness: 0.4, emissive: 0x201a30 }),
-    bark: std({ color: 0x5e4330, roughness: 0.95 }),
-    wood: std({ color: 0xc49a68, roughness: 0.85 }),
-    woodInner: std({ color: 0xc49a68, roughness: 0.85, side: THREE.BackSide }),
-    woodDark: std({ color: 0x8a6644, roughness: 0.85 }),
-    stone: std({ color: 0x8e8a7e, roughness: 0.9, flatShading: true }),
+    // (the Bit* names: lying in the world or held, these take the forest's photographed bark,
+    // wood, rock and moss at a small thing's scale, see art/merge.ts)
+    bark: std({ name: 'BitBark', color: 0x5e4330, roughness: 0.95 }),
+    wood: std({ name: 'BitWood', color: 0xc49a68, roughness: 0.85 }),
+    woodInner: std({ name: 'BitWood', color: 0xc49a68, roughness: 0.85, side: THREE.BackSide }),
+    woodDark: std({ name: 'BitWood', color: 0x8a6644, roughness: 0.85 }),
+    stone: std({ name: 'BitRock', color: 0x8e8a7e, roughness: 0.9 }),
     flint: std({ color: 0x3e3f48, roughness: 0.25, metalness: 0.1, flatShading: true }),
-    flintEdge: std({ color: 0x8a8578, roughness: 0.6, flatShading: true }),
+    flintEdge: std({ name: 'BitRock', color: 0x8a8578, roughness: 0.6, flatShading: true }),
     leaf: std({ color: 0x4b8a31, roughness: 0.7, side: THREE.DoubleSide }),
+    leafDry: std({ color: 0x5e4426, roughness: 0.9, side: THREE.DoubleSide }),
+    leafDark: std({ color: 0x3e2c1a, roughness: 0.95, side: THREE.DoubleSide }),
+    soil: std({ color: 0x241b12, roughness: 1 }),
     vine: std({ color: 0x4a6d25, roughness: 0.8 }),
     resin: std({ color: 0xd88a1a, roughness: 0.15, emissive: 0x3a1a00 }),
     capRed: std({ color: 0xc0402a, roughness: 0.5 }),
@@ -61,7 +68,7 @@ function makeMats() {
     feather: std({ color: 0xe8e2d2, roughness: 0.8, side: THREE.DoubleSide }),
     featherTip: std({ color: 0x3a3f4a, roughness: 0.8, side: THREE.DoubleSide }),
     bone: std({ color: 0xe4dcc4, roughness: 0.7 }),
-    moss: std({ color: 0x55802d, roughness: 1, flatShading: true }),
+    moss: std({ name: 'BitMoss', color: 0x5a7a34, roughness: 1 }),
     thorn: std({ color: 0x9a7a46, roughness: 0.6 }),
     canvas: std({ color: 0x6e6a44, roughness: 0.9 }),
     weave: std({ color: 0xa48a52, roughness: 0.95 }),
@@ -398,8 +405,9 @@ function lumpy<G extends THREE.BufferGeometry>(geo: G, amt: number, seed = 1): G
     const k = 1 + n * amt;
     p.setXYZ(i, x * k, y * k, z * k);
   }
-  geo.computeVertexNormals();
-  return geo;
+  // rounded, not faceted: the polyhedra come split per face, so their own normals are flat
+  // (a material that wants the facets, like knapped flint, asks for them with flatShading)
+  return toCreasedNormals(geo, 1.2) as G;
 }
 
 const forestBuilders: Record<string, Builder> = {
@@ -619,23 +627,76 @@ const forestBuilders: Record<string, Builder> = {
   },
 };
 
-// Spike trap: also placed in the world, so it's exported.
+// Spike trap: also placed in the world, so it's exported. A scrape of bare earth set with
+// sharpened stakes, no two leaning the same way, a few tipped with flint; two poles lashed
+// across hold them, and dead leaves are strewn over the lot to hide it. (It was a square of
+// new planks with a grid of pins: a shipping pallet.)
 export function spikeTrapModel(m: Mats = mats()) {
   const g = new THREE.Group();
-  g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 1.2), m.woodDark, { p: [0, 0.03, 0] }));
-  for (let i = 0; i < 4; i++) g.add(mesh(new THREE.BoxGeometry(1.24, 0.07, 0.08), m.bark, { p: [0, 0.05, -0.45 + i * 0.3] }));
-  for (let i = 0; i < 5; i++) {
-    for (let j = 0; j < 5; j++) {
-      const x = -0.44 + i * 0.22 + (j % 2) * 0.05, z = -0.44 + j * 0.22;
-      g.add(mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.22, 5), m.bark, { p: [x, 0.15, z], r: [(i - 2) * 0.06, 0, (j - 2) * 0.06] }));
-      g.add(mesh(new THREE.ConeGeometry(0.022, 0.09, 4), m.flint, { p: [x + (j - 2) * 0.006, 0.3, z - (i - 2) * 0.006], r: [(i - 2) * 0.06, 0, (j - 2) * 0.06] }));
-    }
+  let seed = 4127;
+  const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  // the scrape: a low, uneven mound of dark soil
+  const soil = lumpy(new THREE.CylinderGeometry(0.46, 0.7, 0.05, 13, 1), 0.09, 2);
+  g.add(mesh(soil, m.soil, { p: [0, 0.022, 0], s: [1, 1, 0.92] }));
+  // two poles lashed in a cross, half sunk
+  for (const [ry, len] of [[0.35, 1.12], [1.85, 1.0]] as const) {
+    g.add(mesh(lumpy(new THREE.CylinderGeometry(0.03, 0.036, len, 6, 4), 0.03, 5 + ry), m.bark, { p: [0, 0.07, 0], r: [Math.PI / 2, 0, ry] }));
   }
-  for (let i = 0; i < 6; i++) g.add(mesh(leafGeo(0.3, 0.14), m.leaf, { p: [-0.5 + i * 0.2, 0.08, (i % 2) * 0.5 - 0.25], r: [-1.45, i * 1.7, 0] }));
+  g.add(mesh(new THREE.TorusGeometry(0.045, 0.012, 5, 10), m.rope, { p: [0, 0.075, 0], r: [Math.PI / 2, 0, 0.4] }));
+  g.add(mesh(new THREE.TorusGeometry(0.045, 0.012, 5, 10), m.rope, { p: [0, 0.075, 0], r: [0.5, 0.9, 0] }));
+  // the stakes: scattered, each its own height and lean (outward, away from the middle)
+  const n = 15;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU * 2.4 + r() * 0.9, d = 0.1 + 0.4 * Math.sqrt((i + 0.5) / n) + (r() - 0.5) * 0.08;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const h = 0.2 + r() * 0.16, lean = 0.12 + r() * 0.38, rad = 0.016 + r() * 0.008;
+    const stake = new THREE.Group();
+    stake.add(mesh(new THREE.CylinderGeometry(rad * 0.85, rad * 1.2, h, 5), m.bark, { p: [0, h / 2, 0] }));
+    // whittled to a point: pale wood, and on the best of them a flake of flint bound on
+    const tip = i % 3 === 0;
+    stake.add(mesh(new THREE.ConeGeometry(rad * 0.9, 0.07 + r() * 0.03, 5), tip ? m.flint : m.wood, { p: [0, h + 0.035, 0] }));
+    if (tip) stake.add(mesh(new THREE.CylinderGeometry(rad * 1.05, rad * 1.05, 0.025, 5), m.rope, { p: [0, h - 0.005, 0] }));
+    stake.position.set(x, 0.04, z);
+    // tip the stake's top away from the centre
+    stake.rotation.set(Math.sin(a) * lean, 0, -Math.cos(a) * lean);
+    g.add(stake);
+  }
+  // dead leaves over it, and a couple still green
+  for (let i = 0; i < 20; i++) {
+    const a = r() * TAU, d = 0.12 + r() * 0.56;
+    g.add(mesh(leafGeo(0.2 + r() * 0.14, 0.08 + r() * 0.05), i % 7 === 0 ? m.leaf : i % 2 ? m.leafDry : m.leafDark,
+      { p: [Math.cos(a) * d, 0.075 + r() * 0.03, Math.sin(a) * d], r: [-Math.PI / 2 + (r() - 0.5) * 0.5, (r() - 0.5) * 0.4, r() * TAU] }));
+  }
   return g;
 }
 
 const cache = new Map<string, THREE.Group>();
+const worldCache = new Map<string, { geometry: THREE.BufferGeometry; double: boolean }>();
+
+// The item as it lies in the world or sits in the hand: the same model merged into one mesh
+// on the baked material, so its stone is the forest's stone and not a flat grey (the plain
+// model is for icons, which want clean colours). Models made in Blender are that already.
+export function getWorldItemModel(id: string): THREE.Object3D {
+  const def = ITEMS[id];
+  if (def?.model && hasModel(def.model)) return getItemModel(id);
+  if (!worldCache.has(id)) {
+    const holder = new THREE.Group();
+    const plain = getItemModel(id);
+    // (glass stays glass: the baked material has no see-through)
+    let glass = false;
+    plain.traverse((o) => { if ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material as THREE.Material).transparent) glass = true; });
+    if (glass) return plain;
+    holder.add(plain);
+    const { geometry, double } = mergeToGeometry(holder);
+    worldCache.set(id, { geometry, double });
+  }
+  const w = worldCache.get(id)!;
+  const mesh = new THREE.Mesh(w.geometry, sharedBaked(w.double));
+  mesh.userData.shared = true;
+  const root = new THREE.Group();
+  root.add(mesh);
+  return root;
+}
 
 export function getItemModel(id: string): THREE.Group {
   if (!cache.has(id)) {

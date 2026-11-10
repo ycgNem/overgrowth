@@ -357,3 +357,104 @@ def axis_point(m, deform, z):
     if deform:
         p = deform(p)
     return m @ p
+
+
+# ------------------------------------------------------------------ creature helpers (additive)
+def spline(pts, n=4):
+    """Catmull-Rom curve through pts, n samples per span; returns Vectors (both ends included)."""
+    P = [Vector(p) for p in pts]
+    if len(P) < 3:
+        return P
+    ext = [P[0] * 2 - P[1]] + P + [P[-1] * 2 - P[-2]]
+    out = []
+    for i in range(1, len(ext) - 2):
+        p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+        for k in range(n):
+            t = k / n
+            out.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t))
+    out.append(P[-1])
+    return out
+
+
+def tube(pts, r0=0.05, r1=None, seg=6, cap=True, radii=None):
+    """Swept tube through pts (a builder for Part.add): one continuous skin, no gaps at the
+    bends. The radius runs r0 -> r1 along the path, or radii[] gives one per point; a radius
+    under 1e-4 at either end closes that end to a point."""
+    P = [Vector(p) for p in pts]
+    n = len(P)
+    r1 = r0 if r1 is None else r1
+    R = list(radii) if radii is not None else [r0 + (r1 - r0) * (i / max(1, n - 1)) for i in range(n)]
+    def b(bm):
+        tans = []
+        for i in range(n):
+            d = (P[min(i + 1, n - 1)] - P[max(i - 1, 0)])
+            tans.append(d.normalized() if d.length > 1e-9 else Vector((0, 0, 1)))
+        t0 = tans[0]
+        ref = Vector((0, 0, 1)) if abs(t0.z) < 0.9 else Vector((1, 0, 0))
+        nrm = (ref - t0 * ref.dot(t0)).normalized()
+        rings = []
+        for i in range(n):
+            t = tans[i]
+            nrm = (nrm - t * nrm.dot(t))
+            nrm = nrm.normalized() if nrm.length > 1e-6 else t.orthogonal().normalized()
+            bi = t.cross(nrm)
+            if R[i] < 1e-4 and i in (0, n - 1):
+                rings.append([bm.verts.new(P[i])])
+            else:
+                rings.append([bm.verts.new(P[i] + (nrm * math.cos(k / seg * TAU) + bi * math.sin(k / seg * TAU)) * R[i]) for k in range(seg)])
+        for i in range(n - 1):
+            a, c = rings[i], rings[i + 1]
+            for k in range(seg):
+                k2 = (k + 1) % seg
+                if len(a) == 1 and len(c) == 1:
+                    continue
+                if len(a) == 1:
+                    bm.faces.new((a[0], c[k2], c[k]))
+                elif len(c) == 1:
+                    bm.faces.new((a[k], a[k2], c[0]))
+                else:
+                    bm.faces.new((a[k], a[k2], c[k2], c[k]))
+        if cap:
+            if len(rings[0]) > 2:
+                bm.faces.new(list(reversed(rings[0])))
+            if len(rings[-1]) > 2:
+                bm.faces.new(rings[-1])
+    return b
+
+
+def grid_surface(nu, nv, fn, skip=None):
+    """Open surface (a builder for Part.add): vertices at fn(u, v) for u, v in 0..1 on an
+    nu x nv grid of quads; skip(i, j) -> True leaves that quad out (holes, torn edges)."""
+    def b(bm):
+        vs = [[bm.verts.new(fn(i / nu, j / nv)) for j in range(nv + 1)] for i in range(nu + 1)]
+        for i in range(nu):
+            for j in range(nv):
+                if skip and skip(i, j):
+                    continue
+                bm.faces.new((vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]))
+        for v in [v for v in bm.verts if not v.link_faces]:
+            bm.verts.remove(v)
+    return b
+
+
+def nfaces(P):
+    """Face count of Part P so far: take it before an add, hand it to paint() after."""
+    return len(P.bm.faces)
+
+
+def paint(P, n0, fn):
+    """Recolour the faces added to Part P since face index n0 (gradients, spots, stains the
+    flat per-primitive colour can't do): fn(co, rgb) -> rgb, both in sRGB floats."""
+    P.bm.faces.ensure_lookup_table()
+    for f in P.bm.faces[n0:]:
+        for l in f.loops:
+            c = l[P.col]
+            r = fn(l.vert.co, Vector((c[0], c[1], c[2])))
+            l[P.col] = (min(max(r[0], 0.0), 1.0), min(max(r[1], 0.0), 1.0), min(max(r[2], 0.0), 1.0), 1.0)
+
+
+def mixc(a, b, t):
+    """Blend two colours ('#rrggbb' or rgb) in sRGB, t clamped to 0..1."""
+    a = Vector(hexc(a) if isinstance(a, str) else a)
+    b = Vector(hexc(b) if isinstance(b, str) else b)
+    return a.lerp(b, min(max(t, 0.0), 1.0))

@@ -9,7 +9,7 @@ import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
 import { describeWave } from '../defense/Waves.js';
-import { AFFIXES, affixRim } from '../defense/Enemies.js';
+import { AFFIXES, affixRim } from '../defense/Enemies.ts';
 import { ROOTS, BUILD_DEFS } from '../defense/Towers.ts';
 import type { Inventory, Sources, Slot, Recipe } from '../items/Inventory.ts';
 import type { Building } from '../defense/Towers.ts';
@@ -82,6 +82,7 @@ export class HUD {
   fpsAcc: { t: number; n: number };
   fpsOn: boolean;
   hurtT: number;
+  bannerUntil = 0; // when the banner now showing will have faded (a place name waits for it)
   bannerK: number; // the latest banner (an older one's next-frame show is dropped)
   carry: { inv: Inventory; i: number } | null;
   press: { inv: Inventory; i: number; x: number; y: number; half: boolean; dragging: boolean } | null;
@@ -491,6 +492,12 @@ export class HUD {
   }
 
   discover(name: string) {
+    // a place's name waits for the banner to clear: the two share the top of the screen
+    const wait = (this.bannerUntil || 0) - performance.now();
+    if (wait > 0) {
+      setTimeout(() => this.discover(name), wait + 200);
+      return;
+    }
     const d = this.el.discover;
     d.querySelector('span').textContent = name;
     d.classList.remove('show');
@@ -515,6 +522,8 @@ export class HUD {
     // shown again on the next frame (the style flush between frames restarts its animation);
     // reading offsetWidth here forced a whole-page layout on transition frames
     b.className = cls;
+    this.bannerUntil = performance.now() + 5000;
+    this.el.discover.classList.remove('show');
     const k = (this.bannerK = (this.bannerK || 0) + 1);
     requestAnimationFrame(() => {
       if (k === this.bannerK) b.classList.add('show');

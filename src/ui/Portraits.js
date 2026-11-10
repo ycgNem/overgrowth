@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { cloneModel, hasModel } from '../assets/Models.js';
-import { setRim } from '../art/merge.js';
+import { setRim } from '../art/merge.ts';
 
 const SIZE = 360;
 

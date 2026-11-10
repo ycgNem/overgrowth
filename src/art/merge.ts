@@ -31,15 +31,20 @@ export function setDetailTextures(lib) {
 }
 // creatures' bone and crust take the stone's pits and cracks (smooth, they read as plastic)
 // sawn timber (crates, the camp's benches) takes the wood grain but keeps most of its own hue
-const SURF = [[/^(Bark|Root)/, 1], [/^(Stone|Rock|Bone|Crust|Horn|Clay)/, 2], [/^Moss/, 3], [/^(Wood|Plank|Char)/, 4], [/^(Crate|Timber)/, 5]];
-function surfaceOf(mat) {
+// a creature's own skin (Hide, Chitin, Flesh) takes the stone's pits at a fine scale, faintly:
+// a pored, leathery surface in the model's own colours, not the forest's bark wrapped round it
+// things small enough to hold (Bit*: a stone, a stick, a clump of moss) take the same photos at
+// several times the scale: at the buildings' scale a pebble only ever saw one blurred patch
+const SURF: [RegExp, number][] = [[/^(Bark|Root)/, 1], [/^(Stone|Rock|Bone|Crust|Horn|Clay)/, 2], [/^Moss/, 3], [/^(Wood|Plank|Char)/, 4], [/^(Crate|Timber)/, 5], [/^(Hide|Chitin|Flesh)/, 6],
+  [/^BitRock/, 7], [/^BitBark/, 8], [/^BitMoss/, 9], [/^BitWood/, 10], [/^BitScrap/, 11]];
+function surfaceOf(mat: THREE.Material) {
   for (const [re, k] of SURF) if (mat.name && re.test(mat.name)) return k;
   return 0;
 }
 
 // Per-vertex colour/emissive/PBR material. `flash` is a per-material uniform (hit flash
 // for enemies, placement tint for build ghosts): clone the material to give an object its own.
-export function bakedMaterial({ side = THREE.FrontSide } = {}) {
+export function bakedMaterial({ side = THREE.FrontSide }: { side?: THREE.Side } = {}) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, side });
   mat.userData.flash = { value: new THREE.Color(0, 0, 0) };
   mat.userData.tint = { value: new THREE.Vector4(1, 1, 1, 0) };
@@ -122,10 +127,17 @@ if (uDissolve > 0.0) {
     vec3 sn = sign(on);
     vec3 tex; float mean; float keep;
     if (vSurf < 1.5) { tex = dTri(tBark, nBark, vObj, w, sn, 0.55, dpx, dpy, dOffset); mean = 0.105; keep = 0.25; }
-    else if (vSurf < 2.5) { tex = dTri(tRock, nRock, vObj, w, sn, 0.6, dpx, dpy, dOffset); mean = 0.16; keep = 0.4; }
+    else if (vSurf < 2.5) { tex = dTri(tRock, nRock, vObj, w, sn, 1.1, dpx, dpy, dOffset); mean = 0.16; keep = 0.4; }
     else if (vSurf < 3.5) { tex = dTri(tMoss, nMoss, vObj, w, sn, 0.5, dpx, dpy, dOffset); mean = 0.084; keep = 0.0; }
     else if (vSurf < 4.5) { tex = dTri(tWood, nWood, vObj, w, sn, 0.7, dpx, dpy, dOffset); mean = 0.147; keep = 0.3; }
-    else { tex = dTri(tWood, nWood, vObj, w, sn, 0.45, dpx, dpy, dOffset); mean = 0.147; keep = 0.8; }
+    else if (vSurf < 5.5) { tex = dTri(tWood, nWood, vObj, w, sn, 0.45, dpx, dpy, dOffset); mean = 0.147; keep = 0.8; }
+    else if (vSurf < 6.5) { tex = dTri(tRock, nRock, vObj, w, sn, 2.4, dpx, dpy, dOffset); mean = 0.16; keep = 0.6; }
+    else if (vSurf < 7.5) { tex = dTri(tRock, nRock, vObj, w, sn, 3.2, dpx, dpy, dOffset); mean = 0.16; keep = 0.3; }
+    else if (vSurf < 8.5) { tex = dTri(tBark, nBark, vObj, w, sn, 2.6, dpx, dpy, dOffset); mean = 0.105; keep = 0.3; }
+    else if (vSurf < 9.5) { tex = dTri(tMoss, nMoss, vObj, w, sn, 2.6, dpx, dpy, dOffset); mean = 0.084; keep = 0.1; }
+    else if (vSurf < 10.5) { tex = dTri(tWood, nWood, vObj, w, sn, 3.0, dpx, dpy, dOffset); mean = 0.147; keep = 0.5; }
+    // old metal out of a wreck: pitted and dulled, still its own colour
+    else { tex = dTri(tRock, nRock, vObj, w, sn, 4.0, dpx, dpy, dOffset); mean = 0.16; keep = 0.7; }
     // the texture's own colour around the model's hue: grain and stains from the photo,
     // overall tone from the vertex colour
     float vl = max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-3);
@@ -152,8 +164,8 @@ totalEmissiveRadiance += uRim.rgb * rimF * uRim.a + vec3(1.0, 0.45, 1.6) * dEdge
   return mat;
 }
 
-const SHARED = { front: null, double: null };
-function sharedBaked(double) {
+const SHARED: Record<string, THREE.MeshStandardMaterial | null> = { front: null, double: null };
+export function sharedBaked(double: boolean) {
   const k = double ? 'double' : 'front';
   if (!SHARED[k]) SHARED[k] = bakedMaterial({ side: double ? THREE.DoubleSide : THREE.FrontSide });
   return SHARED[k];
@@ -308,8 +320,8 @@ export function setFlash(obj, r, g, b) {
   });
 }
 
-export function setRim(obj, strength, color) {
-  obj.traverse((o) => {
+export function setRim(obj: THREE.Object3D, strength: number, color?: THREE.ColorRepresentation) {
+  obj.traverse((o: any) => {
     if (o.isMesh && o.material.userData.rim) {
       const r = o.material.userData.rim.value;
       if (color) {

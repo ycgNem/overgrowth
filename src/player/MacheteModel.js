@@ -6,7 +6,7 @@
 // the grip's centre is at about x = -0.06. The hand model shares this frame.
 import * as THREE from 'three';
 import { gltfLoader } from '../assets/Models.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../utils/rng.js';
 
 export const BLADE_LEN = 0.47;
@@ -393,8 +393,10 @@ export async function loadHand() {
       geo.applyMatrix4(o.matrixWorld);
       geo = boxUV(geo, cloth ? 22 : 34);
       // fresh float normals (the file's are quantized to 8 bits: recomputing into those clamps)
+      // smoothed across the facets (the mesh is split per face by then, so plain vertex normals
+      // came out flat and the glove read as carved from clay), creased only at real edges
       geo.deleteAttribute('normal');
-      geo.computeVertexNormals();
+      geo = toCreasedNormals(geo, 1.0);
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: cloth ? 0.95 : 0.62, metalness: 0,
         normalMap: cloth ? clothN : leatherN, normalScale: new THREE.Vector2(cloth ? 0.5 : 0.35, cloth ? 0.5 : 0.35),

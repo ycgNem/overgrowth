@@ -8,7 +8,7 @@
 // 10. From night 6 a fourth pack, the surge, pours out of every rift at once, and new rifts
 // tear open on nights 7 and 9. Hold ten
 // nights and the Heartwood blooms (you can keep going after that).
-import { AFFIX_IDS } from './Enemies.js';
+import { AFFIX_IDS } from './Enemies.ts';
 
 export const DAWN = 0.27;
 export const DUSK = 0.745;

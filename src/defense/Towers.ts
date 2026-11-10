@@ -3,13 +3,13 @@
 // lightning, gouts of flame, grasping vines).
 import * as THREE from 'three';
 import { cloneModel, part, parts } from '../assets/Models.js';
-import { flatten, setFlash, setTint, setEmit, ownMaterials } from '../art/merge.js';
+import { flatten, setFlash, setTint, setEmit, ownMaterials } from '../art/merge.ts';
 import { spikeTrapModel } from '../items/ItemModels.ts';
 import { terrainHeight, terrainNormal, WATER_LEVEL } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
 import { BUILD_RADIUS, GOAL_RADIUS } from './Base.js';
 import type { World } from '../world/World.js';
-import type { Enemies } from './Enemies.js';
+import type { Enemies } from './Enemies.ts';
 import type { FlowField } from './FlowField.js';
 import type { Particles } from '../fx/Particles.js';
 import type { LightPool } from '../fx/LightPool.js';
@@ -129,7 +129,7 @@ export const GRAFTS: Record<string, GraftDef> = {
   coiled_spring: { glyph: '⟳', color: 0xe0c870, say: '+20% fire rate', fits: (d) => !!(d.dmg && d.rate) },
   root_anchor: { glyph: '⚓', color: 0x8ad060, say: '+30% HP, slowly mends', fits: () => true },
 };
-// Settings: a colour-blind safe palette for the placement ghost (and the Blight: Enemies.js)
+// Settings: a colour-blind safe palette for the placement ghost (and the Blight: Enemies.ts)
 export const PALETTE = { cb: false };
 export const graftSlots = (tier: number) => (tier >= 3 ? 2 : tier >= 2 ? 1 : 0);
 // a hit from a grafted building: Bog-iron Heads cut through hide, Resin Drip sets it alight
