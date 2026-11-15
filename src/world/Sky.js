@@ -1,7 +1,7 @@
 // Sky dome, sun/moon, day-night cycle, fog and image-based lighting.
 import * as THREE from 'three';
 import { smoothstep, clamp } from '../utils/math.js';
-import { globalUniforms, fogSun } from '../art/shaders.js';
+import { globalUniforms, fogSun } from '../art/shaders.ts';
 
 const TAU = Math.PI * 2;
 const col = (hex) => new THREE.Color(hex);

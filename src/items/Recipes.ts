@@ -33,7 +33,9 @@ export const RECIPES: CampRecipe[] = [
   { id: 'spore_mortar', out: 'spore_mortar', n: 1, group: 'Defences', at: 'kiln', needs: { log: 1, stone: 3, mushroom: 4, clay: 2, resin: 1 } },
   { id: 'glow_lantern', out: 'glow_lantern', n: 1, group: 'Defences', at: 'bench', needs: { glowcap: 2, stick: 4, resin: 1, fiber: 2 } },
   { id: 'heartseed', out: 'heartseed', n: 1, group: 'Defences', at: 'bench', lvl: 2, needs: { strange_seeds: 5, glowcap: 2, stone: 4, resin: 2 } },
-  { id: 'tesla_totem', out: 'tesla_totem', n: 1, group: 'Defences', at: 'tinker', needs: { log: 1, copper_wire: 2, battery: 1, vacuum_tube: 1, scrap_metal: 2 } },
+  // (no vacuum tube: the rarest salvage, and fragile, kept the totem out of most runs; its third
+  // tier still wants one)
+  { id: 'tesla_totem', out: 'tesla_totem', n: 1, group: 'Defences', at: 'tinker', needs: { log: 1, copper_wire: 2, battery: 1, scrap_metal: 3 } },
   { id: 'slingshot', out: 'slingshot', n: 1, group: 'Weapons', at: 'field', needs: { stick: 2, vine: 1, fiber: 3 } },
   { id: 'scrap_shot', out: 'scrap_shot', n: 6, group: 'Weapons', at: 'field', needs: { tin_can: 1, rusty_bolts: 2 } },
   { id: 'iron_shot', out: 'scrap_shot', n: 5, group: 'Weapons', at: 'tinker', needs: { bog_iron: 1 } },

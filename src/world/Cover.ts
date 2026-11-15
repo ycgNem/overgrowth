@@ -25,10 +25,23 @@ const TAU = Math.PI * 2;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _s = new THREE.Vector3(), _p = new THREE.Vector3(), _n = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 const _c = new THREE.Color();
-const _g = {};
+const _g: any = {};
+
+type Cell = Float32Array[];
 
 export class Cover {
-  constructor(scene, world) {
+  world: any;
+  cells: Map<string, Cell>;
+  stale: Set<string> | null;
+  fresh: Map<string, Cell> | null;
+  cx: number | null;
+  cz: number | null;
+  missing = false;
+  /** one instanced mesh per plant variant, with its species' tint */
+  slots: { mesh: THREE.InstancedMesh; tint?: [number, number] }[];
+  kindSlots: number[][];
+
+  constructor(scene: THREE.Scene, world: any) {
     this.world = world;
     this.cells = new Map();
     this.stale = null; // cells to build again, and those built so far (CellRefresh.ts)
@@ -58,13 +71,14 @@ export class Cover {
 
   // The plants of one cell, per variant: x, y, z, nx, ny, nz, yaw, scale, hue and value jitter,
   // and the ground's baked shade. Null if the ground under it isn't built yet.
-  build(i, j) {
+  build(i: number, j: number): Cell | null {
     const world = this.world, r = mulberry32(((i * 92837111) ^ (j * 689287499)) >>> 0);
-    const out = this.slots.map(() => []);
+    const out: number[][] = this.slots.map(() => []);
     const pois = world.poisNear(i * CELL + CELL / 2, j * CELL + CELL / 2, CELL + 30);
-    // loose things on the floor stay in sight: nothing grows right on top of one
+    // loose things on the floor stay in sight: nothing grows right on top of one (plans are
+    // keyed by World.key: a 'cx,cz' string never found one)
     const x0 = i * CELL, z0 = j * CELL;
-    const plan = world.plans.get(`${Math.floor((x0 + 1) / CS)},${Math.floor((z0 + 1) / CS)}`);
+    const plan = world.plans.get(world.constructor.key(Math.floor((x0 + 1) / CS), Math.floor((z0 + 1) / CS)));
     const loose = plan ? plan.forage.filter((f) => f.x > x0 - 0.6 && f.x < x0 + CELL + 0.6 && f.z > z0 - 0.6 && f.z < z0 + CELL + 0.6) : [];
     for (let k = 0; k < PER_CELL; k++) {
       // every random draw up front, so a skipped plant doesn't shift the ones after it
@@ -96,7 +110,7 @@ export class Cover {
     staleCells(this);
   }
 
-  update(px, pz) {
+  update(px: number, pz: number) {
     if (this.stale && refreshCells(this)) this.cx = null;
     const ci = Math.floor(px / CELL), cj = Math.floor(pz / CELL);
     if (ci === this.cx && cj === this.cz && !this.missing) return;

@@ -10,13 +10,13 @@ import { PostFX } from '../render/PostFX.js';
 import { TextureLib } from '../art/TextureLib.js';
 import { setDetailTextures } from '../art/merge.ts';
 import { CanopyMap, installCanopy, canopyBox } from '../render/Canopy.js';
-import { globalUniforms } from '../art/shaders.js';
+import { globalUniforms } from '../art/shaders.ts';
 import { Flora } from '../world/flora/Flora.ts';
-import { World, FORAGE_TINT, CACHE_EMPTY } from '../world/World.js';
+import { World, FORAGE_TINT, CACHE_EMPTY } from '../world/World.ts';
 import { Trample } from '../world/Trample.js';
 import { Rot } from '../world/Rot.js';
 import { Litter } from '../world/Litter.js';
-import { Cover } from '../world/Cover.js';
+import { Cover } from '../world/Cover.ts';
 import { Grass } from '../world/Grass.ts';
 import { Sky } from '../world/Sky.js';
 import { Water } from '../world/Water.js';
@@ -24,7 +24,7 @@ import { findSpawn, grove, sampleTerrain, terrainHeight, WATER_LEVEL, CHUNK_SIZE
 import { POI_INFO, poisAround, buildPOI } from '../world/poi/POI.js';
 import { Player } from '../player/Player.js';
 import { Machete } from '../player/Machete.ts';
-import { Input, keyName } from './Input.js';
+import { Input, keyName } from './Input.ts';
 import { Particles } from '../fx/Particles.js';
 import { Marks } from '../fx/Marks.ts';
 import { Ambient } from '../fx/Ambient.js';
@@ -37,31 +37,44 @@ import { BENCHES, recipeFor, benchOf, COFFER } from '../items/Recipes.ts';
 import { Containers } from '../items/Containers.ts';
 import { renderItemIcons, getItemModel } from '../items/ItemModels.ts';
 import { glowTexture } from '../art/textures.js';
-import { AudioSys } from '../audio/AudioSys.js';
+import { AudioSys } from '../audio/AudioSys.ts';
 import { HUD } from '../ui/HUD.ts';
 import { smoothstep, damp, clamp } from '../utils/math.js';
 import { loadModels, MODEL_NAMES } from '../assets/Models.js';
 import { Base, Rift, pickRifts, pickGroveRift, findBaseSite, BASE_CLEAR, BASE_SOFT, BUILD_RADIUS, GOAL_RADIUS } from '../defense/Base.js';
-import { FlowField } from '../defense/FlowField.js';
+import { FlowField } from '../defense/FlowField.ts';
 import { Enemies, BLIGHT_HARDER } from '../defense/Enemies.ts';
-import { Buildings, BuildGhost, hologram, BUILD_DEFS, TIER_NAMES, ROOTS, GRAFTS } from '../defense/Towers.ts';
+import { Buildings, BuildGhost, hologram, BUILD_DEFS, TIER_NAMES, GRAFTS, rootCost, rootCapFor } from '../defense/Towers.ts';
 import type { Building, TowerCtx } from '../defense/Towers.ts';
 import type { Recipe } from '../items/Inventory.ts';
 import type { Container } from '../items/Containers.ts';
 import { Camp } from '../defense/Camp.ts';
-import { Waves, DUSK, DAWN, SIGNS, signFor } from '../defense/Waves.js';
+import { Waves, DUSK, DAWN, SIGNS, signFor } from '../defense/Waves.ts';
+import type { SignId } from '../defense/Waves.ts';
 import { Blooms, BLOOM_RADIUS } from '../defense/Blooms.js';
-import { Projectiles } from '../combat/Projectiles.js';
+import { Projectiles } from '../combat/Projectiles.ts';
 import { PERKS, baseMods, offerPerks, thresholds } from './Perks.js';
 import { Journal } from './Journal.ts';
-import { writeSave, clearSave, recordBest, addRecords } from './Save.js';
+import { writeSave, clearSave, recordBest, addRecords } from './Save.ts';
 import { difficulty, kitItems } from './Difficulty.js';
 import { MEMORIES, unlocked } from './Memories.js';
 import { checkAchievements, scoreOf } from './Achievements.js';
 import { DAILY } from './Seed.js';
+
+// mulberry32 from a string: the daily vigil's dice
+function seededRand(key: string) {
+  let a = 2166136261;
+  for (const c of key) a = Math.imul(a ^ c.charCodeAt(0), 16777619);
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 import { Tips } from './Tips.js';
-import { bootQuality } from './Quality.js';
-import { Expedition, warmBeams } from './Expedition.js';
+import { bootQuality } from './Quality.ts';
+import { Expedition, warmBeams } from './Expedition.ts';
 
 // Yield so the loading bar can paint; falls back to a timeout because
 // requestAnimationFrame is paused in background tabs.
@@ -89,7 +102,11 @@ function lostBeamMat() {
 // what the machete bites into (and leaves a gash in) rather than rings off
 const WOODY = new Set(['bigTree', 'smallTree', 'midTree', 'palm', 'treeFern', 'log', 'stump', 'branch']);
 const MACHETE_DMG = 28;
+// how long a click made too early for the next swing is kept (seconds)
+const SWING_BUFFER = 0.4;
 const RESPAWN = 5;
+// at night the Heartwood takes longer to pull you back, and you come back at 60%
+const RESPAWN_NIGHT = 9;
 const FOV = 72;
 const STARTER: [string, number][] = [['bow_tower', 1], ['spike_trap', 2], ['poultice', 2]];
 // the title's light: late afternoon, the sun low and gold through the crowns
@@ -105,7 +122,7 @@ type Collider = any;
 type Chunk = any;
 type Enemy = any;
 type Bloom = any;
-type SaveData = any;
+type SaveData = Record<string, any>;
 // how a hit landed, for the damage numbers and kill callbacks (Enemies.damage fills in k)
 interface HitInfo { source?: string; type?: string; crit?: boolean; stagger?: number; shield?: boolean; k?: number }
 // hold a key to do it, with a progress ring on the prompt (Game.interact makes one per frame)
@@ -186,7 +203,7 @@ export class Game {
   favour: number;
   boonsTaken: number;
   pendingBoons: number;
-  stats: { built: number; upgraded: number; bosses: number; blooms: number; elites: number; grafts: number; seals: number; drops: number; burns: number };
+  stats: { built: number; upgraded: number; bosses: number; thornbacks: number; mothers: number; blooms: number; elites: number; grafts: number; seals: number; drops: number; burns: number; heartLost: number };
   rootBonus: number;
   difficulty: string;
   fadeEl: HTMLElement;
@@ -195,6 +212,9 @@ export class Game {
   autoRes: boolean;
   fpsCap: number;
   nextFrameAt: number;
+  /** the display's refresh interval (ms), measured from the browser's frame callbacks */
+  refresh = 1000 / 60;
+  lastTs = 0;
   resScale: number;
   res: { avg: number; cool: number; hold: number; fast: number; sinceUp: number };
   quality: string;
@@ -237,7 +257,7 @@ export class Game {
   post: PostFX;
   timer: THREE.Timer;
   title: { t: number; shot: number; shotT: number; fade: number; fly: any; wake?: number } | null;
-  banked: { kills: number; bosses: number; blooms: number; built: number; elites: number; grafts: number; seals: number; drops: number; burns: number };
+  banked: Record<string, number>;
   begun: boolean;
   compileAgain: boolean;
   compiling: boolean;
@@ -263,6 +283,34 @@ export class Game {
   wasInCamp: boolean;
   hudHidden: boolean;
   swingTapped: boolean;
+  /** a click the machete couldn't take yet (still recovering): swung as soon as it can */
+  swingBuf = 0;
+  /** the Blight a swing was aimed at: the blade finds it at the impact if it is still in reach */
+  swingAim: Enemy | null = null;
+  /** the day's blooms as they sprouted, and which are cut down (saved, so a reload keeps them) */
+  bloomDay: { night: number; sites: { x: number; z: number; seed: number; cleansed: boolean; hp?: number }[] } | null = null;
+  /** a save's blooms, waiting for begin() */
+  savedBlooms: SaveData | null = null;
+  /** defences packed up by day: how worn each was, by id (re-placing one brings its wear back) */
+  packed: Record<string, [number, number | null][]> = {};
+  /** a hold action finished: the key must come up before another one starts */
+  holdLock: string | null = null;
+  /** a save is wanted soon (after a search, a bloom, a boon) */
+  saveSoonT = 0;
+  beginTok = 0; // which begin() the delayed bloom sprout belongs to
+  /** a boon is owed: the cards come up this long from now, once nothing is fighting you */
+  boonDue = 0;
+  /** what the Coffer held when it was opened */
+  cofferHeld: number | null = null;
+  /** tonight's sign, as the dawn told it */
+  signLatch: { n: number; sign: SignId | null } | null = null;
+  /** how long this death's wait for the Heartwood is */
+  deadFor = 5;
+  /** the field of view (Settings), in degrees up and down */
+  fov = FOV;
+  /** the night's numbers, for the dawn's recap */
+  /** heart: the damage the Heartwood took */
+  nightLog: { kills: number; heart: number; lost: number; deaths: number } = { kills: 0, heart: 0, lost: 0, deaths: 0 };
   grassSig: number;
   playerNoise: number;
   haze: number;
@@ -279,6 +327,9 @@ export class Game {
   _campSrc: Sources;
   _ground: TerrainSample;
   campChip: HTMLElement | null;
+  _solid: any[];
+  lanes: [number, number][][] | null = null;
+  lanesT = 0;
 
   constructor(canvas: HTMLCanvasElement, { debug = false, time = null }: { debug?: boolean; time?: number | null } = {}) {
     this.debug = debug;
@@ -351,12 +402,14 @@ export class Game {
     this.favour = 0;
     this.boonsTaken = 0;
     this.pendingBoons = 0;
-    this.stats = { built: 0, upgraded: 0, bosses: 0, blooms: 0, elites: 0, grafts: 0, seals: 0, drops: 0, burns: 0 };
+    this.stats = { built: 0, upgraded: 0, bosses: 0, thornbacks: 0, mothers: 0, blooms: 0, elites: 0, grafts: 0, seals: 0, drops: 0, burns: 0, heartLost: 0 };
     this.rootBonus = 0; // root capacity from relics buried in the Heartwood
     this.difficulty = 'warden';
     this.fadeEl = document.getElementById('title-fade'); // black, for the title's cuts and the fly-in
     this.bloom = true;
-    this.rand = Math.random;
+    // the daily vigil rolls everything from its seed (blooms, loot, elites, boons), so the day is
+    // the same for everyone who plays it; an ordinary run rolls as it likes
+    this.rand = DAILY ? seededRand(`run:${DAILY}`) : Math.random;
     this.autoRes = true;
     this.fpsCap = 0; // frames a second at most (0: every display refresh); the menu sets it
     this.nextFrameAt = 0;
@@ -506,9 +559,14 @@ export class Game {
     this.waves = new Waves({ sky: this.sky, enemies: this.enemies, rifts: this.rifts, hud: this.hud, audio: this.audio, world: this.world, base: this.base });
     this.waves.coverage = (x, z) => this.coverage(x, z);
     // the Blood Moon only rises while you carry the golden idol (in the satchel or the Coffer)
+    // (worked out once a night, when the dawn first tells it: picking the idol up or putting it
+    // down later in the day doesn't change what was promised)
     this.waves.signOf = (n) => {
+      if (this.signLatch?.n === n) return this.signLatch.sign;
       const idol = this.inventory.count('golden_idol') + this.coffer.count('golden_idol') > 0;
-      return signFor(n, idol, idol && !this.expedition.moonHeld);
+      const sign = signFor(n, idol, idol && !this.expedition.moonHeld);
+      this.signLatch = { n, sign };
+      return sign;
     };
     this.expedition = new Expedition(this);
     this.expedition.init();
@@ -520,6 +578,12 @@ export class Game {
       this.later.push(() => this.sproutBlooms(), () => this.sproutHusks(), () => this.autosave());
     };
     this.waves.onNight = (n) => {
+      // what Continue goes back to if you quit tonight: nightfall, with the day's work done
+      this.duskCheckpoint();
+      this.nightLog = { kills: 0, heart: 0, lost: 0, deaths: 0 };
+      // from day 3 the journal points at the seals (1.1 waited for day 5, and days 3 to 6 had
+      // nothing new to do): a relic now has three uses, favour, roots or a sleeping rift
+      if (n >= 2) this.journal.flag('seals');
       this.expireLost('day');
       // the day's Husks sink back into the soil
       for (const e of this.enemies.list) if (e.patrol) this.enemies.crumble(e);
@@ -547,10 +611,12 @@ export class Game {
       // the night's routes wear into the ground, and the Rot creeps out from the rifts
       this.trample.settle();
       const hadRot = this.rot.any;
-      this.rot.spread(_held, this.rifts, (r) => r.night <= _held && !this.expedition.dormant(r), this.wards());
+      // (a rift that slept through the night just ended spreads no Rot this dawn, even if its
+      // seal wears out with it)
+      this.rot.spread(_held, this.rifts, (r) => r.night <= _held && !this.expedition.dormant(r, _held), this.wards());
       if (this.rot.any && !hadRot) {
         this.journal.flag('rot');
-        setTimeout(() => this.hud.message('The ground round the rifts is dying ✚ The Blight run faster on the Rot, and towers on it fire slower. Fire burns it back', '#d8a0ff'), 6500);
+        setTimeout(() => this.hud.message('The ground round the rifts is dying ✚ The Blight run faster on the Rot, and towers on it fire slower. Fire burns it back', '#c8b090'), 6500);
       }
       this.rot.dirty = false;
       this.world.wearSoon();
@@ -566,6 +632,14 @@ export class Game {
       for (const b of this.buildings.list) if (!b.dead && b.def.kind !== 'trap' && b.def.kind !== 'snare' && b.hp < b.maxHp * 0.3 && b.scar()) scars++;
       if (scars) setTimeout(() => this.hud.message(`${scars} building${scars > 1 ? 's' : ''} came out of the night scarred: 10% less HP until an orchid salve or an upgrade mends ${scars > 1 ? 'them' : 'it'}`, '#ffb080'), 4000);
       if (won) this.onVictory();
+      else {
+        // the night in numbers, once the dawn's banner has had its moment
+        const L = this.nightLog;
+        const bits = [`${L.kills} felled`, L.heart >= 1 ? `the Heartwood took ${Math.round(L.heart)}` : 'the Heartwood untouched'];
+        if (L.lost) bits.push(`${L.lost} defence${L.lost > 1 ? 's' : ''} lost`);
+        if (L.deaths) bits.push(`you fell ${L.deaths > 1 ? `${L.deaths} times` : 'once'}`);
+        setTimeout(() => this.hud.message(`Night ${_held}: ${bits.join(' · ')}`, '#cfe8c0'), 3200);
+      }
     };
     this.waves.onOver = () => this.onDefeat();
 
@@ -589,6 +663,7 @@ export class Game {
     this.inventory.onOverflow = (id, n) => this.overflow(id, n);
     this.hud.craftCtx = () => this.craftContext();
     this.hud.keyLabel = (code) => keyName(this.input.bound(code));
+    this.hud.keyLabelCode = (code) => this.input.bound(code);
     this.hud.onSalvage = (i) => this.salvage(i);
     this.hud.onCloseOther = (o) => this.closeOther(o);
     this.hud.onFull = (o, where) => {
@@ -700,13 +775,20 @@ export class Game {
   // on a 144 Hz screen) and the GPU draws every one of them flat out. Frames come on a
   // schedule instead, at most fpsCap a second (0 = every refresh). Paused, or behind another
   // window, nothing needs more than 30. (?debug runs draw every frame: e2e timings.)
+  // The step is a whole number of the display's refreshes: 60 a second on a 144 Hz screen
+  // used to alternate frames two and three refreshes long, an uneven judder that read as lag.
+  // Now it draws every second refresh there (72), every third on 165 Hz (55).
   tick(ts: number) {
+    const d = ts - (this.lastTs || ts);
+    this.lastTs = ts;
+    if (d > 3 && d < 40) this.refresh += (d - this.refresh) * 0.04;
     const idle = !this.debug && ((this.paused && !this.title) || !document.hasFocus());
     const cap = idle ? Math.min(this.fpsCap || 30, 30) : this.fpsCap;
     if (cap > 0) {
-      const step = 1000 / cap;
-      // (a millisecond early still counts: refreshes jitter around the step)
-      if (ts < this.nextFrameAt - 1) return;
+      const R = this.refresh;
+      const step = R * Math.max(1, Math.round(1000 / cap / R));
+      // (half a refresh early still counts: refreshes jitter around the step)
+      if (ts < this.nextFrameAt - R * 0.5) return;
       this.nextFrameAt = Math.max(this.nextFrameAt + step, ts - step * 0.5);
     }
     this.frame(ts);
@@ -836,13 +918,18 @@ export class Game {
     inv.changed();
     // The Seals Hold: every vigil after knows how to graft
     this.expedition.grafting = mem.has('sealed');
+    // The Wayfinder: every site within reach is known from the start (named on the map and
+    // compass; arriving there is no longer news)
+    if (mem.has('wayfinder')) {
+      for (const s of poisAround(Math.floor(this.base.x / CHUNK_SIZE), Math.floor(this.base.z / CHUNK_SIZE), 9)) this.hud.discovered.add(s.key);
+    }
   }
 
   // Bank what this run has done since the last time into the lifetime records.
   // what this run has banked into the records (each counter banked as it grows)
   bankable() {
     const s = this.stats;
-    return { kills: this.enemies.kills, bosses: s.bosses, blooms: s.blooms, built: this.buildings.stats.built, elites: s.elites, grafts: s.grafts, seals: s.seals, drops: s.drops, burns: s.burns };
+    return { kills: this.enemies.kills, bosses: s.bosses, thornbacks: s.thornbacks || 0, mothers: s.mothers || 0, blooms: s.blooms, built: this.buildings.stats.built, elites: s.elites, grafts: s.grafts, seals: s.seals, drops: s.drops, burns: s.burns };
   }
 
   bankRecords(extra: Record<string, number> = {}) {
@@ -853,7 +940,8 @@ export class Game {
     for (const k in now) delta[k] = Math.max(0, now[k] - (last[k] || 0));
     this.banked = now;
     const had = unlocked();
-    const most: { deepest: number; dailyBest?: number } = { deepest: this.waves.night - 1 };
+    const most: { deepest: number; dailyBest?: number; hardDeepest?: number } = { deepest: this.waves.night - 1 };
+    if (this.difficulty !== 'verdant' && !DAILY) most.hardDeepest = this.waves.night - 1;
     if (DAILY) most.dailyBest = this.waves.night - 1;
     const r = addRecords(delta, Object.keys(this.enemies.killsByType), most);
     recordBest(this.waves.night - 1, this.enemies.kills, this.score);
@@ -880,6 +968,10 @@ export class Game {
     const w = this.waves;
     if (this.loaded) this.hud.banner(`Day ${w.night}`, 'The Heartwood remembers you.');
     else this.hud.banner('Day 1', 'Gather from the forest, craft defences, guard the Heartwood.');
+    // one thing at a time: the banner, then the journal and the hints
+    const hudEl = document.getElementById('hud');
+    hudEl?.classList.add('settling');
+    setTimeout(() => hudEl?.classList.remove('settling'), this.loaded ? 1500 : 3500);
     // the first new run explains itself before the day starts
     let seen = true;
     try { seen = localStorage.getItem('og.intro') === '1'; } catch { /* storage blocked */ }
@@ -890,7 +982,14 @@ export class Game {
     // (a new run's first Bloom waits until the first steps are behind you: its warning used to
     // land on top of "look down and pick things up")
     const wait = !this.loaded && !this.debug && w.night === 1 ? 75000 : 2500;
-    if (w.phase === 'day') setTimeout(() => { if (!this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(); }, wait);
+    const saved = this.savedBlooms;
+    this.savedBlooms = null;
+    // (only the latest begin's: an earlier one's timer must not roll fresh blooms over a
+    // Continue's saved ones)
+    const tok = (this.beginTok = (this.beginTok || 0) + 1);
+    if (w.phase === 'day') setTimeout(() => { if (tok === this.beginTok && !this.blooms.list.length && this.waves.phase === 'day') this.sproutBlooms(saved); }, wait);
+    // a boon earned before the save and not yet chosen
+    if (this.pendingBoons > 0) this.boonDue = 3.5;
   }
 
   // the "Your vigil" card (a new run's first, and How to play on the pause menu)
@@ -899,6 +998,9 @@ export class Game {
     this.input.unlock();
     this.hud.showIntro(() => {
       this.modal = null;
+      // (the Space or Enter that closed the card is not a jump)
+      this.input.keys.clear();
+      this.input.pressed.clear();
       if (done) done();
       else if (!this.debug) this.input.lock();
     });
@@ -1007,8 +1109,8 @@ export class Game {
   }
 
   // a word the first time something new turns up (Tips: once, ever), checked once a second
-  checkTips() {
-    if (this.tips.off || (this.tipT = (this.tipT ?? 1) - 1 / 60) > 0) return;
+  checkTips(dt: number) {
+    if (this.tips.off || (this.tipT = (this.tipT ?? 1) - dt) > 0) return;
     this.tipT = 1;
     const T = this.tips;
     if (this.inventory.burden !== 'light') T.show('laden', 'Your pack is heavy: you slow down, tire faster and the Husks hear you further off. Store things in the Coffer at camp', '#ffd28a');
@@ -1064,14 +1166,15 @@ export class Game {
   }
 
   // Put the player beside the Heartwood, facing it.
-  respawn() {
+  respawn(health = 1) {
     const a = 2.2;
     const x = this.base.x + Math.sin(a) * 16, z = this.base.z + Math.cos(a) * 16;
     this.player.spawn(x, z);
     this.player.vel.set(0, 0, 0);
     this.player.yaw = Math.atan2(-(this.base.x - x), -(this.base.z - z));
     this.player.pitch = 0.05;
-    this.player.hp = this.player.maxHp;
+    this.player.hp = Math.round(this.player.maxHp * health);
+    this.lastHit = 0;
   }
 
   // The tower damage a second that reaches the Blight's path from (x, z) to the Heart, walked
@@ -1140,8 +1243,27 @@ export class Game {
   // ------------------------------------------------------------- save / load
 
   autosave() {
-    if (this.debug || this.waves.phase === 'over' || this.waves.phase === 'night') return;
+    if (this.debug || this.waves.phase === 'over' || this.waves.phase === 'night' || this.title) return;
     writeSave(this);
+  }
+
+  // as the night falls: what you go back to if you quit during it (never an earlier morning)
+  duskCheckpoint() {
+    if (this.debug || this.waves.phase === 'over' || this.title) return;
+    writeSave(this, { dusk: true });
+  }
+
+  // save in a second or so (after a search, a bloom, a boon: a reload mustn't reroll it)
+  saveSoon() {
+    if (this.waves.phase === 'day') this.saveSoonT = this.saveSoonT > 0 ? Math.min(this.saveSoonT, 1) : 1;
+  }
+
+  // the day's blooms, for the save
+  bloomState() {
+    const d = this.bloomDay;
+    if (!d) return null;
+    const live = (s) => this.blooms.list.find((b) => !b.dead && b.site === s);
+    return { night: d.night, sites: d.sites.map((s) => [+s.x.toFixed(2), +s.z.toFixed(2), s.seed, s.cleansed ? 1 : 0, Math.round(live(s)?.hp ?? s.hp ?? 0)]) };
   }
 
   // Apply a save made by writeSave. Called once, before the player enters.
@@ -1164,7 +1286,7 @@ export class Game {
     this.rootBonus = d.rootBonus || 0;
     inv.selected = d.selected || 0;
     for (const id of d.found || []) if (ITEMS[id]) inv.found.add(id);
-    for (const [id, x, z, rot, tier, hp, scar, grafts] of d.buildings || []) {
+    for (const [id, x, z, rot, tier, hp, scar, grafts, charges] of d.buildings || []) {
       if (!BUILD_DEFS[id]) continue;
       const b = this.buildings.place(id, x, z, rot, { instant: true });
       while (b.tier < tier) b.upgrade();
@@ -1172,7 +1294,9 @@ export class Game {
       if (scar) b.scar();
       b.popT = 0;
       b.hp = Math.min(b.maxHp, hp);
+      if (charges != null && b.charges != null) b.charges = Math.min(b.maxCharges ?? charges, charges);
     }
+    this.packed = d.packed || {};
     this.buildings.stats.built = d.stats?.built || 0;
     this.buildings.stats.upgraded = d.stats?.upgraded || 0;
     this.base.maxHp = d.base.maxHp;
@@ -1180,14 +1304,18 @@ export class Game {
     this.difficulty = d.difficulty || 'warden';
     this.waves.setDifficulty(difficulty(this.difficulty));
     this.player.maxHp = d.player?.maxHp || 100;
-    this.player.hp = this.player.maxHp;
+    // (a save from before 1.2 didn't keep your health: those wake whole)
+    this.player.hp = d.v >= 3 ? clamp(d.player?.hp ?? this.player.maxHp, 1, this.player.maxHp) : this.player.maxHp;
     this.waves.setNight(d.night);
     this.showRifts(d.night);
     this.waves.won = !!d.won;
     if (this.waves.won) this.base.bloom(this.flora, true);
-    // on the title the clock is the cinematic's until the fly-in lands
-    if (this.title) this.title.wake = DAWN + 0.004;
-    else this.sky.time = DAWN + 0.004;
+    // the same hour you left (a moment before nightfall if you left during a night); a save
+    // from before 1.2 kept no hour worth trusting and wakes at dawn. On the title the clock is
+    // the cinematic's until the fly-in lands.
+    const wake = d.v >= 3 ? (d.dusk ? DUSK - 0.004 : clamp(d.time ?? DAWN, DAWN + 0.004, DUSK - 0.004)) : DAWN + 0.004;
+    if (this.title) this.title.wake = wake;
+    else this.sky.time = wake;
     this.perks = d.perks || [];
     const dummy = { base: { maxHp: 0, hp: 0 }, player: { maxHp: 0, hp: 0 } };
     for (const id of this.perks) PERKS.find((p) => p.id === id)?.apply(this.mods, dummy);
@@ -1195,6 +1323,21 @@ export class Game {
     this.hud.boons(this.perks.map((id) => PERKS.find((p) => p.id === id)).filter(Boolean));
     this.favour = d.favour || 0;
     this.boonsTaken = d.boonsTaken || this.perks.length;
+    this.pendingBoons = d.pendingBoons || 0;
+    // the day's blooms come back as they were (begin() builds them)
+    if (d.blooms && d.blooms.night === d.night) this.savedBlooms = d.blooms;
+    // what was foraged and cut today stays gone; the chunks already built are rebuilt in place
+    if (d.v >= 3) {
+      for (const k of d.foraged || []) this.world.foraged.add(k);
+      for (const k of d.cut || []) this.world.cut.add(k);
+      for (const ch of this.world.chunks.values()) if (ch.dressing) ch.regrow = true;
+      // and what lay on the ground lies there still
+      for (const [id, n, x, z, dropped] of d.piles || []) {
+        if (!ITEMS[id]) continue;
+        const p = this.pickups.spawn(id, new THREE.Vector3(x, terrainHeight(x, z) + 0.6, z), 0, false, n, !!dropped);
+        p.vel.set(0, 0, 0);
+      }
+    }
     this.stats = { ...this.stats, ...(d.stats || {}) };
     this.enemies.kills = d.kills || 0;
     for (const k of d.discovered || []) this.hud.discovered.add(k);
@@ -1213,6 +1356,66 @@ export class Game {
   }
 
   // ------------------------------------------------------------- actions
+
+  // Tonight's lanes for the minimap: from each rift that will open (and each live bloom) down
+  // the flow field to the Heart. Traced again a second after anything is built or moved.
+  laneLines(dt: number) {
+    this.lanesT = (this.lanesT ?? 0) - dt;
+    if (this.lanesT > 0 && this.lanes) return this.lanes;
+    this.lanesT = 1;
+    const n = this.waves.night;
+    const from = [
+      ...this.rifts.filter((r) => r.night <= n && !this.expedition.dormant(r)).map((r) => ({ x: r.x, z: r.z })),
+      ...this.blooms.alive.map((b) => ({ x: b.x, z: b.z })),
+    ];
+    this.lanes = from.map((o) => {
+      const pts: [number, number][] = [[o.x, o.z]];
+      let px = o.x, pz = o.z;
+      for (let i = 0; i < 90; i++) {
+        if (Math.hypot(px - this.base.x, pz - this.base.z) < GOAL_RADIUS + 2) break;
+        const d = this.field.dirAt(px, pz);
+        if (!d) break;
+        px += d.x * 2;
+        pz += d.z * 2;
+        if (i % 2) pts.push([px, pz]);
+      }
+      pts.push([px, pz]);
+      return pts;
+    });
+    return this.lanes;
+  }
+
+  // inside a trunk, a rock, a wall or a tower at (x, y, z)? (what stops a sling stone)
+  solidAt(x: number, y: number, z: number) {
+    for (const c of this.world.near(x, z, 'colliders', this._solid ||= [])) {
+      if (c.dead || c.top === undefined || y > c.top || (c.bottom !== undefined && y < c.bottom)) continue;
+      if (c.type === 'circle') {
+        if ((x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r) return true;
+      } else {
+        const dx = x - c.x, dz = z - c.z, cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+        if (Math.abs(dx * cs - dz * sn) <= c.hx && Math.abs(dx * sn + dz * cs) <= c.hz) return true;
+      }
+    }
+    return false;
+  }
+
+  // the Blight a swing starting now is aimed at: the nearest one in reach of the blade (or just
+  // past it) within ~40 degrees of where you look, the nearer the look the better
+  aimTarget(): Enemy | null {
+    const p = this.player.pos, fwd = this.forwardXZ();
+    let best = null, bs = Infinity;
+    for (const e of this.enemies.list) {
+      if (e.dying || e.dig || e.rise >= 0.6 || e.pos.y - p.y > 2.6 || p.y - e.pos.y > 2) continue;
+      const dx = e.pos.x - p.x, dz = e.pos.z - p.z, l = Math.hypot(dx, dz) || 1;
+      const d = l - e.def.radius * e.def.scale;
+      if (d > REACH + 1.2) continue;
+      const dot = (dx * fwd.x + dz * fwd.y) / l;
+      if (dot < 0.76 && l > 0.8) continue;
+      const s = d + (1 - dot) * 6;
+      if (s < bs) { bs = s; best = e; }
+    }
+    return best;
+  }
 
   forwardXZ(out = new THREE.Vector2()) {
     return out.set(-Math.sin(this.player.yaw), -Math.cos(this.player.yaw));
@@ -1241,18 +1444,26 @@ export class Game {
     // Blight first: the machete bites up to three in the arc. Three clicked hits in a row make a
     // finisher: a heavy, staggering crit.
     const now = this.timer.getElapsed();
-    this.chain = this.swingTapped && now - this.lastStrike < 1.1 ? this.chain + 1 : 1;
+    // the chain counts blows that land: a miss doesn't advance it (and doesn't break it)
+    const chain = now - this.lastStrike < 1.1 ? this.chain + 1 : 1;
     let struck = 0;
+    const aim = this.swingAim;
+    this.swingAim = null;
     const foes = this.enemies.list
       .filter((e) => !e.dying && !e.dig && e.rise < 0.6)
       .map((e) => [Math.hypot(e.pos.x - p.x, e.pos.z - p.z) - e.def.radius * e.def.scale, e])
       .filter(([d, e]) => {
-        if (d > REACH || e.pos.y - p.y > 2.6 || p.y - e.pos.y > 2) return false;
+        if (e.pos.y - p.y > 2.6 || p.y - e.pos.y > 2) return false;
+        // what the swing was aimed at is found if it's still in reach, wherever it jinked to
+        if (e === aim) return d <= REACH + 0.5;
+        if (d > REACH) return false;
         const dx = e.pos.x - p.x, dz = e.pos.z - p.z, l = Math.hypot(dx, dz) || 1;
-        return l < 0.8 || (dx * fwd.x + dz * fwd.y) / l > 0.35;
+        return l < 0.8 || (dx * fwd.x + dz * fwd.y) / l > 0.3;
       })
-      .sort((a, b) => a[0] - b[0])
+      .sort((a, b) => (a[1] === aim ? -1 : b[1] === aim ? 1 : a[0] - b[0]))
       .slice(0, 3);
+    const bloomNear = this.blooms.near(p.x, p.z, REACH);
+    if (foes.length || bloomNear) this.chain = chain;
     const finisher = foes.length && this.chain >= 3;
     for (const [, e] of foes) {
       const crit = !!finisher;
@@ -1490,6 +1701,7 @@ export class Game {
     this.particles.chipBurst(at, 0x8a6a40, 14, this.player.pos.y, out);
     this.particles.chipBurst(at, 0xd8bf8c, 8, this.player.pos.y, out); // fresh pale wood
     c.hits = (c.hits || 0) + 1;
+    this.journal.event('trunk');
     const logs = c.kind === 'bigTree' ? 3 : c.kind === 'palm' ? 1 : 2;
     const drop = (id) => this.pickups.spawn(id, at.clone(), 0.6);
     if (c.hits % 3 === 0 && (c.logs || 0) < logs) {
@@ -1503,6 +1715,7 @@ export class Game {
 
   harvestRock(c: Collider, at: THREE.Vector3, out: THREE.Vector3) {
     this.makeNoise(11);
+    this.journal.event('trunk');
     this.audio.stone();
     this.particles.sparks(at, 0xfff0c0, 12, out);
     this.particles.chipBurst(at, 0x8a877b, 8, this.player.pos.y, out);
@@ -1542,6 +1755,9 @@ export class Game {
   }
 
   collect(id: string, n = 1, quiet = false) {
+    // the story's threads start when you lay hands on them
+    if (id === 'thornback_heart') this.journal.flag('heart');
+    if (id === 'golden_idol') this.journal.flag('idol');
     const k = this.inventory.room(id, n);
     const left = n - k + this.inventory.add(id, k);
     if (left > 0) this.overflow(id, left, true);
@@ -1585,6 +1801,13 @@ export class Game {
       // a backpack goes straight on (the old one is unpicked for its frame)
       if (this.inventory.packId === recipe.out) {
         this.hud.message('You already wear one', '#f3ead2');
+        return;
+      }
+      // (a smaller one would hide whatever sat in the pockets it lacks)
+      const cur = PACKS[this.inventory.packId], nu = PACKS[recipe.out];
+      if (cur && (nu.slots < cur.slots || nu.safe < cur.safe || nu.cap < cur.cap)) {
+        this.audio.ui();
+        this.hud.message(`Your ${ITEMS[this.inventory.packId].name} already carries more`, '#f3ead2');
         return;
       }
       for (const [id, n] of Object.entries(recipe.needs)) ctx.src.remove(id, n);
@@ -1644,6 +1867,7 @@ export class Game {
   openCoffer() {
     this.camp.openWant = 1;
     this.audio.rummage();
+    this.cofferHeld = this.coffer.slots.reduce((a, s) => a + (s ? s.n : 0), 0);
     this.openPane(this.cofferPane());
   }
 
@@ -1705,6 +1929,8 @@ export class Game {
 
   openContainer(it: Interactable, rec: Container) {
     this.audio.rummage();
+    // its contents are rolled now: saved straight away, so a reload can't roll them again
+    this.saveSoon();
     if (!it.lost) this.journal.event('search');
     this.expedition.opened(it);
     if (rec.broke?.length) {
@@ -1715,13 +1941,18 @@ export class Game {
     this.openPane({
       kind: 'container', title: name.charAt(0).toUpperCase() + name.slice(1), inv: rec.inv, hidden: rec.hidden, rec, it,
       sub: rec.hidden.size ? 'Searching… click a find to take it.' : 'Click a find to take it (right-click: just one). Click your own things to leave them here.',
-      actions: [{ label: 'Take all', key: 'R', fn: () => this.takeAll() }],
+      actions: [{ label: 'Take all', key: 'KeyR', fn: () => this.takeAll() }],
     });
   }
 
   takeAll() {
     const o = this.hud.otherPane;
     if (!o?.rec) return;
+    // still searching: everything is taken as it turns up
+    if (o.hidden?.size) {
+      o.autoTake = true;
+      o.sub = 'Searching… taking everything as it turns up.';
+    }
     let blocked = false;
     o.inv.slots.forEach((s, i) => {
       if (!s || o.hidden?.has(i)) return;
@@ -1734,7 +1965,11 @@ export class Game {
   }
 
   closeOther(o: OtherPane) {
-    if (o.kind === 'coffer') this.camp.openWant = 0;
+    if (o.kind === 'coffer') {
+      this.camp.openWant = 0;
+      // anything put in by hand counts as storing, not only the button
+      if (this.coffer.slots.reduce((a, s) => a + (s ? s.n : 0), 0) > (this.cofferHeld ?? Infinity)) this.journal.event('store');
+    }
     if (o.kind !== 'container') return;
     if (!this.containers.empty(o.rec)) return;
     // emptied: it's done (and maybe fills again some dawn)
@@ -1798,7 +2033,8 @@ export class Game {
     const inv = this.inventory;
     const take = [];
     inv.slots.forEach((s, i) => {
-      if (!s || inv.isSafe(i)) return;
+      // (the golden idol never leaves you: the true ending was one bad fall from lost)
+      if (!s || inv.isSafe(i) || s.id === 'golden_idol') return;
       const k = ITEMS[s.id].kind;
       if (i < inv.hotbar && BELT_KINDS.has(k) && (mode !== 'hotbar' || k === 'tool')) return;
       take.push(i);
@@ -1918,6 +2154,7 @@ export class Game {
 
   // Right-click in the satchel: eat/apply at once (no throwing from the bag).
   useFromSatchel(i: number) {
+    if (!this.playerAlive) return;
     const s = this.inventory.slots[i];
     if (!s || ITEMS[s.id].kind !== 'use') return;
     const def = ITEMS[s.id];
@@ -1953,23 +2190,33 @@ export class Game {
   // ------------------------------------------------------------- Blight Blooms
 
   // Dawn: the day's blooms push up out in the forest, each with its guards.
-  sproutBlooms() {
+  // saved: the day's blooms from a save (rebuilt as they were, the cut ones left cut)
+  sproutBlooms(saved: SaveData | null = null) {
     const n = this.waves.night;
     this.hud.markers = this.hud.markers.filter((m) => !m.key.startsWith('bloom'));
-    // never through a trunk or a boulder
     // never through a trunk or a boulder, and only where the Blight can walk to the Heart from
     const blocked = (x, z) => {
       const k = this.field.idx(x, z);
       if (k < 0 || !Number.isFinite(this.field.dist[k])) return true;
       return this.world.staticCircles(x - 4, z - 4, x + 4, z + 4).some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 2.6);
     };
-    const sites = this.blooms.sites(n, this.base, this.rand, blocked);
+    let sites: { x: number; z: number; seed: number; hp?: number }[];
+    if (saved) {
+      this.blooms.clear();
+      this.bloomDay = { night: n, sites: saved.sites.map(([x, z, seed, cleansed, hp]) => ({ x, z, seed, cleansed: !!cleansed, hp })) };
+      sites = this.bloomDay.sites.filter((s) => !s.cleansed);
+    } else {
+      this.bloomDay = { night: n, sites: this.blooms.sites(n, this.base, this.rand, blocked).map((s) => ({ ...s, cleansed: false })) };
+      sites = this.bloomDay.sites;
+    }
     const guards = Blooms.guardsFor(n);
     // (the guards' places are rolled now, so a seeded run rolls the same whatever the frames do)
     const rolls = sites.map(() => Array.from({ length: guards }, (_, k) => (k / guards) * Math.PI * 2 + this.rand()));
     // each bloom, with its guards, on a frame of its own, ahead of the rest of the dawn's work
     const jobs = sites.map((s, i) => () => {
-      const b = this.blooms.add(s.x, s.z, s.seed);
+      const b: Bloom = this.blooms.add(s.x, s.z, s.seed);
+      if (s.hp > 0) b.hp = Math.min(b.maxHp, s.hp);
+      b.site = s;
       for (const a of rolls[i]) {
         const e = this.enemies.spawn('blightling', b.x + Math.cos(a) * 3, b.z + Math.sin(a) * 3, this.waves.hpScale * 0.85);
         e.guard = { x: b.x, z: b.z, r: 6, leash: 24 };
@@ -1983,6 +2230,7 @@ export class Game {
       jobs.push(() => {
         this.precompile();
         const k = sites.length;
+        if (saved) return;
         this.hud.message(`${k} Blight Bloom${k > 1 ? 's have' : ' has'} sprouted ✺ Cut ${k > 1 ? 'them' : 'it'} down before dusk, or the Blight comes through ${k > 1 ? 'them' : 'it'} tonight`, '#d9a0ff');
         this.audio.raw?.windup?.call(this.audio, 0.4);
       });
@@ -1990,7 +2238,7 @@ export class Game {
     this.later.unshift(...jobs);
   }
 
-  // Dawn, from day 3: Husks walk the forest in twos and threes, round the old camps, crates and
+  // Dawn, from day 2: Husks walk the forest in twos and threes, round the old camps, crates and
   // wrecks, hunting by sound. More of them each day; they never come near the camp.
   sproutHusks() {
     const n = this.waves.night;
@@ -2069,13 +2317,15 @@ export class Game {
     this.audio.boon?.();
     this.loot('bloom', at, 1.2, true);
     this.stats.blooms++;
+    if (b.site) b.site.cleansed = true;
+    this.saveSoon();
     this.journal.event('bloom');
     this.hud.markers = this.hud.markers.filter((m) => m.key !== b.key);
     // its guards wither with it; an open lane closes
     for (const e of b.guards) if (!e.dying && e.guard) this.enemies.damage(e, 1e6, this.combatCtx, null, { source: 'tower' });
     if (b.lane) {
       this.waves.open = (this.waves.open || []).filter((o) => o.bloom !== b);
-      if (!this.waves.open.length) this.waves.open = this.rifts.filter((r) => r.night <= this.waves.night);
+      if (!this.waves.open.length) this.waves.open = this.rifts.filter((r) => r.night <= this.waves.night && !this.expedition.dormant(r));
       this.hud.message('A bloom lane closes', '#9affb0');
     }
     const favour = 10 + 2 * this.waves.night;
@@ -2083,7 +2333,8 @@ export class Game {
     const left = this.blooms.alive.length;
     this.hud.banner('Bloom cleansed', `+${favour} favour with the Heartwood${left ? ` · ${left} still growing` : ' · the forest is clean'}`, 'win');
     while (this.favour >= thresholds(this.boonsTaken + this.pendingBoons)) this.pendingBoons++;
-    if (this.pendingBoons) setTimeout(() => { if (!this.modal) this.offerBoon(); }, 1200);
+    // the cards come when there's a quiet moment (not mid-fight, not over another card)
+    if (this.pendingBoons) this.boonDue = 1.2;
   }
 
   // ------------------------------------------------------------- slingshot
@@ -2129,6 +2380,9 @@ export class Game {
 
   // Interactions that need E or F (tap or hold).
   interact(dt: number, input: Input) {
+    // a hold that finished needs its key let go before the next one starts (holding E on past an
+    // offering used to roll straight into calling the night)
+    if (this.holdLock && !input.down(this.holdLock)) this.holdLock = null;
     const it = this.findInteractable();
     // a pile you put down: tap E to pick it up (it never comes back by itself), unless you're
     // looking at something nearer
@@ -2143,7 +2397,7 @@ export class Game {
     }
     const holdAction: HoldAction = (label, time, done, sub = '', key = 'KeyE') => {
       // (an E held to rake up forage never also calls the night or packs a tower)
-      if (input.down(key) && !(this.gathering && key === 'KeyE')) {
+      if (input.down(key) && this.holdLock !== key && !(this.gathering && key === 'KeyE')) {
         if (this.search !== it || this.searchKey !== key) {
           this.search = it;
           this.searchT = 0;
@@ -2156,6 +2410,7 @@ export class Game {
           done();
           this.search = null;
           this.searchT = 0;
+          this.holdLock = key;
         }
       } else if (this.searchKey === key) {
         this.searchT = Math.max(0, this.searchT - dt * 2);
@@ -2171,7 +2426,8 @@ export class Game {
         if (this.gatherT > 0.35) {
           this.gatherTick = (this.gatherTick || 0) - dt;
           if (this.gatherTick <= 0) {
-            this.gatherTick = 0.07;
+            // (a steady rake, not a vacuum: one find every fifth of a second)
+            this.gatherTick = 0.2;
             const near = this.nearestForage(3);
             if (near) this.takeForage(near);
           }
@@ -2310,8 +2566,10 @@ export class Game {
         it.mesh.instanceColor.needsUpdate = true;
       }
     }
-    if (it && (this.glintT = (this.glintT ?? 0) - 0.016) <= 0) {
-      this.glintT = 0.7;
+    // (glintT: when the next glint is due, on the game clock)
+    const now = this.timer.getElapsed();
+    if (it && now >= (this.glintT ?? 0)) {
+      this.glintT = now + 0.7;
       this.particles.sparkle(new THREE.Vector3(it.x, it.y + 0.05, it.z), 0xfff4d0, 3);
     }
   }
@@ -2343,30 +2601,60 @@ export class Game {
   // Root capacity: how much building the Heartwood can feed. It grows each night, with relics
   // buried in it, and with the difficulty
   get rootCap() {
-    return Math.round((12 + 2 * (this.waves.night - 1)) * (difficulty(this.difficulty).roots ?? 1)) + this.rootBonus + (this.mods.roots || 0);
+    return rootCapFor(this.waves.night, difficulty(this.difficulty).roots ?? 1) + this.rootBonus + (this.mods.roots || 0);
   }
 
-  // each upgrade tier draws one more root, so the cap is a real choice between more and better
+  // a tower's upgrade tier draws two more roots, so the cap is a real choice between more and better
   get rootsUsed() {
     let n = 0;
-    for (const b of this.buildings.list) if (!b.dead) n += (ROOTS[b.id] || 1) + (b.tier - 1);
+    for (const b of this.buildings.list) if (!b.dead) n += rootCost(b.id, b.tier);
     return n;
   }
 
-  // what burying the relics you carry would add (a root for every 15 of a relic's worth)
-  get relicRoots() {
+  // The relics an offering or a burial takes, by id: everything you carry except the golden
+  // idol (the true ending's key) and the Thornback's heart until grafting is learned. If those
+  // are all you carry, it's them, on a longer hold and said plainly.
+  offerable() {
+    const all: Record<string, number> = {};
+    for (const s of this.inventory.slots) if (s && ITEMS[s.id].kind === 'relic') all[s.id] = (all[s.id] || 0) + s.n;
+    const kept = (id: string) => id === 'golden_idol' || (id === 'thornback_heart' && !this.expedition.grafting);
+    const some = Object.keys(all).filter((id) => !kept(id));
+    const ids = some.length ? some : Object.keys(all);
+    return { set: Object.fromEntries(ids.map((id) => [id, all[id]])) as Record<string, number>, keeps: some.length ? Object.keys(all).filter(kept) : [], only: !some.length && ids.length > 0 };
+  }
+
+  relicWorth(set: Record<string, number>) {
+    let v = 0;
+    for (const [id, n] of Object.entries(set)) v += ITEMS[id].value * n;
+    return v;
+  }
+
+  // what burying them would add (a root for every 15 of a relic's worth)
+  relicRootsOf(set: Record<string, number>) {
     let n = 0;
-    for (const s of this.inventory.slots) if (s && ITEMS[s.id].kind === 'relic') n += Math.max(1, Math.floor(ITEMS[s.id].value / 15)) * s.n;
+    for (const [id, k] of Object.entries(set)) n += Math.max(1, Math.floor(ITEMS[id].value / 15)) * k;
     return n;
+  }
+
+  get relicRoots() {
+    return this.relicRootsOf(this.offerable().set);
   }
 
   interactBase(holdAction: HoldAction, input: Input) {
-    const relics = this.inventory.relicValue;
+    const { set, keeps, only } = this.offerable();
+    const relics = this.relicWorth(set);
     const next = thresholds(this.boonsTaken + this.pendingBoons);
+    const roots = this.relicRootsOf(set);
+    const what = only ? Object.keys(set).map((id) => ITEMS[id].name).join(' and ') : 'relics';
+    const keepNote = keeps.length ? ` · keeps the ${keeps.map((id) => ITEMS[id].name).join(' and ')}` : '';
+    const warn = only && set.golden_idol ? ' · the Sun Seal wants the idol for the true ending' : only && set.thornback_heart ? ' · set in the Workbench, it teaches grafting' : '';
+    // (a deliberate hold for the irreplaceable)
+    const slow = only ? 2.6 : 1;
     if (relics > 0 && input?.down('KeyF')) {
-      holdAction('Bury the relics in the roots', 1.4, () => this.buryRelics(), `+${this.relicRoots} root capacity (now ${this.rootsUsed}/${this.rootCap})`, 'KeyF');
+      holdAction(`Bury the ${what} in the roots`, 1.4 * slow, () => this.buryRelics(), `+${roots} root capacity (now ${this.rootsUsed}/${this.rootCap})${keepNote}${warn}`, 'KeyF');
     } else if (relics > 0) {
-      holdAction('Offer relics to the Heartwood', 1.2, () => this.offerRelics(), `+${relics} favour · +${relics} HP · next boon at ${next} · or hold <kbd>F</kbd> to bury them: +${this.relicRoots} roots`);
+      holdAction(`Offer the ${what} to the Heartwood`, 1.2 * slow, () => this.offerRelics(),
+        `Offer: +${relics} favour (next boon at ${next}), +${relics} HP, +${Math.round(relics * 0.25)} max HP · or hold <kbd>F</kbd> to bury: +${roots} root capacity${keepNote}${warn}`);
     } else if (this.waves.phase === 'day' && !this.waves.skipping) {
       holdAction('Call the night early', 1.5, () => this.waves.callNight(), `Heartwood ${Math.ceil(this.base.hp)}/${this.base.maxHp} · favour ${this.favour}/${next} · roots ${this.rootsUsed}/${this.rootCap}`);
     } else {
@@ -2375,18 +2663,22 @@ export class Game {
   }
 
   buryRelics() {
-    const n = this.relicRoots;
-    for (const s of this.inventory.slots) if (s && ITEMS[s.id].kind === 'relic') this.inventory.remove(s.id, s.n);
+    const { set } = this.offerable();
+    const n = this.relicRootsOf(set);
+    // (by id and count: a relic on the belt and in the pack is taken exactly once)
+    for (const [id, k] of Object.entries(set)) this.inventory.remove(id, k);
     this.rootBonus += n;
     this.particles.sparkle(new THREE.Vector3(this.base.x, this.base.y + 0.4, this.base.z), 0x9ad060, 40);
     this.particles.leafBurst(new THREE.Vector3(this.base.x, this.base.y + 0.5, this.base.z), 0x4f8a30, 24, this.base.y);
     this.audio.upgrade();
     this.hud.banner('The roots spread', `+${n} root capacity · ${this.rootsUsed}/${this.rootCap}`, 'win');
+    this.saveSoon();
   }
 
   offerRelics() {
-    const relics = this.inventory.relicValue;
-    for (const s of this.inventory.slots) if (s && ITEMS[s.id].kind === 'relic') this.inventory.remove(s.id, s.n);
+    const { set } = this.offerable();
+    const relics = this.relicWorth(set);
+    for (const [id, k] of Object.entries(set)) this.inventory.remove(id, k);
     this.base.maxHp += Math.round(relics * 0.25);
     this.base.heal(relics);
     this.favour += relics;
@@ -2394,18 +2686,21 @@ export class Game {
     this.audio.pickup(4);
     this.journal.event('offer');
     while (this.favour >= thresholds(this.boonsTaken + this.pendingBoons)) this.pendingBoons++;
-    if (this.pendingBoons) this.offerBoon();
-    else this.hud.banner('The Heartwood drinks', `+${relics} HP · favour ${this.favour}/${thresholds(this.boonsTaken)}`, 'win');
+    this.saveSoon();
+    if (this.pendingBoons && this.offerBoon()) return;
+    this.hud.banner('The Heartwood drinks', `+${relics} HP · favour ${this.favour}/${thresholds(this.boonsTaken + this.pendingBoons)}`, 'win');
   }
 
   offerBoon() {
     const mem = DAILY ? new Set() : unlocked();
-    const options = offerPerks(this.perks, Math.random, mem.has('fourth') ? 4 : 3, mem);
+    const options = offerPerks(this.perks, this.rand, mem.has('fourth') ? 4 : 3, mem);
     if (!options.length) {
       this.pendingBoons = 0;
-      return;
+      return false;
     }
     this.modal = 'perks';
+    this.input.keys.clear();
+    this.input.pressed.clear();
     this.input.unlock();
     this.audio.boon();
     this.hud.pickPerk(options, (p) => {
@@ -2418,9 +2713,11 @@ export class Game {
       this.hud.banner(p.name, p.desc, 'win');
       this.audio.upgrade();
       this.modal = null;
+      this.saveSoon();
       if (this.pendingBoons > 0) setTimeout(() => this.offerBoon(), 400);
-      else if (!this.debug) this.input.lock();
+      else if (!this.debug && !this.hud.inventoryOpen) this.input.lock();
     });
+    return true;
   }
 
   applyMods() {
@@ -2432,17 +2729,23 @@ export class Game {
     const glyphs = b.grafts.map((g) => GRAFTS[g].glyph).join('');
     const name = `${TIER_NAMES[b.tier] ? `${TIER_NAMES[b.tier]} ` : ''}${ITEMS[b.id].name}${glyphs ? ` ${glyphs}` : ''}`;
     const day = this.waves.phase === 'day' || this.waves.phase === 'dawn';
-    const hp = `${Math.ceil(b.hp)}/${b.maxHp}`;
+    // (a trap is spent by springing, not by blows: its springs left come first)
+    const hp = b.maxCharges ? `${b.charges}/${b.maxCharges} springs${b.hp < b.maxHp ? ` · ${Math.ceil(b.hp)}/${b.maxHp}` : ''}` : `${Math.ceil(b.hp)}/${b.maxHp}`;
     // in a fight the middle of the screen is for the fight: only a repair is worth a prompt
     if (!day && !b.repairable && this.enemies.list.some((e) => !e.dying && Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) < 8)) return;
     let packHint = day ? ' · hold <kbd>F</kbd> to pack up' : '';
     // F: pack it back into the satchel (day only); its grafts come off with it
     if (day && input.down('KeyF')) {
+      // it comes back as it was: re-placing it brings back its wear (and a trap's spent
+      // charges), so packing up moves a defence, it doesn't mend it
+      const worn = b.hp < b.maxHp * 0.99 || (b.charges != null && b.charges < b.maxCharges);
       holdAction(`Pack up ${name}`, 1.2, () => {
+        (this.packed[b.id] ??= []).push([+(b.hp / b.maxHp).toFixed(3), b.charges ?? null]);
         this.buildings.remove(b);
+        this.buildings.stats.built = Math.max(0, this.buildings.stats.built - 1);
         this.collect(b.id);
         for (const g of b.grafts) this.collect(g);
-      }, b.tier > 1 ? 'Upgrades are lost' : '', 'KeyF');
+      }, [b.tier > 1 ? 'Upgrades are lost' : '', worn ? `it keeps its wear (${hp})` : ''].filter(Boolean).join(' · '), 'KeyF');
       return;
     }
     // G: graft something you carry onto it
@@ -2482,12 +2785,14 @@ export class Game {
         this.hud.prompt(`${name} · ${label}`, 0, '⚒', `Needs the ${BENCHES[bid].name} at level ${need}${packHint}`);
         return;
       }
-      if (this.rootsUsed + 1 > this.rootCap) {
-        this.hud.prompt(`${name} · ${label}`, 0, '⚒', `The Heartwood can't feed another root (${this.rootsUsed}/${this.rootCap}): pack something up, or bury a relic${packHint}`);
+      const more = rootCost(b.id, b.tier + 1) - rootCost(b.id, b.tier);
+      const rootsWord = `${more} root${more > 1 ? 's' : ''}`;
+      if (this.rootsUsed + more > this.rootCap) {
+        this.hud.prompt(`${name} · ${label}`, 0, '⚒', `The Heartwood can't feed ${rootsWord} more (${this.rootsUsed}/${this.rootCap}): pack something up, or bury a relic${packHint}`);
         return;
       }
       const ok = src.canAfford(cost);
-      const sub = `${this.hud.costHtml(cost, src)} · +1 root <small>(${this.rootsUsed}/${this.rootCap})</small>${packHint}`;
+      const sub = `${this.hud.costHtml(cost, src)} · +${rootsWord} <small>(${this.rootsUsed}/${this.rootCap})</small>${packHint}`;
       if (ok) {
         holdAction(label, 1.4, () => {
           for (const [id, n] of Object.entries(cost)) src.remove(id, n);
@@ -2519,13 +2824,22 @@ export class Game {
     const roots = { used: this.rootsUsed, cap: this.rootCap };
     this.ghost.update(this.camera, this.buildings, { base: this.base, player: this.player.pos, mods: this.mods, roots });
     const rot = def.rotates ? ' · <kbd>R</kbd> rotate' : '';
-    const rc = ` · roots ${ROOTS[held.id] || 1} <small>(${roots.used}/${roots.cap})</small>`;
+    const rc = ` · roots ${rootCost(held.id)} <small>(${roots.used}/${roots.cap})</small>`;
     this.hud.buildHint(this.ghost.valid ? `<kbd>LMB</kbd> place ${ITEMS[held.id].name}${rot}${rc}` : this.ghost.reason, this.ghost.valid);
     if (input.mouse.clicked) {
       if (this.ghost.valid) {
         const g = this.ghost;
         const b = this.buildings.place(held.id, g.pos.x, g.pos.z, g.rot);
         this.inventory.remove(held.id, 1);
+        // one that was packed up comes back as worn as it went (the most worn first)
+        const q = this.packed[held.id];
+        if (q?.length) {
+          q.sort((a, c) => a[0] - c[0]);
+          const [frac, charges] = q.shift();
+          if (!q.length) delete this.packed[held.id];
+          b.hp = Math.max(1, Math.round(b.maxHp * frac));
+          if (charges != null && b.charges != null) b.charges = charges;
+        }
         this.audio.place();
         this.particles.dust(g.pos.clone().add(new THREE.Vector3(0, 0.1, 0)), 14, def.r);
         this.journal.event('place', held.id);
@@ -2610,7 +2924,10 @@ export class Game {
         this.audio.splat?.(this.near(e.pos));
       }
     }
-    if (this.mods.killHeal && this.playerAlive) this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.mods.killHeal);
+    // (Bloodroot: kills by your own hand, the machete, the sling and the firepot)
+    const yours = opts.source === 'melee' || opts.source === 'sling' || opts.source === 'fire';
+    if (this.mods.killHeal && this.playerAlive && yours) this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.mods.killHeal);
+    if (this.waves.phase === 'night') this.nightLog.kills++;
     // Rotting Bloom: a slowed Blight bursts into spores that slow its neighbours
     if (this.mods.sporeBurst && e.slowT > 0 && e.slow < 1) {
       for (const o of this.enemies.inRadius(e.pos.x, e.pos.z, 4, { ground: true })) this.enemies.slowDown(o, 0.5, 3);
@@ -2621,6 +2938,8 @@ export class Game {
     if (opts.source === 'melee') this.journal.event('melee', e.type);
     if (e.def.boss) {
       this.stats.bosses++;
+      if (e.type === 'rot_mother') this.stats.mothers = (this.stats.mothers || 0) + 1;
+      else this.stats.thornbacks = (this.stats.thornbacks || 0) + 1;
       this.particles.ring(e.pos.clone(), 9, 0xff60c0, 1.2);
       this.lights.flash(at, 0xff60c0, 120, 0.6, 30);
       this.player.shake = 1.2;
@@ -2641,7 +2960,11 @@ export class Game {
     if (this.hud.otherPane?.kind === 'container') this.closePane();
     if (this.player.hp <= 0) {
       this.player.hp = 0;
-      this.deadT = RESPAWN;
+      // falling at night costs more: a longer wait, and you come back hurt
+      const night = this.waves.phase === 'night';
+      this.deadFor = night ? RESPAWN_NIGHT : RESPAWN;
+      this.deadT = this.deadFor;
+      if (night) this.nightLog.deaths++;
       this.closePane();
       this.dropPack();
       this.ghost.hide();
@@ -2682,7 +3005,10 @@ export class Game {
   }
 
   hitBase(dmg: number, e: Enemy) {
+    const before = this.base.hp;
     this.base.damage(dmg);
+    this.nightLog.heart += Math.max(0, before - this.base.hp);
+    this.stats.heartLost = (this.stats.heartLost || 0) + Math.max(0, before - this.base.hp);
     if (this.mods.heartBurn && e && !e.dying) this.enemies.ignite(e, 8, 3);
     // Last Bloom: once a night the failing Heartwood bursts and throws the Blight back
     if (this.mods.lastBloom && !this.bloomUsed && this.base.hp > 0 && this.base.hp < this.base.maxHp * 0.3) {
@@ -2778,10 +3104,12 @@ export class Game {
   }
 
   summon(e: Enemy) {
-    for (let i = 0; i < 3; i++) {
+    // at most eight of a boss's brood alive at once (a boss held in place was a loot farm)
+    const live = this.enemies.list.filter((o) => o.summoner === e && !o.dying).length;
+    for (let i = 0; i < Math.min(3, 8 - live); i++) {
       const a = e.yaw + Math.PI + (i - 1) * 0.9;
       const x = e.pos.x + Math.sin(a) * 2.6, z = e.pos.z + Math.cos(a) * 2.6;
-      this.enemies.spawn('blightling', x, z, this.waves.hpScale);
+      this.enemies.spawn('blightling', x, z, this.waves.hpScale).summoner = e;
       this.particles.ash(new THREE.Vector3(x, e.pos.y + 1, z), 12, 0.8);
     }
     this.audio.roar();
@@ -2813,7 +3141,7 @@ export class Game {
 
   // the vigil's score (nights held, Blight felled, bosses, by the difficulty)
   get score() {
-    return scoreOf({ nights: this.waves.night - 1, kills: this.enemies.kills, bosses: this.stats.bosses }, this.difficulty);
+    return scoreOf({ nights: this.waves.night - 1, kills: this.enemies.kills, bosses: this.stats.bosses, heartLost: this.stats.heartLost || 0 }, this.difficulty);
   }
 
   onDefeat() {
@@ -2848,7 +3176,15 @@ export class Game {
         this.audio.pickup(3);
       }, 4000 + i * 3000));
     }
-    setTimeout(() => {
+    // the card comes once the sun is up over the bloomed Heartwood, not in the dark of the race
+    // to dawn (and at least a breath after the last kill)
+    const t0 = performance.now();
+    const when = (fn: () => void) => {
+      const t = this.sky.time;
+      if (performance.now() - t0 < 2600 || ((t > 0.6 || t < DAWN + 0.01) && performance.now() - t0 < 12000)) setTimeout(() => when(fn), 200);
+      else fn();
+    };
+    when(() => {
       this.modal = 'victory';
       this.input.unlock();
       const best = recordBest(this.waves.night - 1, this.enemies.kills, this.score);
@@ -2869,7 +3205,7 @@ export class Game {
           buttons: [{ label: 'Fly out', primary: true, fn: () => this.flyOut(stats) }, { label: 'Stay with the Heartwood', fn: stay }],
         });
       } else stay();
-    }, 2600);
+    });
   }
 
   // The escape ending: you fly out, and the run is over
@@ -2995,7 +3331,10 @@ export class Game {
 
   frame(ts: number) {
     this.timer.update(ts);
-    let dt = Math.min(Math.max(this.timer.getDelta(), 0), 0.05);
+    // a frame steps at most 1/15 s: a slow machine keeps real time down to 15 frames a second
+    // (1.1 clamped at 1/20, so anything under 20 ran in slow motion), and a sprint still moves
+    // less in a step than a player and the thinnest trunk are wide, so nothing tunnels
+    let dt = Math.min(Math.max(this.timer.getDelta(), 0), 1 / 15);
     const t = this.timer.getElapsed();
     const realDt = dt;
     // hit-stop: the world freezes for a beat when the machete connects
@@ -3033,7 +3372,7 @@ export class Game {
     if (this.deadT > 0 && !paused) {
       this.deadT -= realDt;
       if (this.deadT <= 0) {
-        this.respawn();
+        this.respawn(this.waves.phase === 'night' ? 0.6 : 1);
         this.hud.message('The Heartwood pulls you back', '#8affb0');
       }
     }
@@ -3042,7 +3381,9 @@ export class Game {
     // what's in hand decides the viewmodel
     const held = this.inventory.held;
     const hk = held && ITEMS[held.id].kind;
-    const want = !held ? 'machete' : held.id === 'slingshot' ? 'sling' : hk === 'use' ? held.id : hk === 'build' ? 'none' : 'machete';
+    // (dead, the hands go down: 1.1 left the held slingshot swinging across the screen as the
+    // camera fell)
+    const want = !this.playerAlive ? 'none' : !held ? 'machete' : held.id === 'slingshot' ? 'sling' : hk === 'use' ? held.id : hk === 'build' ? 'none' : 'machete';
     this.machete.equip(want);
 
     this.player.moveMul = 1;
@@ -3081,13 +3422,25 @@ export class Game {
         this.aimK = damp(this.aimK, 0, 10, dt);
         this.hud.charge(0);
       }
-      if (!building && want === 'machete' && (input.mouse.clicked || (input.mouse.down && !this.machete.swinging))) {
+      // A click while the blade is still coming back is kept for a moment and swung the instant
+      // it can be: no click is ever lost (they used to be, if they came during the recovery).
+      if (input.mouse.clicked && !building) this.swingBuf = SWING_BUFFER;
+      else this.swingBuf = Math.max(0, this.swingBuf - realDt);
+      if (!building && want === 'machete' && (this.swingBuf > 0 || input.mouse.down)) {
         if (this.machete.swing()) {
-          // only clicked swings build the finisher chain; holding the button just keeps swinging
-          this.swingTapped = input.mouse.clicked;
+          this.swingTapped = true;
+          this.swingBuf = 0;
+          this.swingAim = this.aimTarget();
           this.audio.swing();
           this.player.stamina = Math.max(0, this.player.stamina - 0.03);
         }
+      }
+      // a gentle pull toward the Blight the swing was aimed at, during the wind-up only
+      if (this.swingAim && this.machete.state === 'wind' && !this.swingAim.dying) {
+        const e = this.swingAim, p = this.player;
+        const want = Math.atan2(-(e.pos.x - p.pos.x), -(e.pos.z - p.pos.z));
+        const da = Math.atan2(Math.sin(want - p.yaw), Math.cos(want - p.yaw));
+        if (Math.abs(da) < 0.7) p.yaw += da * Math.min(1, realDt * 16) * 0.6;
       }
       if (input.mouse.rclicked) this.startUse();
       this.interact(dt, input);
@@ -3106,22 +3459,28 @@ export class Game {
     }
     // the slingshot draw narrows the view a touch
     // (and opens a little at a sprint)
-    const fov = this.title ? 50 + (FOV - 50) * (this.title.fly?.k ?? 0) : FOV - this.aimK * 4 - this.draw * 6 + (this.player.runK || 0) * 5;
+    const base = this.fov || FOV;
+    const fov = this.title ? 50 + (base - 50) * (this.title.fly?.k ?? 0) : base - this.aimK * 4 - this.draw * 6 + (this.player.runK || 0) * 5;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
     // fallen: the view drops and rolls onto its side
     if (!this.playerAlive && !over) {
-      const k = ease(clamp((RESPAWN - this.deadT) / 0.8, 0, 1));
-      this.camera.position.y -= 1.25 * k;
+      const k = ease(clamp((this.deadFor - this.deadT) / 0.8, 0, 1));
+      // (down to the ground, not into it: a stick in the litter filled the screen)
+      const floor = Math.max(terrainHeight(this.camera.position.x, this.camera.position.z), WATER_LEVEL) + 0.5;
+      this.camera.position.y = Math.max(floor, this.camera.position.y - 1.25 * k);
       this.camera.rotation.z = 1.2 * k;
       this.camera.rotation.x -= 0.3 * k;
     }
 
-    // health comes back slowly once you've been out of the fight a while
-    this.lastHit += dt;
-    if (this.playerAlive && this.lastHit > 6) this.player.hp = Math.min(this.player.maxHp, this.player.hp + dt * 4);
+    // health comes back slowly once you've been out of the fight a while (not while paused,
+    // and not so fast that a poultice is pointless)
+    if (!paused) {
+      this.lastHit += dt;
+      if (this.playerAlive && this.lastHit > 8) this.player.hp = Math.min(this.player.maxHp, this.player.hp + dt * 2.5);
+    }
 
     // a container or the Coffer open: it's searched while you look; R takes everything, E shuts it
     const pane = this.hud.inventoryOpen ? this.hud.otherPane : null;
@@ -3135,6 +3494,7 @@ export class Game {
         if (i >= 0) {
           this.audio.pickup(RARITY[ITEMS[pane.rec.inv.slots[i].id].rarity].order);
           this.hud.revealFlash(i);
+          if (pane.autoTake && !transfer(pane.rec.inv, i, this.inventory)) this.hud.onFull(null);
           if (!pane.rec.hidden.size) pane.sub = 'Click a find to take it (right-click: just one). Click your own things to leave them here.';
         }
         if (i >= 0 || was !== null || pane.searching !== null) this.hud.renderOther();
@@ -3145,7 +3505,24 @@ export class Game {
         this.audio.ui();
       }
     }
-    if (!over && !this.modal && (input.hit('Tab') || input.hit('KeyI'))) {
+    // the satchel from a gamepad (its d-pad and A arrive as the arrow keys and Enter): step
+    // through the recipes and the tabs, craft the one picked; in a container, A takes it all
+    if (this.hud.inventoryOpen && !this.modal) {
+      if (input.hit('ArrowDown')) this.hud.padStep(1);
+      else if (input.hit('ArrowUp')) this.hud.padStep(-1);
+      if (input.hit('ArrowRight')) this.hud.padTab(1);
+      else if (input.hit('ArrowLeft')) this.hud.padTab(-1);
+      if (input.hit('Enter')) {
+        if (pane?.rec && this.hud.tab === 'other') this.takeAll();
+        else this.hud.padCraft();
+      }
+    }
+    // Esc puts the satchel away (with nothing else open in it)
+    if (this.hud.inventoryOpen && !pane && !this.modal && input.hit('Escape')) {
+      this.hud.toggleInventory(false);
+      this.audio.ui();
+      if (!this.debug) input.lock();
+    } else if (!over && !this.modal && (this.playerAlive || this.hud.inventoryOpen) && (input.hit('Tab') || input.hit('KeyI'))) {
       if (!this.paused || this.hud.inventoryOpen) {
         const open = !this.hud.inventoryOpen;
         this.hud.toggleInventory(open);
@@ -3211,11 +3588,13 @@ export class Game {
         night: this.sky.state.night, speedMul: (this.weather.raining ? 0.85 : 1) * (this.waves.sign === 'blood' && this.waves.phase === 'night' ? 1.2 : 1),
         hitPlayer: (dmg) => this.hitPlayer(dmg),
         hitBase: (dmg, e) => this.hitBase(dmg, e),
-        hitBuilding: (b, dmg, e) => {
+        hitBuilding: (b, dmg, e, ranged = false) => {
           const broke = this.buildings.damage(b, dmg);
-          this.audio.bite();
+          if (!ranged) this.audio.bite();
+          // (thorns prick what bites them, not a Spitter's glob from across the clearing)
           const thorns = b.stat('thorns');
-          if (thorns) this.enemies.damage(e, thorns, ctx, null, { source: 'tower', type: 'pierce' });
+          if (thorns && !ranged) this.enemies.damage(e, thorns, ctx, null, { source: 'tower', type: 'pierce' });
+          if (broke) this.nightLog.lost++;
           if (broke) {
             this.particles.chipBurst(new THREE.Vector3(b.x, b.y + 1, b.z), 0x8a6a40, 40, b.y);
             this.audio.breakWood();
@@ -3240,12 +3619,14 @@ export class Game {
       this.buildings.update(dt, t, ctx);
       this.expedition.update();
       this.tickRot(dt);
-      this.checkTips();
+      this.checkTips(dt);
       this.sky.signFog = damp(this.sky.signFog || 0, this.signFog || 0, 0.5, dt);
       this.sky.signMoon = damp(this.sky.signMoon || 0, this.signMoon || 0, 0.5, dt);
       this.projectiles.update(dt, {
         ...ctx,
         blooms: this.blooms,
+        water: WATER_LEVEL,
+        solidAt: (x, y, z) => this.solidAt(x, y, z),
         onFire: (p, r) => this.burnRot(p.x, p.z, r, 1),
         onBloomHit: (b, dmg, at, crit) => {
           this.hitBloom(b, dmg, at, crit);
@@ -3296,12 +3677,13 @@ export class Game {
     this.camera.getWorldDirection(this._ahead).setY(0).normalize();
     // the drowned grove's air: thick, green-grey, still
     this.swampAir = damp(this.swampAir ?? 0, sampleTerrain(pos.x, pos.z, this._ground ||= {} as TerrainSample).swamp, 0.6, dt);
-    this.sky.update(dt, pos, false, Math.max(this.cover, this.haze), this._ahead, this.swampAir);
+    this.sky.update(paused ? 0 : dt, pos, false, Math.max(this.cover, this.haze), this._ahead, this.swampAir);
     this.weather.update(realDt, t, this.camera, this.sky, this.audio, this.sky.state.night);
     this.hud.lightning(this.weather.uniforms.uFlash.value);
     this.lights.update(realDt, pos);
 
-    for (const g of this.pickups.update(dt, t, pos)) {
+    // (nothing flies into a dead player's pockets, or while paused)
+    if (!paused) for (const g of this.pickups.update(dt, t, pos, this.playerAlive)) {
       this.collect(g.id, g.n);
       // picking up drops counts toward the first journal step as much as tapping E does
       this.journal.event('forage');
@@ -3339,12 +3721,30 @@ export class Game {
       this.nearWater = Math.min(1, w / 3);
     }
     this.audio.update(dt, { ...this.sky.state, nearWater: this.nearWater, underCanopy: this.cover });
+    // the score: how close the fight is to the Heartwood, and whether a boss is out
+    {
+      const fighting = this.waves.phase === 'night' && !this.title;
+      let near = 0;
+      if (fighting) for (const e of this.enemies.list) if (!e.dying && Math.hypot(e.pos.x - this.base.x, e.pos.z - this.base.z) < 32) near++;
+      const boss = fighting && !!this.enemies.boss;
+      this.audio.scoreUpdate?.(realDt, { night: this.title ? 0 : this.sky.state.night, threat: fighting ? Math.min(1, near / 14 + (boss ? 0.3 : 0)) : 0, boss, fighting });
+    }
 
+    // a boon owed: offered at the first quiet moment
+    if (this.boonDue > 0 && !paused && (this.boonDue -= realDt) <= 0) {
+      const p = this.player.pos;
+      const busy = this.hud.inventoryOpen || over || !this.playerAlive || this.capture
+        || this.enemies.list.some((e) => !e.dying && !e.def.egg && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 14);
+      if (busy) this.boonDue = 1;
+      else if (this.pendingBoons > 0) this.offerBoon();
+    }
     // autosave through the day
     if (this.waves.phase === 'day' && !paused) {
       this.saveT -= realDt;
+      if (this.saveSoonT > 0 && (this.saveSoonT -= realDt) <= 0) this.saveT = 0;
       if (this.saveT <= 0) {
         this.saveT = 30;
+        this.saveSoonT = 0;
         this.autosave();
       }
     }
@@ -3364,6 +3764,7 @@ export class Game {
       hp: this.player.hp, maxHp: this.player.maxHp, waves: this.waves, base: this.base,
       buildings: this.buildings.list, enemies: this.enemies.list, buildRadius: BUILD_RADIUS,
       camera: this.camera, boss: this.enemies.boss, journal: this.journal.lines(this.waves.phase, this.owns),
+      lanes: this.waves.phase === 'day' ? this.laneLines(realDt) : null,
     });
 
     this.post.enabled.bloom = this.bloom;

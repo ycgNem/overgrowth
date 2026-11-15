@@ -393,10 +393,11 @@ export function makeTerrainMaterial(lib) {
       tGravel: { value: S.gravel.map }, nGravel: { value: S.gravel.nmap },
       uDay: globalUniforms.uDay, uSunDir: { value: fogSun.dir }, uPom: globalUniforms.uPom, uWet: globalUniforms.uWet,
     });
-    shader.vertexShader = 'attribute vec4 splat;\nattribute float grass;\nvarying vec4 vSplat;\nvarying float vGrass;\nvarying vec3 vTP;\nvarying vec3 vTN;\n' +
+    shader.vertexShader = 'attribute vec4 splat;\nattribute float grass;\nattribute vec2 ground;\nvarying vec4 vSplat;\nvarying float vGrass;\nvarying vec2 vGround;\nvarying vec3 vTP;\nvarying vec3 vTN;\n' +
       shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         vSplat = splat;
         vGrass = grass;
+        vGround = ground;
         vTP = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vTN = normalize(mat3(modelMatrix) * objectNormal);`);
     shader.fragmentShader = /* glsl */`
@@ -405,7 +406,7 @@ export function makeTerrainMaterial(lib) {
       uniform sampler2D tRock; uniform sampler2D nRock; uniform sampler2D tMud; uniform sampler2D nMud;
       uniform sampler2D tGravel; uniform sampler2D nGravel;
       uniform float uDay; uniform vec3 uSunDir; uniform float uPom; uniform float uWet;
-      varying vec4 vSplat; varying float vGrass; varying vec3 vTP; varying vec3 vTN;
+      varying vec4 vSplat; varying float vGrass; varying vec2 vGround; varying vec3 vTP; varying vec3 vTN;
       ${NOISE_GLSL}
       struct Layer { vec3 col; vec2 n; float h; };
       // A crisp switch between two samples that follows their heights: the weight of B. The
@@ -529,6 +530,7 @@ export function makeTerrainMaterial(lib) {
       vec3 ogRockN = vec3(0.0);
       float ogRockW = 0.0;
       vec3 ogSideN = vec3(0.0);
+      float ogVein = 0.0;
       {
         vec2 p = vTP.xz;
         vec2 dpx = dFdx(p), dpy = dFdy(p);
@@ -650,6 +652,16 @@ export function makeTerrainMaterial(lib) {
           // the humus photo is very dark: lift it, and lift it more where it's dry ground (the
           // camp, banks well above the water) rather than wet mud
           Ld.col *= 1.45 * mix(1.0, 1.35, smoothstep(2.5, 5.0, vTP.y));
+          // the camp's earth: dry, packed and dusty where feet go most, warm brown, not the
+          // riverbank's black mud (it read as a near-black disc round the Heartwood)
+          if (vGround.x > 0.001) {
+            float tk = smoothstep(0.0, 0.7, vGround.x * (0.65 + 0.5 * ogNoise(p * 0.7 + 5.0)));
+            // (the humus's bright flecks compressed, or the lifted earth is sprinkled with paper)
+            float l = dot(Ld.col, vec3(0.3, 0.59, 0.11));
+            l = l / (l + 0.05) * 0.075;
+            vec3 packed = l * vec3(1.4, 1.0, 0.66) * 1.55 + vec3(0.024, 0.015, 0.008);
+            Ld.col = mix(Ld.col, packed, tk);
+          }
         }
         // Steep ground: seen from above the texture stretches down the slope (leaves smeared
         // into streaks on every bank), so steep pixels sample the layers from the side too
@@ -722,6 +734,33 @@ export function makeTerrainMaterial(lib) {
         ogSelf = 1.0 - (1.0 - sL) * b.x - (1.0 - sM) * b.y - (1.0 - sD) * b.w;
         float hc = Ll.h * b.x + Lm.h * b.y + hR * b.z + Ld.h * b.w;
         ogCav = mix(mix(0.42, 0.65, b.w), 1.0, smoothstep(0.06, 0.68, hc));
+        // The Rot: the ground dies. At its ragged edge it browns and yellows; on it the earth and
+        // the leaves lying there go grey and black, crusted in patches with pale spore and
+        // cracked by dark veins (which glow faintly at night, see the emissive below).
+        {
+          float rot = vGround.y;
+          if (rot > 0.002) {
+            float lum = dot(col, vec3(0.3, 0.59, 0.11));
+            float edge = smoothstep(0.0, 0.3, rot) * (1.0 - smoothstep(0.3, 0.65, rot));
+            col = mix(col, col * vec3(1.05, 0.8, 0.45), edge * 0.7);
+            float dead = smoothstep(0.18, 0.7, rot);
+            // charred black in places, grey ash in others
+            float ashN = ogNoise(p * 0.32 + 19.0) * 0.7 + ogNoise(p * 1.3 + 4.0) * 0.3;
+            col = mix(col, vec3(lum) * vec3(0.9, 0.88, 0.95) * mix(0.3, 1.15, smoothstep(0.3, 0.75, ashN)), dead * 0.92);
+            float sp = ogNoise(p * 1.7 + 11.0) * 0.6 + ogNoise(p * 5.3) * 0.4;
+            float crust = smoothstep(0.52, 0.64, sp) * smoothstep(0.35, 0.9, rot);
+            col = mix(col, vec3(0.15, 0.155, 0.13), crust * 0.85);
+            // cracks: the thin ridges of a warped noise
+            vec2 vq = p * 0.5 + vec2(ogNoise(p * 0.19), ogNoise(p * 0.19 + 7.0)) * 2.6;
+            float v1 = 1.0 - abs(ogNoise(vq) * 2.0 - 1.0);
+            float v2 = 1.0 - abs(ogNoise(vq * 2.3 + 3.0) * 2.0 - 1.0);
+            float vein = max(smoothstep(0.955, 0.985, v1), smoothstep(0.965, 0.99, v2) * 0.7) * smoothstep(0.25, 0.75, rot);
+            col = mix(col, vec3(0.008, 0.003, 0.012), vein * 0.95);
+            ogVein = vein;
+            ogRough = mix(ogRough, 0.97, dead);
+            ogCav = mix(ogCav, ogCav * 0.8, dead);
+          }
+        }
         // a dark, glossy wet band at the water's edge
         float wet = 1.0 - smoothstep(0.1, 1.1, vTP.y + (ogNoise(p * 0.15) - 0.5) * 1.2);
         col *= mix(vec3(1.0), vec3(0.86, 0.8, 0.74), wet);
@@ -748,7 +787,9 @@ export function makeTerrainMaterial(lib) {
         reflectedLight.directSpecular *= ogSelf * ogCav;`)
       // a faint cool moonlit fill on the ground at night, so dark litter in shade keeps its detail
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += diffuseColor.rgb * vec3(0.55, 0.65, 1.0) * 0.16 * (1.0 - uDay);`)
+        totalEmissiveRadiance += diffuseColor.rgb * vec3(0.55, 0.65, 1.0) * 0.16 * (1.0 - uDay);
+        // the Rot's veins: a faint sick violet in the dark, all but gone by day
+        totalEmissiveRadiance += ogVein * vec3(0.035, 0.008, 0.05) * (1.0 - uDay);`)
       // sun and moon fade where the ground itself turns from them (see TERRAIN_LIGHTS)
       .replace('#include <lights_fragment_begin>', TERRAIN_LIGHTS)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
@@ -853,12 +894,16 @@ export function installSoftShadows({ width, depth }) {
 		mat2 R = mat2( cos( a ), sin( a ), - sin( a ), cos( a ) );
 		// blockers within ~40 cm across: their mean depth. Anything less than 40 cm above the
 		// receiver is the ground itself (a slope seen by the light), not a caster
+		// (every fetch in these loops is at mip 0: the shadow map has no mips, and an implicit-
+		// gradient fetch in a loop drew D3D's X3595 warning in every lit program)
 		float bsum = 0.0, bn = 0.0;
 		for ( int i = 0; i < 8; i ++ ) {
-			float d = unpackRGBAToDepth( texture2D( shadowMap, sc.xy + R * OG_PD[ i * 2 ] * ( 8.0 * texel ) ) );
+			float d = unpackRGBAToDepth( textureLod( shadowMap, sc.xy + R * OG_PD[ i * 2 ] * ( 8.0 * texel ), 0.0 ) );
 			if ( d < sc.z - ${(0.4 / depth).toFixed(6)} ) { bsum += d; bn += 1.0; }
 		}
-		if ( bn < 0.5 ) return 1.0;
+		// (one return: an early one left HLSL warning X4000 in every lit program)
+		float res = 1.0;
+		if ( bn > 0.5 ) {
 		float dist = ( sc.z - bsum / bn ) * ${depth.toFixed(1)};
 		// the penumbra's radius: half the sun's 0.53 degree disc times the distance, times k
 		float r = clamp( dist * 0.0047 * k * shadowMapSize.x / ${width.toFixed(1)}, 1.0, 8.0 );
@@ -873,16 +918,27 @@ export function installSoftShadows({ width, depth }) {
 		float s = 0.0;
 		for ( int i = 0; i < 16; i ++ ) {
 			vec2 o = R * OG_PD[ i ] * ( r * texel );
-			s += texture2DCompare( shadowMap, sc.xy + o, sc.z + dot( slope, o ) - abs( dot( slope, o ) ) * 0.5 - 0.0002 );
+			float cmp = sc.z + dot( slope, o ) - abs( dot( slope, o ) ) * 0.5 - 0.0002;
+			float dd = unpackRGBAToDepth( textureLod( shadowMap, sc.xy + o, 0.0 ) );
+			#ifdef USE_REVERSED_DEPTH_BUFFER
+				s += step( dd, cmp );
+			#else
+				s += step( cmp, dd );
+			#endif
 		}
-		return s / 16.0;
+		res = s / 16.0;
+		}
+		return res;
 	}
 	float getShadow(`;
   let out = src.replace('\tfloat getShadow(', fn);
   // (three's build strips blank lines from its chunks: the PCF branch is found by its first
   // two statements, the only place they appear together)
   const pcf = 'vec2 texelSize = vec2( 1.0 ) / shadowMapSize;\n\t\t\tfloat dx0';
-  out = out.replace(pcf, 'if ( shadowRadius > 1.5 ) return mix( 1.0, ogSoftShadow( shadowMap, shadowMapSize, shadowRadius, shadowCoord.xyz ), shadowIntensity );\n\t\t\t' + pcf);
+  // (no early return out of getShadow, which drew HLSL warning X4000: the soft filter sets
+  // `shadow` and the PCF taps go in an else, closed after their sum)
+  out = out.replace(pcf, 'if ( shadowRadius > 1.5 ) {\n\t\t\tshadow = ogSoftShadow( shadowMap, shadowMapSize, shadowRadius, shadowCoord.xyz );\n\t\t\t} else {\n\t\t\t' + pcf);
+  out = out.replace(') * ( 1.0 / 17.0 );', ') * ( 1.0 / 17.0 );\n\t\t\t}');
   if (!out.includes('ogSoftShadow( shadowMap, shadowMapSize, shadowRadius') || !out.includes('float ogSoftShadow')) {
     console.warn('shaders.js: shadow chunk changed; soft shadows not installed');
     return;

@@ -11,14 +11,14 @@ import { mulberry32 } from '../utils/rng.js';
 
 export const BLADE_LEN = 0.47;
 
-function canvas(w, h) {
+function canvas(w: number, h: number) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   return c;
 }
 
-function tex(c, srgb = true) {
+function tex(c: HTMLCanvasElement, srgb = true) {
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -30,8 +30,8 @@ function tex(c, srgb = true) {
 
 // The outline: spine height and blade width at s = 0..1 along the blade. The spine drops a
 // little toward the tip; the belly widens toward the tip and rounds up into it.
-const spineY = (s) => 0.015 - 0.007 * s * s * s;
-const widthAt = (s) => {
+const spineY = (s: number) => 0.015 - 0.007 * s * s * s;
+const widthAt = (s: number) => {
   const w = 0.034 + 0.03 * Math.pow(s, 1.35);
   const t = (s - 0.8) / 0.2;
   return s < 0.8 ? w : w * Math.sqrt(Math.max(0, 1 - t * t * 0.985));
@@ -39,15 +39,18 @@ const widthAt = (s) => {
 const BEVEL = 0.66; // where the flat of the blade ends and the filed edge bevel begins (0 spine .. 1 edge)
 // half the steel's thickness at (s, v): thick at the spine, thinner toward the tip, the
 // bevel running down to a hair at the edge
-function halfThick(s, v) {
-  const T = 0.0023 * (1 - 0.5 * s);
-  if (v <= BEVEL) return T * (1 - 0.18 * v);
+function halfThick(s: number, v: number) {
+  const T = 0.0026 * (1 - 0.5 * s);
+  // the flat is ground a little convex (thickest a third of the way down), so the light rolls
+  // across it instead of the whole face flashing at once
+  if (v <= BEVEL) return T * (1 - 0.22 * v + 0.12 * Math.sin((v / BEVEL) * Math.PI) * (1 - v));
   const k = (v - BEVEL) / (1 - BEVEL);
-  return T * (1 - 0.18 * BEVEL) * (1 - k) + 0.00012;
+  // the edge bevel: convex too (an apple-seed edge, as a file leaves it)
+  return T * (1 - 0.22 * BEVEL) * (1 - Math.pow(k, 1.35)) + 0.0001;
 }
 
-function grid(ns, nv, fn, flip) {
-  const pos = [], uv = [], idx = [];
+function grid(ns: number, nv: number, fn: (s: number, t: number) => number[][], flip: boolean) {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
   for (let i = 0; i <= ns; i++) {
     for (let j = 0; j <= nv; j++) {
       const [p, u] = fn(i / ns, j / nv);
@@ -73,7 +76,7 @@ function grid(ns, nv, fn, flip) {
 
 function bladeGeometry() {
   const L = BLADE_LEN, NS = 56;
-  const at = (s, v, side) => {
+  const at = (s: number, v: number, side: number) => {
     const y = spineY(s) - widthAt(s) * v;
     return [[s * L, y, side * halfThick(s, v)], [s, 1 - v]];
   };
@@ -103,25 +106,42 @@ function bladeMaps() {
   const rc = canvas(W, H), rg = rc.getContext('2d'); // roughness
   const r = mulberry32(431);
   const bevelY = H * BEVEL;
-  // body
+  // body: carbon steel gone dark with use, a blue-black forge scale left near the spine
   const body = g.createLinearGradient(0, 0, 0, bevelY);
-  body.addColorStop(0, '#4a4d50');
-  body.addColorStop(0.5, '#5d6164');
-  body.addColorStop(1, '#6a6e72');
+  body.addColorStop(0, '#222427');
+  body.addColorStop(0.35, '#2e3134');
+  body.addColorStop(1, '#3b3e41');
   g.fillStyle = body;
   g.fillRect(0, 0, W, bevelY);
-  rg.fillStyle = '#8c8c8c';
+  rg.fillStyle = '#a8a8a8';
   rg.fillRect(0, 0, W, bevelY);
-  // patina: soft cloudy blotches of brown and blue-grey
-  for (let k = 0; k < 160; k++) {
-    const x = r() * W, y = r() * bevelY, rad = 8 + r() * 46;
+  // patina: soft cloudy blotches of brown, grey-black and blue (and rougher where they lie)
+  for (let k = 0; k < 260; k++) {
+    const x = r() * W, y = r() * bevelY, rad = 8 + r() * 52;
     const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    const col = r() < 0.55 ? '70,52,38' : r() < 0.5 ? '28,32,40' : '82,86,90';
-    grd.addColorStop(0, `rgba(${col},${0.1 + r() * 0.22})`);
+    const col = r() < 0.5 ? '64,44,30' : r() < 0.5 ? '18,20,26' : '58,64,74';
+    grd.addColorStop(0, `rgba(${col},${0.12 + r() * 0.26})`);
     grd.addColorStop(1, `rgba(${col},0)`);
     g.fillStyle = grd;
     g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    const rr = rg.createRadialGradient(x, y, 0, x, y, rad);
+    rr.addColorStop(0, `rgba(210,210,210,${0.15 + r() * 0.2})`);
+    rr.addColorStop(1, 'rgba(210,210,210,0)');
+    rg.fillStyle = rr;
+    rg.fillRect(x - rad, y - rad, rad * 2, rad * 2);
   }
+  // a band of honed steel behind the bevel where the blade is wiped and strikes things:
+  // brighter, smoother, scratched along its length
+  const hone = g.createLinearGradient(0, bevelY * 0.62, 0, bevelY);
+  hone.addColorStop(0, 'rgba(110,116,120,0)');
+  hone.addColorStop(1, 'rgba(110,116,120,0.55)');
+  g.fillStyle = hone;
+  g.fillRect(0, bevelY * 0.62, W, bevelY * 0.38);
+  const hr = rg.createLinearGradient(0, bevelY * 0.62, 0, bevelY);
+  hr.addColorStop(0, 'rgba(90,90,90,0)');
+  hr.addColorStop(1, 'rgba(90,90,90,0.6)');
+  rg.fillStyle = hr;
+  rg.fillRect(0, bevelY * 0.62, W, bevelY * 0.38);
   // rust freckles toward the spine and the ricasso
   for (let k = 0; k < 220; k++) {
     const x = Math.pow(r(), 1.6) * W, y = Math.pow(r(), 2.2) * bevelY, rad = 0.6 + r() * 2.6;
@@ -171,13 +191,13 @@ function bladeMaps() {
   g.restore();
   // the bevel: bright filed steel
   const bev = g.createLinearGradient(0, bevelY, 0, H);
-  bev.addColorStop(0, '#9aa1a6');
-  bev.addColorStop(0.55, '#c3c9cd');
-  bev.addColorStop(0.92, '#dde2e5');
-  bev.addColorStop(1, '#f6f8f9');
+  bev.addColorStop(0, '#7c8287');
+  bev.addColorStop(0.55, '#a9b0b5');
+  bev.addColorStop(0.92, '#c9cfd3');
+  bev.addColorStop(1, '#e4e8ea');
   g.fillStyle = bev;
   g.fillRect(0, bevelY, W, H - bevelY);
-  rg.fillStyle = '#626262';
+  rg.fillStyle = '#585858';
   rg.fillRect(0, bevelY, W, H - bevelY);
   // file strokes, angled across the bevel
   for (let k = 0; k < 1400; k++) {
@@ -190,8 +210,8 @@ function bladeMaps() {
     g.lineTo(x + 6 + r() * 10, y + 8 + r() * 10);
     g.stroke();
   }
-  // a nick or two in the edge
-  for (let k = 0; k < 6; k++) {
+  // a nick or two in the edge, and rolled, dulled stretches
+  for (let k = 0; k < 10; k++) {
     const x = 100 + r() * (W - 200);
     g.fillStyle = 'rgba(70,72,74,0.9)';
     g.fillRect(x, H - 8, 2 + r() * 4, 8);
@@ -234,7 +254,7 @@ function woodMap() {
 
 // Fine pebbled grain for the leather glove and a canvas weave for the sleeve, as tangent
 // normal maps (box-projected; see boxUV).
-function grainNormal(kind) {
+function grainNormal(kind: string) {
   const S = 256;
   const c = canvas(S, S), g = c.getContext('2d');
   const img = g.createImageData(S, S);
@@ -281,7 +301,7 @@ function grainNormal(kind) {
 }
 
 // UVs by projecting each triangle on the axis plane it faces most (the GLB has none)
-function boxUV(geo, scale) {
+function boxUV(geo: THREE.BufferGeometry, scale: number) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   const p = g.attributes.position;
   const uv = new Float32Array(p.count * 2);
@@ -319,8 +339,10 @@ function handleShape() {
 export function buildMachete() {
   const g = new THREE.Group();
   const { map, rough } = bladeMaps();
+  // dark albedo, high metalness: what makes steel read as steel is a dark body with the sky
+  // in it only where it is polished (the old pale grey at 0.65 metal read as painted plastic)
   const steel = new THREE.MeshStandardMaterial({
-    map, roughnessMap: rough, roughness: 1, metalness: 0.65, envMapIntensity: 0.5, side: THREE.DoubleSide,
+    map, roughnessMap: rough, roughness: 1, metalness: 0.85, envMapIntensity: 0.42, side: THREE.DoubleSide,
   });
   // the flat of a 47 cm blade turned to the sun is a mirror the size of the screen: keep its
   // highlight under the bloom threshold so it glints instead of glowing like a lamp
@@ -386,7 +408,7 @@ export async function loadHand() {
     const out = new THREE.Group();
     const leatherN = grainNormal('leather'), clothN = grainNormal('cloth');
     gltf.scene.updateMatrixWorld(true);
-    gltf.scene.traverse((o) => {
+    gltf.scene.traverse((o: any) => {
       if (!o.isMesh) return;
       const cloth = /sleeve/i.test(o.name) || /canvas/i.test(o.material?.name || '');
       let geo = o.geometry.clone();

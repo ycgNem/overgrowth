@@ -5,7 +5,8 @@
 // weapons and the pouch).
 export const DIFFICULTIES = {
   verdant: {
-    name: 'Verdant', glyph: '❀', hp: 0.7, count: 0.75, heart: 1.4, keepOnDeath: 'all', elites: 0, roots: 1.15,
+    // (heart 1.4 in 1.1: the Heartwood took no damage at all for three nights)
+    name: 'Verdant', glyph: '❀', hp: 0.7, count: 0.75, heart: 1.2, keepOnDeath: 'all', elites: 0, roots: 1.15,
     starter: [['bow_tower', 2], ['spike_trap', 3], ['poultice', 4]],
     blurb: 'For roaming and building. Fewer, frailer Blight, and a hardier Heartwood. Two towers to start.',
   },

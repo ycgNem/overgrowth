@@ -241,6 +241,8 @@ export class PostFX {
     this.camera = camera;
     this.sky = sky;
     this.enabled = { ao: true, vol: true, bloom: true };
+    // how strong the light shafts are (1: as tuned; a quality or a moment can turn them down)
+    this.volumeStrength = 1;
     this.water = null; // the river, for reflections (Game sets it)
     this.exposure = 1; // eye adaptation under the canopy (Game sets it)
     this.size = new THREE.Vector2(1, 1);

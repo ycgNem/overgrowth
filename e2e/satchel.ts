@@ -233,7 +233,7 @@ ok(`brass: 120 slots (${JSON.stringify(up2)})`, up2.lv === 3 && up2.slots === 12
 // the save keeps the level and what's in the slots only the brass gives
 const sv = await ev(async () => {
   const g = (window as any).game;
-  const { writeSave, loadSave } = await import('/src/core/Save.js' as any);
+  const { writeSave, loadSave } = await import('/src/core/Save.ts' as any);
   writeSave(g);
   const d = loadSave();
   g.camp.setCoffer(1); g.syncCoffer(); g.coffer.slots.fill(null);

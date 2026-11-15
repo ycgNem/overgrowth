@@ -201,12 +201,12 @@ ok(`root caches in the loaded forest: ${rc}`, rc > 0);
 // 10. the save carries the Coffer, the camp, the pack and the containers
 const sv2 = await ev(async () => {
   const g = window.game;
-  const { writeSave, loadSave } = await import('/src/core/Save.js');
+  const { writeSave, loadSave } = await import('/src/core/Save.ts');
   g.debug = false; writeSave(g); g.debug = true;
   const s = loadSave();
   return { v: s.v, coffer: s.coffer.filter(Boolean).length, kiln: s.camp.kiln, pack: s.pack, containers: Object.keys(s.containers).length };
 });
-ok(`save v2 keeps the Coffer, camp, pack and containers (${JSON.stringify(sv2)})`, sv2.v === 2 && sv2.coffer > 0 && sv2.kiln === 1 && sv2.pack === 'woven_satchel');
+ok(`the save keeps the Coffer, camp, pack and containers (${JSON.stringify(sv2)})`, sv2.v >= 2 && sv2.coffer > 0 && sv2.kiln === 1 && sv2.pack === 'woven_satchel');
 
 console.log(errs.length ? errs.join('\n') : 'no errors');
 await browser.close();

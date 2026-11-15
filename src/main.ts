@@ -1,8 +1,8 @@
 // Entry point: install shader overrides, boot the game, run the title and pause menus.
-import { installFog, installSoftShadows } from './art/shaders.js';
+import { installFog, installSoftShadows } from './art/shaders.ts';
 import { Game } from './core/Game.ts';
-import { loadSave, clearSave } from './core/Save.js';
-import { Menu } from './ui/Menu.js';
+import { loadSave, clearSave } from './core/Save.ts';
+import { Menu } from './ui/Menu.ts';
 
 installFog();
 // the sun's shadow camera (Sky.js): 96 m across, 1-320 m deep
@@ -12,9 +12,12 @@ const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
 const time = params.has('t') ? parseFloat(params.get('t')) : null;
 
-const $ = (s) => document.querySelector(s);
+const $ = (s: string) => document.querySelector(s) as HTMLElement;
+declare global {
+  interface Window { game: Game; menu: Menu; menuOpen: (name: string) => void }
+}
 
-const game = new Game($('#game'), { debug, time });
+const game = new Game($('#game') as HTMLCanvasElement, { debug, time });
 // (the frame counter shows with Settings > Show FPS, or always with ?debug: Menu.applySettings)
 window.game = game; // handy for poking at things from the console
 
@@ -76,14 +79,18 @@ game.input.onLockChange = (locked) => {
   }
 };
 
-// the gamepad: Start pauses; in a menu it steps through it
+// the gamepad: Start pauses, and Start again resumes; in a menu it steps through it
 game.input.onPadPause = () => {
   if (menu.mode === 'play' && !game.paused && !game.modal) {
     game.setPaused(true);
     menu.showPause();
+  } else if (menu.mode === 'pause') {
+    menu.hidePause();
+    game.setPaused(false);
   }
 };
-game.input.menuNav = () => (menu.mode !== 'play' && menu.mode !== 'flying') || game.paused || !!game.modal;
+// (the satchel too: there the d-pad picks recipes and A crafts, B or Y puts it away)
+game.input.menuNav = () => (menu.mode !== 'play' && menu.mode !== 'flying') || game.paused || !!game.modal || game.hud.inventoryOpen;
 
 // The overlays that are buttons and cards (boons, the endings, victory, game over) answer the
 // arrow keys and Enter too, so a gamepad (which sends those in a menu) can pick on them
@@ -93,7 +100,7 @@ addEventListener('keydown', (e) => {
   if (!game.modal) return;
   const el = OVERLAYS.map((s) => $(s)).find((o) => o && !o.classList.contains('hidden'));
   if (!el) return;
-  const items = [...el.querySelectorAll('button, .perk')].filter((b) => b.offsetParent && !b.disabled);
+  const items = [...el.querySelectorAll('button, .perk')].filter((b) => (b as HTMLElement).offsetParent && !(b as HTMLButtonElement).disabled) as HTMLElement[];
   if (!items.length) return;
   const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.code];
   const cur = items.findIndex((b) => b.classList.contains('padfocus'));

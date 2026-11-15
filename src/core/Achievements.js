@@ -1,6 +1,6 @@
 // Achievements: local, read from the lifetime records (core/Save.js) the way the Memories are,
 // with the day each one was earned. Listed on the title's Records page; a toast when one lands.
-import { loadRecords, loadBest } from './Save.js';
+import { loadRecords, loadBest } from './Save.ts';
 
 export const ACHIEVEMENTS = [
   { id: 'first', glyph: '☾', name: 'First Light', desc: 'Hold through the first night', test: (r) => r.deepest >= 1 },
@@ -8,7 +8,7 @@ export const ACHIEVEMENTS = [
   { id: 'thornback', glyph: '☠', name: 'Heart-eater, Eaten', desc: 'Slay a Thornback', test: (r) => r.seen.includes('thornback') },
   { id: 'bloom', glyph: '❀', name: 'The Heartwood Blooms', desc: 'Hold ten nights', test: (r) => r.wins >= 1 },
   { id: 'blightborn', glyph: '☣', name: 'Blightborn', desc: 'Hold ten nights on Blightborn', test: (r) => r.blightWins >= 1 },
-  { id: 'fifteen', glyph: '✶', name: 'Past the Rescue', desc: 'Reach night 15', test: (r) => r.deepest >= 15 },
+  { id: 'fifteen', glyph: '✶', name: 'Past the Rescue', desc: 'Hold through night 15', test: (r) => r.deepest >= 15 },
   { id: 'mother', glyph: '⬮', name: 'Matricide', desc: 'Slay the Rot Mother', test: (r) => r.seen.includes('rot_mother') },
   { id: 'slayer', glyph: '⚔', name: 'A Thousand Cuts', desc: 'Fell 1,000 Blight', test: (r) => r.kills >= 1000 },
   { id: 'elites', glyph: '◆', name: 'Marked for Death', desc: 'Fell 25 elite Blight', test: (r) => r.elites >= 25 },
@@ -22,7 +22,7 @@ export const ACHIEVEMENTS = [
   { id: 'flight', glyph: '✈', name: 'The Last Flight', desc: 'Fly out (the escape ending)', test: (r) => r.flights >= 1 },
   { id: 'sealed', glyph: '☀', name: 'The Seals Hold', desc: 'Set the idol home and hold ten nights (the true ending)', test: (r) => r.sealed >= 1 },
   { id: 'daily', glyph: '☼', name: 'Every Day', desc: 'Hold five nights in a daily vigil', test: (r) => r.dailyBest >= 5 },
-  // a full ten-night Warden vigil scores about 2,800: this one wants Blightborn, or endless
+  // a full ten-night Warden vigil scores about 3,000: this one wants Blightborn, or endless
   { id: 'score', glyph: '★', name: 'Legend of the Grove', desc: 'Score 4,000 in one vigil', test: (r, b) => (b.score || 0) >= 4000 },
 ];
 
@@ -51,8 +51,10 @@ export function checkAchievements(records = loadRecords(), best = loadBest()) {
   return fresh;
 }
 
-// A vigil's score: nights held, Blight felled and bosses slain, by the difficulty
+// A vigil's score: nights held, Blight felled and bosses slain, and how well the Heartwood was
+// kept (up to 40 a night held, less a point for every 10 HP it lost), by the difficulty
 const DIFF_K = { verdant: 0.6, warden: 1, blightborn: 1.6 };
-export function scoreOf({ nights = 0, kills = 0, bosses = 0 }, difficulty = 'warden') {
-  return Math.round((nights * 100 + kills * 4 + bosses * 150) * (DIFF_K[difficulty] ?? 1));
+export function scoreOf({ nights = 0, kills = 0, bosses = 0, heartLost = 0 }, difficulty = 'warden') {
+  const kept = Math.max(0, nights * 40 - heartLost / 10);
+  return Math.round((nights * 100 + kills * 4 + bosses * 150 + kept) * (DIFF_K[difficulty] ?? 1));
 }

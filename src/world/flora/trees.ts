@@ -42,7 +42,7 @@ class Build {
   leaf: Geo[] = [];
   extra: Geo[] = [];
   // leaf cards wait here until the crown's extent is known (their shading depends on it)
-  cards: { g: Geo; tint: number[] }[] = [];
+  cards: { g: Geo; tint: number[]; c: THREE.Vector3; r: number }[] = [];
 }
 
 // ------------------------------------------------------------------ parts
@@ -78,8 +78,8 @@ function card(cell: Cell, size: number, at: THREE.Vector3, dir: THREE.Vector3, u
   return prep(g);
 }
 
-// Where a tree holds its leaves.
-interface Tip { at: THREE.Vector3; dir: THREE.Vector3 }
+// Where a tree holds its leaves: a clump at `at`, its size scaled by `k` (default 1).
+interface Tip { at: THREE.Vector3; dir: THREE.Vector3; k?: number }
 
 interface Habit {
   /** how many times a limb forks before it ends in leaves */
@@ -98,6 +98,8 @@ interface Habit {
   side: number;
   /** limbs thinner than this are left off the distant copy */
   farMin: number;
+  /** false: leaves only at the shoot ends */
+  mids?: boolean;
 }
 
 // Grow a limb from `start` along `dir`, and everything that forks from it.
@@ -114,8 +116,12 @@ function grow(r: Rand, N: Build, F: Build, start: THREE.Vector3, dir: THREE.Vect
   if (rad >= h.farMin) F.wood.push(wood([start, mid, end], rad, r1, level === 0 ? 2 : 1, level === 0 ? 4 : 3));
   if (level >= h.levels) {
     tips.push({ at: end, dir: d1 });
+    // leaves along the outer shoots too, not only at their ends: a crown is a mass, not a
+    // bunch of balls on sticks
+    if (h.mids !== false) tips.push({ at: mid.clone().addScaledVector(ax, range(r, -0.4, 0.4)), dir: d1.clone().add(V(0, 0.6, 0)).normalize(), k: 0.8 });
     return;
   }
+  if (level === h.levels - 1 && h.mids !== false && len > 1.6) tips.push({ at: mid.clone().add(V(0, 0.3, 0)), dir: d1.clone().add(V(0, 0.8, 0)).normalize(), k: 0.7 });
   const n = irange(r, h.forks[0], h.forks[1]);
   const a0 = r() * TAU;
   const shoot = (az: number, th: number) => {
@@ -137,108 +143,161 @@ function grow(r: Rand, N: Build, F: Build, start: THREE.Vector3, dir: THREE.Vect
   }
 }
 
-interface PadSpec {
+interface ClumpSpec {
   cells: Cell[];
-  /** denser cells for the distant copy's standing cards (default: the same) */
+  /** denser cells for the distant copy's cards (default: the same) */
   farCells?: Cell[];
-  size: [number, number];
-  /** cards fanned around each shoot */
+  /** a clump's radius, metres */
+  radius: [number, number];
+  /** cards per clump */
   n: [number, number];
-  /** how far the cards tip up out of the layer, radians */
-  tilt: [number, number];
-  /** the chance of an upright card through the middle (so a pad has some depth from the side) */
-  upright: number;
-  /** every nth shoot keeps its leaves on the distant copy, the cards this much bigger */
+  /** a card's length as a share of the clump's radius */
+  reach?: [number, number];
+  /** 0..1: how far a clump is pressed flat (layered crowns hold their leaves in plates) */
+  squash?: number;
+  /** every nth clump keeps its leaves on the distant copy, the cards this much bigger */
   farEvery: number;
   farGrow: number;
   /** a tint over the whole crown */
   tint?: [number, number, number];
+  /** how hard the leaves droop at their tips */
+  droop?: [number, number];
+  /** the distant copy as three sprays radiating from the clump rather than crossed cards:
+   * small trees are seen whole from the ground at the far line, where crossed cards turn
+   * every clump into a lit-topped cushion */
+  farSprays?: boolean;
 }
 
-// The leaves at the end of one shoot: cards fanned around it like spokes, faces to the sky,
-// each at its own height and tilt so the pad is a loose mound and not a plate, and a card or
-// two standing through the middle so it has depth seen from the side. The distant copy keeps
-// one spoke and two standing cards crossed, bigger, at every other shoot: from far off the
-// view is level, where a spoke is a line and only the standing cards have any body.
-function pad(r: Rand, N: Build, F: Build, tip: Tip, i: number, s: PadSpec) {
+// A clump of leaves at the end of one shoot: leafy sprays bursting out of one point in every
+// direction (mostly outward and up, a few hanging), so from any side it is a rounded mass
+// with depth: near sprays in front of far ones, dark in its heart and underneath, its rim
+// catching the light. A crown is dozens of these on the forked limbs, which is what reads as
+// foliage from below and from the side; the old pads (cards laid flat like spokes, facing the
+// sky) read as paper plates from below and as lines from the side.
+//
+// The distant copy keeps every `farEvery`th clump as three bigger cards through its middle (two
+// standing crossed, one lying), cut from denser cells: from far off the leaves are a texture,
+// and the shading (normals swept out of the clump and the crown) carries the volume.
+interface Clump { c: THREE.Vector3; r: number }
+function clump(r: Rand, N: Build, F: Build, tip: Tip, i: number, s: ClumpSpec, clumps: Clump[]) {
+  const R = range(r, s.radius[0], s.radius[1]) * (tip.k ?? 1);
+  const sq = s.squash ?? 0;
+  // the clump sits just past the shoot's end
+  const C = tip.at.clone().addScaledVector(tip.dir, R * 0.3).add(V(0, R * (0.12 - 0.1 * sq), 0));
+  clumps.push({ c: C, r: R });
   const n = irange(r, s.n[0], s.n[1]);
-  const a0 = r() * TAU;
   const t0 = s.tint ?? [1, 1, 1];
   const tint = [range(r, 0.88, 1.04) * t0[0], range(r, 0.94, 1.05) * t0[1], range(r, 0.78, 1.0) * t0[2]];
-  const far = i % s.farEvery === 0;
-  const farCells = s.farCells ?? s.cells;
+  const reach = s.reach ?? [1.05, 1.35];
+  const droop = s.droop ?? [0.1, 0.3];
+  const a0 = r() * TAU;
   for (let k = 0; k < n; k++) {
-    const az = a0 + (k / n) * TAU + range(r, -0.3, 0.3);
-    const el = range(r, s.tilt[0], s.tilt[1]);
-    const d = V(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)).lerp(tip.dir, 0.25).normalize();
-    const up = V(range(r, -0.4, 0.4), 1, range(r, -0.4, 0.4)).normalize();
-    const size = range(r, s.size[0], s.size[1]);
-    const at = tip.at.clone().addScaledVector(d, -size * 0.1).add(V(0, range(r, -0.16, 0.16) * size, 0));
+    // spread over the sphere (a Fibonacci spiral, jittered), lifted toward the sky and out along
+    // the shoot; squashed clumps keep their sprays near the level
+    const u = (k + 0.5) / n;
+    const el = Math.asin(clamp(1.05 * (1 - 1.55 * u) + range(r, -0.12, 0.12), -0.62, 1)) * (1 - 0.55 * sq);
+    const az = a0 + k * 2.39996 + range(r, -0.25, 0.25);
+    const d = V(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)).lerp(tip.dir, 0.18).normalize();
+    // the leaves face out of the clump and up, rolled a little at random about the spray
+    const side = V(-d.z, 0, d.x).normalize();
+    const up = V(0, 1, 0).addScaledVector(d, -d.y).add(side.multiplyScalar(range(r, -0.7, 0.7)));
+    if (up.lengthSq() < 1e-4) up.set(range(r, -1, 1), 0, range(r, -1, 1));
+    const L = R * range(r, reach[0], reach[1]);
+    const at = C.clone().addScaledVector(d, -R * 0.28);
     const c = s.cells[Math.floor(r() * s.cells.length)];
-    const bend = range(r, 0.12, 0.32);
-    N.cards.push({ g: card(c, size, at, d, up, bend, 0.14), tint });
-    if (far && k < 1) {
-      // the distant spokes stand steeper: seen from far off and level, a flat card is a line
-      const fd = V(d.x, Math.max(d.y, 0.3) + 0.25, d.z).normalize();
-      F.cards.push({ g: card(c, size * s.farGrow, tip.at.clone().addScaledVector(fd, -size * s.farGrow * 0.3), fd, up, bend, 0, 2, 1), tint });
-    }
+    N.cards.push({ g: card(c, L, at, d, up, range(r, droop[0], droop[1]), 0.12, 2, 2), tint, c: C, r: R });
   }
-  const stand = (B: Build, cells: Cell[], az: number, size: number, segs: number, across: number) => {
-    // the card stands on the shoot, leaning a little, its face turned sideways
-    const d = V(Math.cos(az) * 0.4, 1, Math.sin(az) * 0.4).normalize();
-    const face = V(-Math.sin(az), 0.2, Math.cos(az));
-    const c = cells[Math.floor(r() * cells.length)];
-    B.cards.push({ g: card(c, size, tip.at.clone().addScaledVector(d, -size * 0.35), d, face, 0.12, across > 1 ? 0.1 : 0, segs, across), tint });
-  };
-  const az = r() * TAU, size = range(r, s.size[0], s.size[1]) * 0.95;
-  if (r() < s.upright) stand(N, s.cells, az, size, 3, 2);
-  else r();
-  if (r() < s.upright * 0.6) stand(N, s.cells, az + Math.PI / 2 + range(r, -0.4, 0.4), size * 0.9, 3, 2);
-  else r();
-  if (far) {
-    stand(F, farCells, az, size * s.farGrow * 0.9, 1, 1);
-    stand(F, farCells, az + Math.PI / 2, size * s.farGrow * 0.85, 1, 1);
+  // a spray lying over the top, so the clump has a roof seen from below and from above
+  {
+    const c = s.cells[Math.floor(r() * s.cells.length)];
+    const az = r() * TAU, L = R * range(r, 1.2, 1.5);
+    const d = V(Math.cos(az), 0.12, Math.sin(az)).normalize();
+    N.cards.push({ g: card(c, L, C.clone().addScaledVector(d, -L * 0.5).add(V(0, R * (0.3 - 0.15 * sq), 0)), d, V(0, 1, 0), 0.18, 0.15, 2, 2), tint, c: C, r: R });
+  }
+  if (i % s.farEvery === 0 && s.farSprays) {
+    const cells = s.farCells ?? s.cells;
+    const Rf = R * s.farGrow;
+    const az = r() * TAU;
+    for (let k = 0; k < 3; k++) {
+      // out of the clump's heart and a little up, rolled halfway between facing the sky and
+      // facing sideways, so a level view and a view from below both catch it
+      const a = az + k * 2.094 + range(r, -0.3, 0.3);
+      const el = range(r, 0.15, 0.55) * (1 - 0.5 * sq);
+      const d = V(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)).lerp(tip.dir, 0.2).normalize();
+      const side = V(-d.z, 0, d.x).normalize();
+      const roll = range(r, 0.7, 1.1) * (r() < 0.5 ? -1 : 1);
+      const up = V(0, 1, 0).addScaledVector(d, -d.y).normalize().addScaledVector(side, roll).normalize();
+      const L = Rf * range(r, 1.2, 1.5);
+      F.cards.push({ g: card(cells[Math.floor(r() * cells.length)], L, C.clone().addScaledVector(d, -Rf * 0.35), d, up, 0.12, 0.05, 1, 1), tint, c: C, r: R });
+    }
+  } else if (i % s.farEvery === 0) {
+    const cells = s.farCells ?? s.cells;
+    const Rf = R * s.farGrow;
+    const az = r() * TAU;
+    for (let k = 0; k < 2; k++) {
+      // standing, crossed: what a level view from far off sees
+      const a = az + k * Math.PI / 2 + range(r, -0.2, 0.2);
+      const face = V(Math.cos(a), 0, Math.sin(a));
+      const L = Rf * 2 * (1 - 0.3 * sq);
+      const off = V(range(r, -0.25, 0.25) * R, -L * 0.48, range(r, -0.25, 0.25) * R);
+      F.cards.push({ g: card(cells[Math.floor(r() * cells.length)], L, C.clone().add(off), V(range(r, -0.25, 0.25), 1, range(r, -0.25, 0.25)).normalize(), face, 0.05, 0, 1, 1), tint, c: C, r: R });
+    }
+    // and one lying across them, for the view from below; darker and greener, or the sun on it
+    // turns every distant clump into a yellow-topped cushion
+    const d = V(Math.cos(az + 0.8), 0.05, Math.sin(az + 0.8)).normalize(), L = Rf * 2;
+    const lie = [tint[0] * 0.72, tint[1] * 0.8, tint[2] * 0.8];
+    F.cards.push({ g: card(cells[Math.floor(r() * cells.length)], L, C.clone().addScaledVector(d, -L * 0.5).add(V(0, R * 0.15, 0)), d, V(0, 1, 0), 0.05, 0, 1, 1), tint: lie, c: C, r: R });
   } else {
-    r();
-    r();
+    for (let k = 0; k < 14; k++) r();
   }
 }
 
-// Shade and light the waiting cards now the crown's extent is known: dark inside and below,
-// bright on top and at the rim, their normals swept away from the crown's heart so the whole
-// crown shades as one rounded mass.
-function finishCards(B: Build, tips: Tip[], margin: number) {
+// Shade and light the waiting cards now the crown's extent is known. Each vertex's normal is
+// swept out of its own clump and out of the crown as a whole, so every clump lights as a ball
+// and the crown as one mass; the vertex colour darkens the crown's heart, its underside and
+// each clump's underside and core (the light the leaves above take), and lifts the rim.
+// soft (0..1) lets the crown's shape lead over each clump's: small trees, seen whole from the
+// ground at mid range, otherwise read as stacks of lit-topped cushions
+function finishCards(B: Build, clumps: Clump[], far = 1, soft = 0) {
   let y0 = Infinity, y1 = -Infinity, cx = 0, cz = 0;
-  for (const t of tips) {
-    y0 = Math.min(y0, t.at.y);
-    y1 = Math.max(y1, t.at.y);
-    cx += t.at.x;
-    cz += t.at.z;
+  for (const k of clumps) {
+    y0 = Math.min(y0, k.c.y - k.r);
+    y1 = Math.max(y1, k.c.y + k.r);
+    cx += k.c.x;
+    cz += k.c.z;
   }
-  cx /= tips.length;
-  cz /= tips.length;
+  cx /= clumps.length;
+  cz /= clumps.length;
   let rad = 1;
-  for (const t of tips) rad = Math.max(rad, Math.hypot(t.at.x - cx, t.at.z - cz));
-  rad += margin;
-  y0 -= margin * 0.6;
-  y1 += margin * 0.5;
+  for (const k of clumps) rad = Math.max(rad, Math.hypot(k.c.x - cx, k.c.z - cz) + k.r);
   const span = Math.max(y1 - y0, 1);
-  const heart = V(cx, y0 + span * 0.25, cz);
-  for (const { g, tint } of B.cards) {
+  const heart = V(cx, y0 + span * 0.42, cz);
+  const ry = span * 0.55;
+  const q = V();
+  for (const { g, tint, c, r } of B.cards) {
     const p = g.attributes.position, nrm = g.attributes.normal;
     for (let i = 0; i < p.count; i++) {
-      _n.fromBufferAttribute(p, i).sub(heart);
-      _n.y *= 1.3;
-      _n.normalize();
-      _n.y += 0.5;
+      q.fromBufferAttribute(p, i);
+      // out of the crown (an ellipsoid as wide as the crown and as tall)
+      _n.set((q.x - heart.x) / rad, (q.y - heart.y) / ry, (q.z - heart.z) / rad).normalize().multiplyScalar(0.7);
+      // out of the clump
+      _a.copy(q).sub(c).multiplyScalar(1 / r);
+      _n.addScaledVector(_a.normalize(), 0.5 * (1 - 0.6 * soft));
+      _n.y += 0.35 * (1 - 0.4 * soft);
       _n.normalize();
       nrm.setXYZ(i, _n.x, _n.y, _n.z);
     }
-    paint(g, (q, nn, col) => {
-      const hgt = clamp((q.y - y0) / span, 0, 1);
-      const out = clamp(Math.hypot(q.x - cx, q.z - cz) / rad, 0, 1);
-      const s = 0.36 + 0.5 * hgt + 0.2 * out * out;
-      col.setRGB(s * tint[0], s * tint[1], s * tint[2]);
+    paint(g, (v, nn, col) => {
+      const hgt = clamp((v.y - y0) / span, 0, 1);
+      const out = clamp(Math.hypot((v.x - heart.x) / rad, (v.y - heart.y) / ry, (v.z - heart.z) / rad), 0, 1);
+      const cy = clamp((v.y - c.y) / r, -1, 1), cr = clamp(v.distanceTo(c) / r, 0, 1.4);
+      // the distant copy keeps the crown's shading but only half each clump's, so a far crown
+      // reads as one mass rather than a stack of lit-topped cushions
+      const ck = (far < 1 ? 0.5 : 1) * (1 - 0.6 * soft);
+      const sc = (0.28 + 0.46 * Math.pow(hgt, 0.8) + 0.26 * smoothstep(0.45, 1, out))
+        * (1 - ck * 0.24 * (0.5 - cy * 0.5)) * (1 - ck * 0.26 * (1 - smoothstep(0.15, 0.9, cr)));
+      const k = Math.min(sc, 1.0) * far;
+      col.setRGB(k * tint[0], k * tint[1], k * tint[2]);
     });
     B.leaf.push(g);
   }
@@ -302,17 +361,20 @@ function model(N: Build, F: Build, rest: Omit<TreeModel, 'geometry' | 'lod'>): T
 //   1 the dome: the trunk parts two thirds of the way up into rising leaders under a deep,
 //     rounded crown
 //   2 the old one: leaning, grown into a gap, heavy on one side, a low limb and a dead stub
-// All stand on plank buttresses with surface roots between them, carry climbers up the bole,
-// bromeliads on the limbs, and trail lianas and curtains of vine.
-export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
+// All stand on plank buttresses (the foot of the bole swells into ridges that run out into
+// them) with surface roots between, carry climbers and a woody liana up the bole, bromeliads
+// on the limbs, and trail lianas, aerial roots and curtains of vine. A `strangler` is a fig
+// that has wrapped the giant it grew on: a cage of roots running down the bole, fused where
+// they cross, flaring out over the ground where the buttresses would be.
+export function giant(seed: number, habit: number, cell: CellFn, strangler = false): TreeModel {
   const r = mulberry32(seed);
   const nz = createNoise2D(seed);
   const N = new Build(), F = new Build();
   const emergent = habit === 0, old = habit === 2;
-  const H = emergent ? range(r, 25, 30) : range(r, 20, 25);
+  const H = emergent ? range(r, 26, 31) : range(r, 20, 25);
   const leanBy = old ? range(r, 2.2, 3.6) : range(r, 0.3, 1.5), leanA = r() * TAU;
   const lean = V(Math.cos(leanA) * leanBy, 0, Math.sin(leanA) * leanBy);
-  const rb = emergent ? range(r, 0.9, 1.15) : range(r, 0.78, 1.0);
+  const rb = (emergent ? range(r, 0.95, 1.2) : range(r, 0.82, 1.05)) * (strangler ? 0.8 : 1);
   // the bole ends where the crown takes over
   const Ht = emergent ? H : H * range(r, 0.6, 0.68);
   const pts = [
@@ -324,9 +386,23 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
   const curve = new THREE.CatmullRomCurve3(pts);
   const thin = emergent ? 0.62 : 0.45;
   const radius = (t: number) => rb * (1 - thin * t) + rb * 0.9 * Math.exp(-t * 14);
+  // where the buttresses run out (chosen first: the bole's foot swells toward them)
+  const nr = strangler ? irange(r, 2, 3) : irange(r, 5, 7);
+  const bAng: number[] = [];
+  for (let i = 0; i < nr; i++) bAng.push((i / nr) * TAU + range(r, -0.3, 0.3));
   const uRep = Math.max(2, Math.round((TAU * rb) / 1.8));
-  const trunk = taperedTube(pts, radius, 28, 18, uRep, (Ht + 1.5) / 1.8);
-  // knobbly and irregular: no bole is a lathe-turned column
+  const trunk = taperedTube(pts, radius, 30, 22, uRep, (Ht + 1.5) / 1.8);
+  // knobbly and irregular: no bole is a lathe-turned column. Near the ground it flutes: ridges
+  // swell out toward each buttress and the bark sinks into hollows between them
+  const flute = (a: number, y: number) => {
+    let near = 0;
+    for (const b of bAng) {
+      const d = Math.atan2(Math.sin(a - b), Math.cos(a - b));
+      near = Math.max(near, Math.exp(-((d / 0.42) ** 2)));
+    }
+    const foot = Math.exp(-(y + 1.5) * 0.32);
+    return near * 0.42 * foot - (1 - near) * 0.1 * foot;
+  };
   {
     const p = trunk.attributes.position, c = V(), q = V();
     for (let i = 0; i < p.count; i++) {
@@ -334,13 +410,14 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       curve.getPointAt(clamp((q.y + 1.5) / (Ht + 1.5), 0, 1), c);
       const dx = q.x - c.x, dz = q.z - c.z, a = Math.atan2(dz, dx);
       const k = nz(q.y * 0.22, Math.cos(a) * 1.3 + Math.sin(a) * 0.7) * 0.09 + nz(q.y * 0.9, a * 2.1) * 0.03;
-      const s = 1 + k * (1 + 1.5 * Math.exp(-(q.y + 1.5) * 0.5));
+      const s = 1 + k * (1 + 1.5 * Math.exp(-(q.y + 1.5) * 0.5)) + flute(a, q.y);
       p.setXYZ(i, c.x + dx * s, q.y, c.z + dz * s);
     }
     trunk.computeVertexNormals();
   }
+  // darker and damper toward the foot
   const boleShade = (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => {
-    const ao = 0.5 + 0.5 * smoothstep(-1, 4, p.y);
+    const ao = 0.48 + 0.52 * smoothstep(-1, 5, p.y);
     c.setRGB(ao, ao * 0.98, ao * 0.95);
   };
   paint(trunk, boleShade);
@@ -348,13 +425,12 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
   F.wood.push(paint(taperedTube(pts, radius, 7, 6, uRep, (Ht + 1.5) / 1.8), boleShade));
 
   // plank buttresses, the signature of rainforest giants
-  const nr = irange(r, 5, 7);
   for (let i = 0; i < nr; i++) {
-    const a = (i / nr) * TAU + range(r, -0.3, 0.3);
-    const length = range(r, 2.2, 4.0), height = range(r, 2.4, 4.6), thick = range(r, 0.28, 0.4);
-    const g = plankRoot({ angle: a, r0: rb, length, height, thick, wiggle: range(r, -0.5, 0.5), segs: 18, uvScale: 0.55, seed: range(r, 0, 10) });
+    const a = bAng[i];
+    const length = range(r, 2.4, 4.4) * (strangler ? 0.7 : 1), height = range(r, 2.6, 5.2) * (strangler ? 0.6 : 1), thick = range(r, 0.28, 0.42);
+    const g = plankRoot({ angle: a, r0: rb, length, height, thick, wiggle: range(r, -0.6, 0.6), segs: 18, uvScale: 0.55, seed: range(r, 0, 10) });
     paint(g, (p, n, c) => {
-      const ao = 0.38 + 0.62 * smoothstep(-0.4, 2.5, p.y);
+      const ao = 0.36 + 0.64 * smoothstep(-0.4, 2.8, p.y);
       c.setRGB(ao, ao * 0.97, ao * 0.92);
     });
     N.wood.push(g);
@@ -364,13 +440,13 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
   const ns = irange(r, 4, 7);
   for (let i = 0; i < ns; i++) {
     const a = ((i + 0.5) / ns) * TAU + range(r, -0.4, 0.4);
-    const len = range(r, 2.5, 5);
+    const len = range(r, 2.5, 5.5);
     const rp: THREE.Vector3[] = [];
     for (let k = 0; k <= 5; k++) {
       const t = k / 5, aa = a + Math.sin(t * 3 + i) * 0.25, d = rb * 0.8 + len * t;
       rp.push(V(Math.cos(aa) * d, 0.06 - t * 0.14 + Math.sin(t * 7 + i * 2) * 0.05, Math.sin(aa) * d));
     }
-    const r0 = range(r, 0.13, 0.22);
+    const r0 = range(r, 0.13, 0.24);
     const g = taperedTube(rp, (t) => r0 * (1 - 0.75 * t) + 0.03, 12, 7, 1, len / 1.5);
     paint(g, (p, n, c) => {
       const ao = 0.5 + 0.5 * smoothstep(-0.1, 0.25, p.y);
@@ -378,11 +454,57 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
     });
     N.wood.push(g);
   }
+  // the strangler's cage: roots from the crown down the bole, wandering round it, fused where
+  // they cross, splaying out over the ground at the foot
+  if (strangler) {
+    const nS = irange(r, 8, 11);
+    const top = Ht * range(r, 0.85, 0.95);
+    const strands: THREE.Vector3[][] = [];
+    for (let i = 0; i < nS; i++) {
+      const a0 = (i / nS) * TAU + range(r, -0.25, 0.25), turn = range(r, -0.9, 0.9);
+      const ys = top - range(r, 0, Ht * 0.25);
+      const rs = range(r, 0.1, 0.19);
+      const spl = range(r, 1.2, 2.4);
+      const path: THREE.Vector3[] = [];
+      const M = 12;
+      for (let k = 0; k <= M; k++) {
+        const t = k / M; // 0 at the top, 1 at the ground
+        const y = ys * (1 - t) - 0.4 * t;
+        const tc = clamp((y + 1.5) / (Ht + 1.5), 0, 1);
+        const c = curve.getPointAt(tc);
+        const a = a0 + turn * t + Math.sin(t * 7 + i) * 0.12;
+        // hugging the bole, then leaving it over the last two metres in a sprawl
+        const d = radius(tc) * (1 + flute(a, y) * 0.6) + rs * 0.7 + smoothstep(0.78, 1, t) * spl;
+        path.push(V(c.x + Math.cos(a) * d, y, c.z + Math.sin(a) * d));
+      }
+      strands.push(path);
+      const g = taperedTube(path, (t) => rs * (0.75 + 0.5 * t), 30, 6, 1, ys / 1.6);
+      paint(g, (p, n, c) => {
+        const ao = 0.52 + 0.48 * smoothstep(-0.5, 5, p.y);
+        c.setRGB(ao * 0.98, ao * 0.95, ao * 0.86);
+      });
+      N.wood.push(g);
+      if (i % 2 === 0) F.wood.push(paint(taperedTube(path, (t) => rs * 1.3 * (0.75 + 0.5 * t), 6, 3, 1, ys / 1.6), (p, n, c) => c.setRGB(0.8, 0.77, 0.7)));
+    }
+    // fused bridges between neighbouring roots, bowed out round the bole
+    const nb = irange(r, 6, 10);
+    for (let i = 0; i < nb; i++) {
+      const a = Math.floor(r() * nS), b = (a + 1) % nS;
+      const k = irange(r, 2, 9);
+      const A = strands[a][k], B = strands[b][Math.min(12, k + irange(r, 0, 2))];
+      const M2 = A.clone().lerp(B, 0.5);
+      const cc = curve.getPointAt(clamp((M2.y + 1.5) / (Ht + 1.5), 0, 1));
+      M2.addScaledVector(V(M2.x - cc.x, 0, M2.z - cc.z).normalize(), 0.12);
+      const rw = range(r, 0.06, 0.1);
+      N.wood.push(paint(taperedTube([A, M2, B], () => rw, 6, 5, 1, 1), (p, n, c) => c.setRGB(0.75, 0.72, 0.64)));
+    }
+  }
 
   // the limbs
   const top = pts[3];
   const tips: Tip[] = [];
   const perches: THREE.Vector3[] = [];
+  const lows: THREE.Vector3[] = [];
   const outward = (a: number, el: number) => V(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
   if (emergent) {
     const h: Habit = { levels: 2, forks: [2, 3], spread: [0.4, 0.78], shrink: [0.55, 0.7], lift: 0.2, flat: 0.38, side: 0.45, farMin: 0.09 };
@@ -393,11 +515,12 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       const a = a0 + i * 2.4 + range(r, -0.3, 0.3);
       const S = curve.getPointAt(clamp(t, 0, 1));
       const k = 1.12 - (t - 0.74) * 1.5;
-      const len = range(r, 5.5, 7.5) * k;
-      grow(r, N, F, S, outward(a, range(r, 0.1, 0.32) + (t - 0.74) * 1.4), len, 0.36 * k + 0.04, 0, h, tips);
+      const len = range(r, 5.8, 7.8) * k;
+      grow(r, N, F, S, outward(a, range(r, 0.1, 0.32) + (t - 0.74) * 1.4), len, 0.38 * k + 0.04, 0, h, tips);
       perches.push(S.clone().add(outward(a, 0.2).multiplyScalar(len * range(r, 0.2, 0.45))).add(V(0, 0.25, 0)));
+      lows.push(S.clone().add(outward(a, 0.15).multiplyScalar(len * range(r, 0.45, 0.8))));
     }
-    grow(r, N, F, top.clone().add(V(0, -0.3, 0)), V(range(r, -0.2, 0.2), 1, range(r, -0.2, 0.2)).normalize(), 2.2, 0.26, 1, { ...h, spread: [0.8, 1.2] }, tips);
+    grow(r, N, F, top.clone().add(V(0, -0.3, 0)), V(range(r, -0.2, 0.2), 1, range(r, -0.2, 0.2)).normalize(), 2.4, 0.28, 1, { ...h, spread: [0.8, 1.2] }, tips);
   } else {
     const h: Habit = { levels: 3, forks: [2, 3], spread: [0.38, 0.72], shrink: [0.6, 0.74], lift: 0.22, flat: 0.12, side: 0.45, farMin: 0.1 };
     const nl = old ? 3 : irange(r, 3, 4);
@@ -407,8 +530,9 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       const a = old ? leanA + range(r, -1.2, 1.2) : a0 + (i / nl) * TAU + range(r, -0.35, 0.35);
       const S = top.clone().add(V(0, -range(r, 0.2, 1.4), 0));
       const el = range(r, 0.55, 1.0);
-      grow(r, N, F, S, outward(a, el), range(r, 4.6, 6.2), rb * 0.4, 0, h, tips);
+      grow(r, N, F, S, outward(a, el), range(r, 4.8, 6.4), rb * 0.42, 0, h, tips);
       perches.push(S.clone().add(outward(a, el).multiplyScalar(range(r, 1.5, 3))).add(V(0, 0.3, 0)));
+      lows.push(S.clone().add(outward(a, el * 0.5).multiplyScalar(range(r, 3, 5))));
     }
     // a leader straight on up through the middle
     grow(r, N, F, top.clone().add(V(0, -0.4, 0)), V(range(r, -0.25, 0.25), 1, range(r, -0.25, 0.25)).normalize(), range(r, 3.6, 4.6), rb * 0.36, 1, h, tips);
@@ -418,6 +542,7 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       const S = curve.getPointAt(range(r, 0.55, 0.8));
       const a = old ? leanA + Math.PI + range(r, -0.9, 0.9) : r() * TAU;
       grow(r, N, F, S, outward(a, range(r, 0.2, 0.5)), range(r, 3.2, 4.6), 0.2, 2, { ...h, flat: 0.5 }, tips);
+      lows.push(S.clone().add(outward(a, 0.3).multiplyScalar(2.5)));
     }
     if (old) {
       // a limb that broke off long ago: a short dead stub
@@ -427,24 +552,25 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
     }
   }
 
-  // the leaves
+  // the leaves: a cumulus of clumps on the shoot ends
   const boughs = ['bough0', 'bough1', 'bough2'].map((n) => cell('boughs', n));
-  const clumps = ['clump0', 'clump1', 'spray0'].map((n) => cell('boughs', n));
-  const spec: PadSpec = emergent
-    ? { cells: boughs, farCells: clumps, size: [2.5, 3.5], n: [4, 5], tilt: [-0.15, 0.6], upright: 0.8, farEvery: 2, farGrow: 1.8 }
-    : { cells: boughs, farCells: clumps, size: [2.4, 3.3], n: [3, 5], tilt: [-0.25, 0.75], upright: 0.9, farEvery: 2, farGrow: 1.8 };
-  tips.forEach((t, i) => pad(r, N, F, t, i, spec));
-  const crown = finishCards(N, tips, 2.6);
-  finishCards(F, tips, 2.6);
+  const dense = ['clump0', 'clump1', 'spray0'].map((n) => cell('boughs', n));
+  const spec: ClumpSpec = emergent
+    ? { cells: boughs, farCells: dense, radius: [2.0, 2.6], n: [6, 8], squash: 0.35, farEvery: 2, farGrow: 1.25 }
+    : { cells: boughs, farCells: dense, radius: [1.7, 2.2], n: [5, 7], squash: 0.1, farEvery: 2, farGrow: 1.25 };
+  const clumps: Clump[] = [];
+  tips.forEach((t, i) => clump(r, N, F, t, i, spec, clumps));
+  const crown = finishCards(N, clumps);
+  finishCards(F, clumps, 0.88);
 
   // climbers: strips of vine spiralling up the bole, flat against the bark, starting between
   // two buttresses
   const vine = cell('boughs', 'vine0');
-  const ncl = r() < 0.8 ? irange(r, 1, 2) : 0;
+  const ncl = r() < 0.85 ? irange(r, 1, 3) : 0;
   for (let i = 0; i < ncl; i++) {
     const a0 = ((Math.floor(r() * nr) + 0.5) / nr) * TAU;
     const turns = range(r, 0.15, 0.55) * (r() < 0.5 ? -1 : 1);
-    const w = range(r, 0.5, 0.7), seg = w / vine.aspect;
+    const w = range(r, 0.5, 0.75), seg = w / vine.aspect;
     const y0 = 0.1, y1 = Ht * range(r, 0.5, 0.9);
     const n = Math.max(2, Math.round((y1 - y0) / seg));
     for (let k = 0; k < n; k++) {
@@ -452,7 +578,7 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       const t = clamp((y + 1.5) / (Ht + 1.5), 0, 1);
       const c = curve.getPointAt(t);
       const ang = a0 + turns * TAU * (k / n) + range(r, -0.08, 0.08);
-      const rr = radius(t) * (1.14 + 0.15 * Math.exp(-(y + 1.5) * 0.5)) + 0.06;
+      const rr = radius(t) * (1.14 + flute(ang, y) + 0.15 * Math.exp(-(y + 1.5) * 0.5)) + 0.06;
       for (const [B, segs] of [[N, 2], [F, 1]] as const) {
         const g = leafBlade(vine, { length: seg * 1.04, segs, across: 1, elev: Math.PI / 2 - 0.03, droop: 0, fold: 0.12, upBias: 0.15 });
         transform(g, { rotation: { y: -ang }, position: V(c.x + Math.cos(ang) * rr, y, c.z + Math.sin(ang) * rr) });
@@ -464,27 +590,49 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
       }
     }
   }
+  // a woody liana that has climbed the bole, wound round it up to the crown
+  if (!strangler && r() < 0.75) {
+    const a0 = r() * TAU, turns = range(r, 0.6, 1.4) * (r() < 0.5 ? -1 : 1), rl = range(r, 0.06, 0.1);
+    const path: THREE.Vector3[] = [];
+    const M = 16;
+    for (let k = 0; k <= M; k++) {
+      const t = k / M, y = -0.3 + t * Ht * 0.92, tc = clamp((y + 1.5) / (Ht + 1.5), 0, 1);
+      const c = curve.getPointAt(tc), a = a0 + turns * TAU * t;
+      const d = radius(tc) * (1.02 + flute(a, y)) + rl;
+      path.push(V(c.x + Math.cos(a) * d, y, c.z + Math.sin(a) * d));
+    }
+    N.wood.push(paint(taperedTube(path, (t) => rl * (1.2 - 0.4 * t), 48, 6, 1, Ht / 2), (p, n, c) => c.setRGB(0.62, 0.58, 0.48)));
+  }
   // epiphytes: bromeliads riding on the limbs
   const brom = cell('boughs', 'brom0');
-  const ne = irange(r, 2, 5);
-  for (let i = 0; i < ne; i++) N.leaf.push(rosette(r, brom, perches[Math.floor(r() * perches.length)].clone().add(V(range(r, -0.3, 0.3), 0, range(r, -0.3, 0.3))), range(r, 0.5, 0.9)));
+  const ne = irange(r, 3, 7);
+  for (let i = 0; i < ne; i++) N.leaf.push(rosette(r, brom, perches[Math.floor(r() * perches.length)].clone().add(V(range(r, -0.3, 0.3), 0, range(r, -0.3, 0.3))), range(r, 0.5, 1.0)));
   // lianas looping down to the ground
-  const nl = irange(r, 2, 4);
+  const nl = irange(r, 2, 5);
   for (let i = 0; i < nl; i++) {
-    const A = tips[Math.floor(r() * tips.length)].at.clone().add(V(0, -0.6, 0));
+    const A = clumps[Math.floor(r() * clumps.length)].c.clone().add(V(0, -1.2, 0));
     const ang = r() * TAU, gd = range(r, 2.5, 6);
     const G = V(Math.cos(ang) * gd, -0.3, Math.sin(ang) * gd);
     const m1 = A.clone().lerp(G, 0.35).add(V(range(r, -1.5, 1.5), -range(r, 0.5, 2), range(r, -1.5, 1.5)));
     const m2 = A.clone().lerp(G, 0.7).add(V(range(r, -1.5, 1.5), -range(r, 0.5, 1.5), range(r, -1.5, 1.5)));
-    const rad = range(r, 0.06, 0.12);
+    const rad = range(r, 0.06, 0.13);
     N.wood.push(paint(taperedTube([A, m1, m2, G], (t) => rad * (1 - 0.3 * t), 24, 6, 1, 8), (p, n, c) => c.setRGB(0.55, 0.55, 0.45)));
     F.wood.push(paint(taperedTube([A, m1, m2, G], (t) => rad * 1.3 * (1 - 0.3 * t), 6, 3, 1, 8), (p, n, c) => c.setRGB(0.55, 0.55, 0.45)));
+  }
+  // aerial roots: thin cords dropped straight down from the limbs
+  const na = irange(r, 2, 6);
+  for (let i = 0; i < na && lows.length; i++) {
+    const A = lows[Math.floor(r() * lows.length)].clone().add(V(range(r, -0.6, 0.6), -0.2, range(r, -0.6, 0.6)));
+    const ra = range(r, 0.018, 0.035);
+    const bot = V(A.x + range(r, -0.3, 0.3), r() < 0.6 ? -0.2 : range(r, 0.8, 4), A.z + range(r, -0.3, 0.3));
+    const mid = A.clone().lerp(bot, 0.5).add(V(range(r, -0.25, 0.25), 0, range(r, -0.25, 0.25)));
+    N.wood.push(paint(taperedTube([A, mid, bot], (t) => ra * (1 - 0.25 * t), 8, 4, 1, 4), (p, n, c) => c.setRGB(0.66, 0.6, 0.5)));
   }
   // curtains of hanging vine under the crown
   const nh = irange(r, 4, 9);
   for (let i = 0; i < nh; i++) {
-    const tip = tips[Math.floor(r() * tips.length)];
-    const A = tip.at.clone().add(V(range(r, -1, 1), -0.5, range(r, -1, 1)));
+    const k = clumps[Math.floor(r() * clumps.length)];
+    const A = k.c.clone().add(V(range(r, -1, 1), -k.r * 0.6, range(r, -1, 1)));
     const length = range(r, 3, 11), width = range(r, 0.45, 0.7), s0 = mulberry32(seed * 31 + i);
     for (const [B, segs] of [[N, 3], [F, 1]] as const) {
       // (both copies from the same roll, so the strip hangs in the same place)
@@ -499,7 +647,7 @@ export function giant(seed: number, habit: number, cell: CellFn): TreeModel {
     }
   }
   return model(N, F, {
-    colliders: [{ x: 0, z: 0, r: rb * 1.2 }], canopy: 9,
+    colliders: [{ x: 0, z: 0, r: rb * (strangler ? 1.45 : 1.2) }], canopy: 9,
     crown: { r: crown.r, top: crown.top, x: crown.x, z: crown.z },
   });
 }
@@ -515,6 +663,8 @@ export function understory(seed: number, habit: number, cell: CellFn): TreeModel
   const nz = createNoise2D(seed + 7);
   const N = new Build(), F = new Build();
   const H = habit === 2 ? range(r, 9, 13) : range(r, 6.5, 10.5);
+  // many rainforest poles are smooth and pale: the bark texture lifted toward grey-white
+  const pale = [1.0, 0.85, 1.45][habit] * range(r, 0.9, 1.1);
   const lx = range(r, -0.8, 0.8) * (habit === 2 ? 2 : 1), lz = range(r, -0.8, 0.8) * (habit === 2 ? 2 : 1);
   const tips: Tip[] = [];
   const outward = (a: number, el: number) => V(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
@@ -536,7 +686,7 @@ export function understory(seed: number, habit: number, cell: CellFn): TreeModel
     }
     g.computeVertexNormals();
     const shade = (q2: THREE.Vector3, n: THREE.Vector3, col: THREE.Color) => {
-      const ao = 0.55 + 0.45 * smoothstep(y0, y0 + 3.5, q2.y);
+      const ao = (0.55 + 0.45 * smoothstep(y0, y0 + 3.5, q2.y)) * pale;
       col.setRGB(ao * 0.95, ao, ao * 0.9);
     };
     N.wood.push(paint(g, shade));
@@ -588,13 +738,19 @@ export function understory(seed: number, habit: number, cell: CellFn): TreeModel
     }
     tips.push({ at: pts[3].clone(), dir: V(0, 1, 0) });
   }
-  const sprays = ['twigs0', 'twigs1'].map((n) => cell('under', n));
-  const spec: PadSpec = habit === 0
-    ? { cells: sprays, size: [1.25, 1.75], n: [3, 4], tilt: [-0.15, 0.45], upright: 0.6, farEvery: 2, farGrow: 1.6, tint: [0.96, 1.06, 0.8] }
-    : { cells: sprays, size: [1.2, 1.7], n: [3, 4], tilt: [-0.2, 0.65], upright: 0.85, farEvery: 2, farGrow: 1.6, tint: [0.96, 1.06, 0.8] };
-  tips.forEach((t, i) => pad(r, N, F, t, i, spec));
-  const crown = finishCards(N, tips, 1.3);
-  finishCards(F, tips, 1.3);
+  // glossy, broad-leaved sprays (the canopy atlas's twigs) in clumps: plates of leaves on the
+  // layered one, loose balls on the others; the coppice has the narrow-leaved spray
+  const broad = ['twig0', 'twig1', 'twig2'].map((n) => cell('canopy', n));
+  const narrow = ['twig3', 'twig2'].map((n) => cell('canopy', n));
+  const spec: ClumpSpec = habit === 0
+    ? { cells: broad, radius: [0.85, 1.15], n: [5, 6], squash: 0.35, farEvery: 2, farGrow: 1.35, tint: [0.68, 0.88, 0.66], droop: [0.15, 0.35], farSprays: true }
+    : habit === 1
+      ? { cells: narrow, radius: [0.8, 1.05], n: [5, 6], squash: 0.15, farEvery: 2, farGrow: 1.35, tint: [0.74, 0.92, 0.7], farSprays: true }
+      : { cells: broad, radius: [0.95, 1.3], n: [5, 7], squash: 0.2, farEvery: 2, farGrow: 1.35, tint: [0.68, 0.86, 0.66], droop: [0.2, 0.4], farSprays: true };
+  const clumps: Clump[] = [];
+  tips.forEach((t, i) => clump(r, N, F, t, i, spec, clumps));
+  const crown = finishCards(N, clumps, 1, 0.6);
+  finishCards(F, clumps, 0.88, 0.6);
   return model(N, F, {
     colliders: [{ x: 0, z: 0, r: habit === 1 ? 0.4 : 0.3 }], canopy: 2.5,
     crown: { r: crown.r, top: crown.top, x: crown.x, z: crown.z },
@@ -889,11 +1045,12 @@ export function mangrove(seed: number, cell: CellFn): TreeModel {
     grow(r, N, F, pts[3].clone().add(V(0, -range(r, 0.1, 0.9), 0)), V(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)), range(r, 1.2, 1.8), 0.085, 0, h, tips);
   }
   const boughs = ['bough0', 'bough1', 'bough2'].map((n) => cell('boughs', n));
-  const clumps = ['clump0', 'clump1'].map((n) => cell('boughs', n));
-  const spec: PadSpec = { cells: boughs, farCells: clumps, size: [1.5, 2.1], n: [3, 4], tilt: [-0.25, 0.45], upright: 0.6, farEvery: 2, farGrow: 1.8 };
-  tips.forEach((t, i) => pad(r, N, F, t, i, spec));
-  const crown = finishCards(N, tips, 1.6);
-  finishCards(F, tips, 1.6);
+  const dense = ['clump0', 'clump1'].map((n) => cell('boughs', n));
+  const spec: ClumpSpec = { cells: boughs, farCells: dense, radius: [1.2, 1.6], n: [5, 6], squash: 0.3, farEvery: 2, farGrow: 1.3 };
+  const clumps: Clump[] = [];
+  tips.forEach((t, i) => clump(r, N, F, t, i, spec, clumps));
+  const crown = finishCards(N, clumps);
+  finishCards(F, clumps, 0.88);
   // leathery and dark
   for (const B of [N, F]) for (const g of B.leaf) paint(g, (p, n, c) => c.multiplyScalar(0.82));
   return model(N, F, {

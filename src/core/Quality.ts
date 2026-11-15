@@ -14,7 +14,7 @@ export function storedQuality() {
 }
 
 // the GPU's name as the browser reports it ('' when it hides it)
-export function gpuName(renderer) {
+export function gpuName(renderer: any) {
   try {
     const gl = renderer.getContext();
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
@@ -24,12 +24,18 @@ export function gpuName(renderer) {
   }
 }
 
-export function guessQuality(renderer) {
+export function guessQuality(renderer: any) {
   const name = gpuName(renderer).toLowerCase();
-  const mem = navigator.deviceMemory ?? 8, cores = navigator.hardwareConcurrency ?? 8;
+  const mem = (navigator as any).deviceMemory ?? 8, cores = navigator.hardwareConcurrency ?? 8;
   if (/swiftshader|llvmpipe|software|basic render|microsoft basic/.test(name)) return 'low';
+  // Apple silicon (an M-series Mac) shares its memory but is no weak integrated chip. Safari
+  // says only "Apple GPU" for every Apple chip, phones too: an iPhone or iPad stays on Medium
+  if (/apple m\d|apple gpu/.test(name)) {
+    const touch = /iphone|ipad/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent));
+    return touch ? 'medium' : 'high';
+  }
   // integrated graphics: Intel, AMD APUs ("Radeon(TM) Graphics", "Vega 8"), phone GPUs
-  const integrated = /intel|iris|uhd|hd graphics|mali|adreno|powervr|radeon\(tm\) graphics|radeon graphics|vega \d\b|apple gpu/.test(name);
+  const integrated = /intel|iris|uhd|hd graphics|mali|adreno|powervr|radeon\(tm\) graphics|radeon graphics|vega \d\b/.test(name);
   if (integrated) return mem <= 8 || cores <= 4 ? 'low' : 'medium';
   // old or entry discrete cards
   if (/gtx (6|7|9)\d\d|gtx 10[56]0|mx\d{3}|gt \d{3,4}|rx (4|5)\d0|r[579] /.test(name)) return 'medium';
@@ -38,7 +44,7 @@ export function guessQuality(renderer) {
 }
 
 // the stored setting, or a guess that is then stored
-export function bootQuality(renderer) {
+export function bootQuality(renderer: any) {
   const q = storedQuality();
   if (q) return q;
   const g = guessQuality(renderer);

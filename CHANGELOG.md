@@ -1,5 +1,86 @@
 # Patch notes
 
+## 1.2.0: Hold Fast (2026-11-15)
+
+- **The machete answers every click.**
+  - A click during a swing is kept for 0.4 s and swings the moment the blade is back. In 1.1 those clicks were dropped, so fast clicking felt like every other swing whiffed.
+  - The swing is quicker (0.4 s, was 0.5) and lands earlier in the motion.
+  - It turns you a little toward the Blight you're facing as it winds up, and a target you aimed at is struck even if it slipped to the edge of the cone.
+  - The crit chain counts swings that strike something: every third one in a row is a crit.
+  - The frame limiter learns your screen's refresh rate, so 60 fps on a 120 or 144 Hz screen no longer judders.
+- **The trees are new where you look at them.** 1.1's new crowns were up at 15–30 m and flat, so from the ground the forest looked the same.
+  - Crowns are leafy clumps with volume, darker at the heart and underneath.
+  - Giants have fluted trunks and plank buttresses, some are strangler figs (a cage of fused roots), and a woody liana spirals up them.
+  - Understory trees are broadleaved and darker.
+  - Far understory trees are no longer stacks of yellow cushions.
+- **Saving keeps what you did.**
+  - Continue picks up at the hour you left, or at nightfall if you left during a night. It no longer rewinds to dawn.
+  - The day's Blight Blooms are saved (one you cut stays cut), and so are your health, cut and foraged plants, supply drops, piles on the ground (your lost pack too), trap springs, packed-up defences and a boon you hadn't picked yet.
+  - The game also saves at nightfall and after a search, a Bloom, an offering or a boon.
+- **Fixes that mattered.**
+  - Offering or burying relics could duplicate them. It now takes exactly what it credits.
+  - The Blood Moon never counted for the golden idol, so the true ending couldn't be reached. It counts now.
+  - Pause stops the clock, healing and pickups.
+  - The golden idol and the Thornback's heart are never taken by an offering, a burial or a seal by mistake. The prompt shows what offering and burying would each give.
+  - The tutorial counts what you did before it asked, so placing the starter tower early no longer leaves "Place your Bow Tower" stuck on screen.
+  - The Heartwood can't come back from 0.
+  - Bosses no longer jam in gaps between walls; one that can't fit through chews a way in. No cell near camp is hidden from towers any more.
+  - A Spitter or a last few stragglers can no longer stall a night.
+  - The daily vigil is the same for everyone: Blooms, boons and loot use the day's dice, and it no longer offers a difficulty or kit.
+- **A new balance.** (Numbers in PLAN.md.)
+  - Night 1 has 12 Blightlings over two lanes, and the first Rotboar comes on night 2.
+  - The middle nights climb steadily, and night 11 is harder than night 10.
+  - A tower's upgrade costs two roots, then three, so a second tower is as good a use of roots as a better one. Root capacity grows by 3 a night (was 2).
+  - In 1.1, six top-tier bow towers held night 10 alone. Now arrows glance off Rotboars and bosses, and a mixed defence holds where one kind alone falls.
+  - Bow towers no longer waste shots on Blight another tower has already killed; tier 3 looses a second bolt.
+  - Mortars hit harder and wider. Tesla totems no longer need a vacuum tube, and their chain fades with each jump. Snares never spring for a boss.
+  - Traps are spent by springing (14 springs for a spike trap, 8 for a snare), not by being hit.
+  - Blight within reach turn on you, and Wisps dive at you if you come close.
+  - The Thornback comes out sooner (31 s into night 5, was 54 s), and you hear it coming 6 s before it climbs out, with the rift it comes from.
+  - It never rains on a boss night.
+  - Dying matters more: at night you're out for 9 s and come back at 60% health. Health regenerates more slowly (2.5 a second after 8 s).
+  - Verdant's Heartwood has 600 HP (was 700). Blightborn's night 3 can be held.
+- **Something new on days 3 to 6.** The seals show on the map from day 3, and the journal points you at them. A seal set before its rift opens holds that rift's first two nights.
+- **A new Memory: The Wayfinder.** Read four pages of the lost expedition, and every vigil after starts with every site named on the map and compass.
+- **The day.**
+  - About 45% less common forage lies around, so what to pick up is a choice. Rare finds are unchanged.
+  - Forage is sized by type: sticks are bigger, flint, stones and resin smaller.
+  - Dotted violet lines on the minimap show where the Blight will walk tonight, from the first day.
+  - The compass says how many minutes' walk a far site is.
+  - Loot left lying for seven minutes fades away (what you drop stays).
+  - Stones and firepots stop at trunks, rocks and walls, and water swallows them. Sling stones are no longer blunt, so they hurt Wisps properly.
+- **Music in play.** By day a few notes of kalimba now and then. At night a low drone and skin drums that quicken as the Blight close on the Heartwood, and high strings for a boss. A Music slider in Settings.
+- **Settings.** Field of view, fullscreen, HUD size and music volume.
+- **The screen.**
+  - The journal no longer covers the day banner or the Heartwood bar at narrow widths, and fades while a banner shows.
+  - The first seconds of a day are quiet: no journal, hint or chips until the banner clears.
+  - A dawn recap: "Night 3: 41 felled · the Heartwood took 120 · …".
+  - Victory waits for sunrise. The HUD fades behind the victory, ending and game-over cards.
+  - The Field Guide fits at 1280×720. The difficulty cards have names for screen readers.
+- **The satchel.** Recipes for benches you haven't built yet shrink to a dim line. The two Pry Bar and two Scrap Shot recipes say what each is made from. Esc closes it. You can't use the satchel while dead.
+- **Gamepad.** The satchel works: the d-pad picks a recipe (left and right change tab), A crafts it, B or Y puts it away. Start resumes from pause, and the d-pad's left and right step along the belt.
+- **The look.**
+  - The glove is a worn leather work glove with separate fingers and seams.
+  - The machete is dark forged steel with a honed edge and nicks.
+  - The camp ground is packed brown earth, not a black disc.
+  - The Rot is ash, char and spore crust with dark veins, and plants on it wilt and grey.
+  - Grass has burnt tips and varies in colour.
+- **Smaller things.**
+  - Keys the game uses (1–8, I, Esc, Enter, F8, F9...) can't be rebound onto.
+  - Holding E after an offering no longer rolls into calling the night.
+  - Take all works while a search is still revealing, and shows your key.
+  - Apple silicon Macs start on High.
+  - A slow machine keeps real time down to 15 fps (was 20).
+  - Bloodroot heals only on your own kills.
+  - The sign told at dawn holds until dusk.
+  - A seal's last night stops the Rot spreading.
+  - "Thornbacks slain" no longer counts the Rot Mother.
+  - "Past the Rescue" says "hold through night 15".
+  - The score counts how well the Heartwood held.
+  - Many Paths unlocks for holding night 5 on Warden or Blightborn (was a hard win).
+  - A crafted smaller pack can't hide what's in a bigger one.
+  - Text fixed: a Blightling takes two cuts, and the radio's last part calls the plane, not a drop.
+
 ## 1.1.0: New Growth (2026-11-10)
 
 - **Every tree is new.**

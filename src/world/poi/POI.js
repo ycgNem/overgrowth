@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as T from '../../art/textures.js';
-import { addMoss, addNightFill, addPackedNormal, addRelief } from '../../art/shaders.js';
+import { addMoss, addNightFill, addPackedNormal, addRelief } from '../../art/shaders.ts';
 import { worldBox, BlockBatch, taperedTube } from '../flora/geom.js';
 import { chunkRng, mulberry32, range, irange } from '../../utils/rng.js';
 import { terrainHeight, terrainNormal, CHUNK_SIZE, WATER_LEVEL, grove } from '../WorldGen.js';
@@ -162,8 +162,8 @@ class Builder {
   }
   add(geo, mat, p = [0, 0, 0], r = [0, 0, 0], { shadow = true, parent = this.group } = {}) {
     const m = new THREE.Mesh(geo, mat);
-    m.position.set(...p);
-    m.rotation.set(...r);
+    m.position.set(p[0], p[1], p[2]);
+    m.rotation.set(r[0], r[1], r[2]);
     m.castShadow = shadow;
     m.receiveShadow = true;
     if (!mat.alphaTest && !mat.alphaToCoverage) m.customDepthMaterial = KIT_DEPTH;
@@ -203,7 +203,7 @@ class Builder {
   }
   flame(p, size = 1.2, parent = this.group) {
     const s = new THREE.Sprite(this.k.flame);
-    s.position.set(...p);
+    s.position.set(p[0], p[1], p[2]);
     s.scale.setScalar(size);
     s.renderOrder = 5;
     parent.add(s);

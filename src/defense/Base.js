@@ -127,7 +127,10 @@ export class Base {
     this.shake = Math.min(1, this.shake + n / 40);
   }
 
+  // (a fallen Heartwood stays fallen: dawn's mend used to lift it back off 0 when the last Blight
+  // died on the frame it fell)
   heal(n) {
+    if (this.dead) return;
     this.hp = Math.min(this.maxHp, this.hp + n);
   }
 
@@ -227,8 +230,9 @@ export { findBaseSite };
 
 // Where the Blight comes from: tears in the forest floor just past the clearing's ragged edge.
 // Chosen once per run, on flat, dry, reachable ground, spread around the compass: the first
-// three a third of a turn apart, the late ones (nights 7 and 9) in the gaps between them.
-export const RIFT_NIGHTS = [1, 1, 1, 7, 9];
+// three a third of a turn apart, the late ones (nights 7 and 9) in the gaps between them. Two
+// are open on the first night and the third tears on the second, so night 1 has two lanes.
+export const RIFT_NIGHTS = [1, 1, 2, 7, 9];
 const RIFT_TURNS = [0, 1 / 3, 2 / 3, 1 / 2, 1 / 6];
 export function pickRifts(field, bx, bz, count = 3, seed = 1) {
   const out = [];

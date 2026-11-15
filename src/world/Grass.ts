@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../utils/rng.js';
 import { smoothstep } from '../utils/math.js';
-import { addWind, addFoliageLighting, addNightFill } from '../art/shaders.js';
+import { addWind, addFoliageLighting, addNightFill } from '../art/shaders.ts';
 import { CHUNK_SIZE as CS, groundPatch } from './WorldGen.js';
 import { staleCells, refreshCells } from './CellRefresh.ts';
 
@@ -20,7 +20,7 @@ const RADIUS = 28;
 const FADE = 10; // over the last metres the tufts thin out (shrinking them drew a visible band)
 const PER_CELL = 120; // tries per cell where the ground is all turf: ~7 tufts a square metre
 // three ordinary tufts, a tall seed-headed one, a short lawn one
-const SHAPES = [{}, {}, {}, { blades: 9, h0: 0.5, h1: 0.85, dry: 0.3 }, { blades: 18, h0: 0.06, h1: 0.16, dry: 0.05, rows: 3 }];
+const SHAPES = [{ dry: 0.16 }, {}, { dry: 0.2 }, { blades: 9, h0: 0.5, h1: 0.85, dry: 0.35 }, { blades: 18, h0: 0.06, h1: 0.16, dry: 0.08, rows: 3 }];
 const TALL = 3, LAWN = 4;
 const CAP = 5200; // instances per variant
 const NEAR = 12; // tufts further off than this are drawn with their lighter shape
@@ -52,10 +52,19 @@ function tuftGeometry(seed: number, { blades = 13, h0 = 0.16, h1 = 0.42, dry = 0
     const fx = -lz, fz = lx;
     const w = (0.008 + r() * 0.007) * wide;
     const isDry = r() < dry;
-    const tone = 0.75 + r() * 0.5;
+    const tone = 0.7 + r() * 0.6;
+    // No lawn is one green: each blade picks a hue (fresh, olive, blue-green, yellowing), some
+    // green blades have burnt brown tips, and the dry ones are straw or dead brown.
     // (tips about twice the turf's albedo: at four times, the blades read as pale plugs on it)
-    const tip = isDry ? [0.3 * tone, 0.26 * tone, 0.12 * tone] : [0.11 * tone, 0.18 * tone, 0.045 * tone];
-    const base = isDry ? [0.12, 0.1, 0.04] : [0.03, 0.055, 0.015];
+    const hue = r();
+    const green = hue < 0.4 ? [0.1, 0.19, 0.04] : hue < 0.62 ? [0.125, 0.16, 0.045] : hue < 0.84 ? [0.07, 0.155, 0.06] : [0.16, 0.2, 0.05];
+    const straw = r() < 0.6 ? [0.3, 0.25, 0.11] : [0.19, 0.12, 0.06];
+    const tip = (isDry ? straw : green).map((v) => v * tone);
+    const burnt = !isDry && r() < 0.18;
+    // dark down in the tuft, where the blades shade each other and the soil shows through
+    const base = isDry ? [0.09, 0.07, 0.03] : [0.016, 0.03, 0.009];
+    // each blade's face turned a little its own way, so the tuft doesn't light as one sheet
+    const tilt = (r() - 0.5) * 1.1;
     const v0 = pos.length / 3;
     for (let k = 0; k < ROWS; k++) {
       const t = k / (ROWS - 1);
@@ -63,10 +72,15 @@ function tuftGeometry(seed: number, { blades = 13, h0 = 0.16, h1 = 0.42, dry = 0
       const x = bx + lx * off, z = bz + lz * off, y = h * t * (1 - 0.25 * lean * t);
       const hw = w * (1 - t * 0.92);
       pos.push(x - fx * hw, y, z - fz * hw, x + fx * hw, y, z + fz * hw);
-      // up, tipped a little toward the lean
-      _n.set(lx * 0.35, 1, lz * 0.35).normalize();
+      // up, tipped a little toward the lean and toward the blade's face
+      _n.set(lx * 0.35 + fx * tilt, 1, lz * 0.35 + fz * tilt).normalize();
       nrm.push(_n.x, _n.y, _n.z, _n.x, _n.y, _n.z);
-      const c = [0, 1, 2].map((i) => base[i] + (tip[i] - base[i]) * Math.min(1, t * 1.25));
+      const f = smoothstep(0.05, 0.85, t);
+      const c = [0, 1, 2].map((i) => base[i] + (tip[i] - base[i]) * f);
+      if (burnt && t > 0.6) {
+        const b = smoothstep(0.6, 1, t);
+        c[0] += (0.2 * tone - c[0]) * b; c[1] += (0.13 * tone - c[1]) * b; c[2] += (0.06 * tone - c[2]) * b;
+      }
       col.push(...c, ...c);
     }
     for (let k = 0; k < ROWS - 1; k++) {
@@ -105,9 +119,10 @@ export class Grass {
 
   constructor(scene: THREE.Scene, world: any) {
     this.world = world;
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.95, metalness: 0 });
+    // a waxy blade: a little sheen where the sun glances off it, and the sun through it from behind
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.72, metalness: 0 });
     addWind(mat, { sway: 0.22, push: true });
-    addFoliageLighting(mat, 0.03, 0.5);
+    addFoliageLighting(mat, 0.02, 0.85);
     // (more than this and the lawn glowed mint at night, lit from inside)
     addNightFill(mat, 0.05);
     this.material = mat;
@@ -143,9 +158,10 @@ export class Grass {
     const world = this.world, r = mulberry32(((i * 73856093) ^ (j * 19349663)) >>> 0);
     const out: number[][] = this.slots.map(() => []);
     const pois = world.poisNear(i * CELL + CELL / 2, j * CELL + CELL / 2, CELL + 30);
-    // loose things on the floor stay in sight: no tuft right on top of one
+    // loose things on the floor stay in sight: no tuft right on top of one (plans are keyed by
+    // World.key: a 'cx,cz' string never found one, and the blades grew through the forage)
     const x0 = i * CELL, z0 = j * CELL;
-    const plan = world.plans.get(`${Math.floor((x0 + 1) / CS)},${Math.floor((z0 + 1) / CS)}`);
+    const plan = world.plans.get(world.constructor.key(Math.floor((x0 + 1) / CS), Math.floor((z0 + 1) / CS)));
     const loose = plan ? plan.forage.filter((f) => f.x > x0 - 0.5 && f.x < x0 + CELL + 0.5 && f.z > z0 - 0.5 && f.z < z0 + CELL + 0.5) : [];
     for (let k = 0; k < PER_CELL; k++) {
       const x = (i + r()) * CELL, z = (j + r()) * CELL;
@@ -159,7 +175,9 @@ export class Grass {
       // of short lawn and of long grass
       const clumps = 0.25 + smoothstep(-0.35, 0.35, groundPatch(x * 0.35, z * 0.35));
       const size = smoothstep(-0.4, 0.4, groundPatch(x * 0.9 + 77, z * 0.9 - 41));
-      const turf = smoothstep(0.1, 0.7, g.grass) * clumps;
+      // on the Rot the turf is dead, not gone: thinner tufts of withered, grey-brown blades
+      const rot = g.rot ?? 0;
+      const turf = smoothstep(0.1, 0.7, rot > 0.05 ? Math.max(g.grass, (g.baseGrass ?? 0) * 0.55) : g.grass) * clumps;
       // and stragglers creep a few metres out into the litter, so a meadow has no edge line
       const sedge = 0.09 * g.litter * (1 - g.moss) * (1 - turf) + 0.35 * smoothstep(0.05, 0.25, g.grass) * (1 - turf);
       if (roll > turf + sedge || g.rock > 0.4 || g.mud > 0.6) continue;
@@ -169,9 +187,9 @@ export class Grass {
       const v = turf > 0.3 && size < 0.35 && vRoll < 0.65 ? LAWN
         : vRoll < (turf > 0.5 ? 0.08 + size * 0.1 : 0.45) ? TALL : Math.floor(vRoll * 3.33) % 3;
       // shorter where the turf thins, longer in the long-grass drifts
-      const s = (0.75 + sRoll * 0.4) * (0.6 + 0.9 * size) * (0.6 + 0.4 * smoothstep(0.3, 0.8, g.grass));
-      // dry, golden drifts and damp, deep green ones
-      const dry = smoothstep(-0.3, 0.3, groundPatch(x * 0.12 + 5, z * 0.12 - 9));
+      const s = (0.75 + sRoll * 0.4) * (0.6 + 0.9 * size) * (0.6 + 0.4 * smoothstep(0.3, 0.8, g.grass)) * (1 - 0.35 * rot);
+      // dry, golden drifts and damp, deep green ones; past 1, how dead it is on the Rot
+      const dry = rot > 0.05 ? 1 + Math.min(1, rot * 1.4) : smoothstep(-0.3, 0.3, groundPatch(x * 0.12 + 5, z * 0.12 - 9));
       out[v].push(x, g.h, z, g.nx, g.ny, g.nz, yaw, s, g.shade, dry);
     }
     return out.map((a) => new Float32Array(a));
@@ -224,8 +242,13 @@ export class Grass {
             _q.premultiply(_q2.setFromUnitVectors(_up, _n));
             _m.compose(_p.set(a[o], a[o + 1] - 0.015, a[o + 2]), _q, _s.setScalar(a[o + 7]));
             mesh.setMatrixAt(n[k], _m);
-            const v = a[o + 8], d = a[o + 9];
-            mesh.setColorAt(n[k], _c.setRGB(v * (0.92 + d * 0.35), v * (0.97 + d * 0.08), v * (1.05 - d * 0.35)));
+            const v = a[o + 8], dd = a[o + 9], d = Math.min(dd, 1);
+            // and every tuft a shade lighter or darker, warmer or cooler than its neighbours
+            const hsh = Math.abs(Math.sin(a[o] * 91.17 + a[o + 2] * 47.73) * 24634.63) % 1, hl = 0.82 + 0.36 * hsh, hw = (hsh * 7.31) % 1 - 0.5;
+            _c.setRGB(v * hl * (0.92 + d * 0.35 + hw * 0.16), v * hl * (0.97 + d * 0.08), v * hl * (1.05 - d * 0.35 - hw * 0.2));
+            // dead on the Rot: grey-brown, the green gone out of it
+            if (dd > 1) { const w = dd - 1; _c.setRGB(_c.r * (1 - 0.15 * w), _c.g * (1 - 0.5 * w), _c.b * (1 - 0.2 * w)); }
+            mesh.setColorAt(n[k], _c);
             n[k]++;
           }
         });

@@ -1,7 +1,7 @@
 // Pooled instanced quads for leaf bursts, wood chips, dust and sparks.
 import * as THREE from 'three';
 import { glowTexture } from '../art/textures.js';
-import { addPackedNormal, patch } from '../art/shaders.js';
+import { addPackedNormal, patch } from '../art/shaders.ts';
 
 // the dead-leaf photos' mean (linear) luminance over their opaque pixels
 const LEAF_LUM = 0.054;

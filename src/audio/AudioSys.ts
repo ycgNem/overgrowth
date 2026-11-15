@@ -2,8 +2,14 @@
 // Nothing is loaded from disk — every sound is built from oscillators and
 // filtered noise with the Web Audio API.
 import { TitleTheme } from './TitleTheme.js';
+import { Score, type ScoreState } from './Score.ts';
 
 export class AudioSys {
+  // (the nodes are made in start(), from a user gesture)
+  [key: string]: any;
+  /** the music's own level (Settings), under the master volume */
+  musicVolume = 0.7;
+
   constructor() {
     this.ctx = null;
     this.enabled = true;
@@ -20,12 +26,15 @@ export class AudioSys {
       this.ctx.resume();
       return;
     }
-    const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    const ctx = (this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)());
     this.master = ctx.createGain();
     const comp = ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(ctx.destination);
+    // the music on its own bus, so it has its own slider
+    this.musicBus = ctx.createGain();
+    this.musicBus.connect(this.master);
     this.applyVolume();
-    this.theme = new TitleTheme(ctx, this.master);
+    this.theme = new TitleTheme(ctx, this.musicBus);
     if (this.wantTheme) this.theme.start();
 
     // White noise buffer shared by everything.
@@ -33,6 +42,9 @@ export class AudioSys {
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    // the score in play (Score.ts): quiet until the game feeds it
+    this.score = new Score(ctx, this.musicBus, this.noise);
+    this.score.start();
 
     // Wind / rustle bed
     const wind = this.loopNoise();
@@ -122,6 +134,17 @@ export class AudioSys {
 
   applyVolume() {
     if (this.master) this.master.gain.value = this.enabled ? 0.7 * this.volume : 0;
+    if (this.musicBus) this.musicBus.gain.value = this.musicVolume;
+  }
+
+  setMusicVolume(v: number) {
+    this.musicVolume = v;
+    this.applyVolume();
+  }
+
+  // the score follows the night and the fight (Game.frame)
+  scoreUpdate(dt: number, s: ScoreState) {
+    this.score?.update(dt, s);
   }
 
   setVolume(v) {

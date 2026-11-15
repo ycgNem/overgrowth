@@ -2,7 +2,7 @@
 // foggier sky, the hiss of the downpour and, at night, lightning. Rain slows the Blight a
 // little and dampens fire. Driven by Waves: some nights it rains.
 import * as THREE from 'three';
-import { globalUniforms } from '../art/shaders.js';
+import { globalUniforms } from '../art/shaders.ts';
 
 const N = 3000;
 const BOX = 44; // metres across

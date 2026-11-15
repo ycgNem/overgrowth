@@ -146,7 +146,7 @@ export function leafCard(size, position, dir, spin) {
 
 // Lumpy blob, used to fill the inside of canopies and as rocks.
 export function blob(radius, detail, noiseFn, amp = 0.25, squashY = 1) {
-  let g = new THREE.IcosahedronGeometry(radius, detail);
+  let g = /** @type {THREE.BufferGeometry} */ (new THREE.IcosahedronGeometry(radius, detail));
   g.deleteAttribute('normal');
   g.deleteAttribute('uv');
   g = mergeVertices(g);
@@ -170,6 +170,7 @@ export function blob(radius, detail, noiseFn, amp = 0.25, squashY = 1) {
   return prep(g);
 }
 
+/** @param {THREE.BufferGeometry} geo @param {{ position?: any, rotation?: any, scale?: any }} [opts] */
 export function transform(geo, { position, rotation, scale } = {}) {
   _dummy.position.set(0, 0, 0);
   _dummy.rotation.set(0, 0, 0);

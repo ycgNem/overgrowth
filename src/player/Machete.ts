@@ -4,7 +4,7 @@
 // Switching belt slots drops one tool out of view and raises the next.
 import * as THREE from 'three';
 import { handleWoodTexture } from '../art/textures.js';
-import { buildMachete, loadHand } from './MacheteModel.js';
+import { buildMachete, loadHand } from './MacheteModel.ts';
 import { clamp } from '../utils/math.js';
 import { getWorldItemModel } from '../items/ItemModels.ts';
 
@@ -332,7 +332,7 @@ export class Machete {
     this.t = 0;
     this.hitDone = false;
     this.combo = 1 - this.combo;
-    this.cooldown = 0.5;
+    this.cooldown = 0.4;
     this.from.p.copy(this.pivot.position);
     this.from.q.copy(this.pivot.quaternion);
     return true;

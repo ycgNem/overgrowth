@@ -4,7 +4,7 @@
 // murky green-brown, the edge fades in softly and foam gathers along the banks.
 import * as THREE from 'three';
 import { waterNormalTexture } from '../art/textures.js';
-import { patch, globalUniforms } from '../art/shaders.js';
+import { patch, globalUniforms } from '../art/shaders.ts';
 import { WATER_LEVEL, CHUNK_SIZE, grove } from './WorldGen.js';
 
 const SIZE = 1400;
@@ -27,7 +27,7 @@ export class Water {
     this.heightTex.magFilter = this.heightTex.minFilter = THREE.LinearFilter;
     this.heightTex.needsUpdate = true;
     this.box = new THREE.Vector4(0, 0, WIN * CHUNK_SIZE, 0.5 / N);
-    this.window = { cx: NaN, cz: NaN, keys: '' };
+    this.window = { cx: NaN, cz: NaN, keys: -1 };
     const mat = new THREE.MeshStandardMaterial({
       color: 0x1a2f22, roughness: 0.06, metalness: 0.0,
       normalMap: tex, normalScale: new THREE.Vector2(0.2, 0.2),

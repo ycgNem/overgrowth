@@ -1,7 +1,7 @@
 // Atmosphere: pollen motes, fireflies, butterflies, birds and light shafts.
 import * as THREE from 'three';
 import { butterflyTexture } from '../art/textures.js';
-import { globalUniforms } from '../art/shaders.js';
+import { globalUniforms } from '../art/shaders.ts';
 
 const TAU = Math.PI * 2;
 

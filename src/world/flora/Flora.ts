@@ -13,7 +13,7 @@
 // small colour shift, so no two plants match.
 import * as THREE from 'three';
 import * as T from '../../art/textures.js';
-import { addWind, addFoliageLighting, addMoss, addSlopeShear, addPackedNormal, addNightFill, addDetailMap, addRelief } from '../../art/shaders.js';
+import { addWind, addFoliageLighting, addMoss, addSlopeShear, addPackedNormal, addNightFill, addDetailMap, addRelief } from '../../art/shaders.ts';
 import { createNoise2D } from '../../utils/noise.js';
 import { mulberry32, range, irange } from '../../utils/rng.js';
 import { clamp, smoothstep } from '../../utils/math.js';
@@ -140,7 +140,7 @@ export class Flora {
       palm: leaf('fronds', TREE_WIND, { flutter: 0.02, rough: 0.5 }),
       fern: leaf('fronds', PLANT_WIND, { flutter: 0.02, trans: 0.8 }),
       treeFern: leaf('fronds', { sway: 0.012 }, { flutter: 0.02, trans: 0.8 }),
-      grass: leaf('fronds', { sway: 0.09, push: true }, { glow: 0.04, rough: 0.7, flutter: 0 }),
+      grass: leaf('fronds', { sway: 0.09, push: true }, { glow: 0.02, rough: 0.66, flutter: 0, trans: 0.85 }),
       broad: leaf('broad', PLANT_WIND, { flutter: 0.01, rough: 0.55, trans: 0.7, env: 0.3 }),
       under: leaf('under', PLANT_WIND, { flutter: 0.012, trans: 0.7 }),
       underTree: leaf('under', TREE_WIND, { flutter: 0.012, trans: 0.7 }),
@@ -155,10 +155,11 @@ export class Flora {
     // cut: can be hacked with the machete; loot: table rolled when cut.
     // tint: [hue jitter, lightness jitter] for the per-instance colour shift
     this.types = {
-      // six giants, two of each habit (trees.ts)
-      bigTree: { variants: Array.from({ length: 6 }, (_, i) => giant(1000 + i * 101, i % 3, cell)), material: [m.bark, m.boughs], shadow: true, tint: [0.03, 0.12] },
+      // six giants, two of each habit (trees.ts); the second dome and the second old one are
+      // strangler figs
+      bigTree: { variants: Array.from({ length: 6 }, (_, i) => giant(1000 + i * 101, i % 3, cell, i >= 4)), material: [m.bark, m.boughs], shadow: true, tint: [0.03, 0.12] },
       palm: { variants: variants(3, 2000, (s) => palm(s, cell)), material: [m.palmBark, m.palm, m.stem], shadow: true, tint: [0.03, 0.1] },
-      smallTree: { variants: Array.from({ length: 6 }, (_, i) => understory(3000 + i * 101, i % 3, cell)), material: [m.bark, m.underTree], shadow: true, tint: [0.04, 0.14] },
+      smallTree: { variants: Array.from({ length: 6 }, (_, i) => understory(3000 + i * 101, i % 3, cell)), material: [m.bark, m.canopy], shadow: true, tint: [0.04, 0.14] },
       midTree: { variants: variants(3, 3200, (s) => umbrella(s, cell)), material: [m.palmBark, m.underTree], shadow: true, tint: [0.03, 0.12] },
       treeFern: { variants: variants(3, 3500, (s) => treeFern(s, cell)), material: [m.fernTrunk, m.treeFern], shadow: true, tint: [0.03, 0.12] },
       fern: { variants: variants(3, 4000, (s) => this.fern(s)), material: m.fern, shadow: false, tint: [0.04, 0.16], cut: { r: 0.9, loot: 'fern', color: 0x6a9a2a } },
@@ -464,10 +465,12 @@ export class Flora {
       const p = g.attributes.position;
       for (let k = 0; k < p.count; k++) p.setZ(k, p.getZ(k) + (p.getY(k) / H) ** 2 * 0.15);
       g.rotateY((i / 3) * Math.PI + r() * 0.4);
-      // dark down in the tuft where the blades crowd and shade each other
+      // dark down in the tuft where the blades crowd and shade each other; each card its own
+      // green (one olive, one cooler, one yellowing), so the tuft isn't one flat plastic colour
+      const tr = range(r, 0.8, 1.02), tb = range(r, 0.72, 0.95);
       shade(g, (q, n, c) => {
-        const s = 0.28 + 0.72 * Math.pow(Math.max(q.y, 0) / H, 0.7);
-        c.setRGB(s, s, s * 0.95);
+        const s = 0.16 + 0.78 * Math.pow(Math.max(q.y, 0) / H, 0.85);
+        c.setRGB(s * tr, s * 0.94, s * tb);
       });
       const nrm = g.attributes.normal;
       for (let k = 0; k < nrm.count; k++) {

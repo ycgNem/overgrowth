@@ -1,10 +1,12 @@
 // The Blight: creatures that pour out of the rifts at night and march on the Heartwood.
 //
 // Walkers follow the shared flow field, with a little separation so a swarm spreads out
-// instead of stacking. They bite whatever is in their way: a barricade or tower standing in
-// the next cell, the player if they come close, and finally the Heart. Every bite is
+// instead of stacking (the bosses walk a field of their own: FlowField). They bite whatever is
+// in their way: a barricade or tower standing in the next cell, one they're jammed against, the
+// player if they pass close (they turn on you within about ten metres, and give up and go back
+// to the Heart if you drag them 18 m off their way), and finally the Heart. Every bite is
 // telegraphed: the head rears back and the jaw opens for a beat before the damage lands.
-// Wisps fly straight over everything. The Thornback (every fifth night) slams the ground and
+// Wisps fly straight over everything, and dive at a player who comes under them. The Thornback (every fifth night) slams the ground and
 // calls Blightlings to it. Spitters stop at range and lob globs of bile at towers, leaving
 // burning puddles. Burrowers dig under a wall they meet and come up on the far side; a
 // Glowcap Lantern's light drags them up early and stuns them.
@@ -18,6 +20,7 @@ import { setFlash, setRim, setDissolve, setTint } from '../art/merge.ts';
 import { terrainHeight } from '../world/WorldGen.js';
 import { clamp, damp, angleDelta } from '../utils/math.js';
 import { GOAL_RADIUS } from './Base.js';
+import { BIG_RADIUS } from './FlowField.ts';
 import { glowTexture } from '../art/textures.js';
 
 // one shared glow for every Wisp (additive, so it never darkens what's behind it)
@@ -36,18 +39,21 @@ function wispGlow() {
 export const ENEMY_TYPES = {
   blightling: {
     name: 'Blightling', model: 'blightling', hp: 40, speed: 3.5, radius: 0.55, dmg: 8, rate: 1.0, reach: 1.4, windup: 0.32,
-    aggro: 7, chest: 0.6, loot: 'blightling', gait: 10, swing: 0.7, scale: 1.35, pounce: true,
+    aggro: 10, chest: 0.6, loot: 'blightling', gait: 10, swing: 0.7, scale: 1.35, pounce: true,
     resist: { fire: 1.25 },
   },
   rotboar: {
     name: 'Rotboar', model: 'rotboar', hp: 240, speed: 2.2, radius: 0.95, dmg: 22, rate: 1.5, reach: 1.9, windup: 0.5,
-    aggro: 5, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.8, heavy: 0.5, towerAggro: 4.5,
-    resist: { pierce: 0.7, blunt: 1.2, fire: 1.3 },
+    // the wall-breaker: it gores a tower it brushes past, but no longer hunts them down (1.1's
+    // 4.5 m and x1.8 had it doing nearly all the building damage in every lost night)
+    aggro: 8, chest: 0.9, loot: 'rotboar', gait: 6, swing: 0.45, scale: 1, wallBreaker: 1.4, heavy: 0.5, towerAggro: 3,
+    resist: { pierce: 0.5, blunt: 1.3, fire: 1.3, arc: 0.75 },
   },
   wisp: {
     name: 'Blight Wisp', model: 'wisp', hp: 55, speed: 3.4, radius: 0.5, dmg: 7, rate: 0.9, reach: 1.2, windup: 0.25,
-    aggro: 0, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
-    resist: { blunt: 0.5, arc: 1.25 },
+    // dive: it swoops on a player within this many metres
+    aggro: 0, dive: 8, chest: 0, loot: 'wisp', scale: 2.2, flying: true, altitude: 2.7,
+    resist: { blunt: 0.5, arc: 1.4 },
   },
   spitter: {
     name: 'Spitter', model: 'spitter', hp: 60, speed: 2.5, radius: 0.7, dmg: 12, rate: 4.0, reach: 1.3, windup: 0.75,
@@ -58,7 +64,7 @@ export const ENEMY_TYPES = {
   },
   burrower: {
     name: 'Burrower', model: 'burrower', hp: 150, speed: 2.9, radius: 0.75, dmg: 12, rate: 1.3, reach: 1.6, windup: 0.4,
-    aggro: 5, chest: 0.45, loot: 'burrower', gait: 9, swing: 0.55, scale: 1.25, burrows: true,
+    aggro: 8, chest: 0.45, loot: 'burrower', gait: 9, swing: 0.55, scale: 1.25, burrows: true,
     resist: { arc: 0.5, blunt: 1.2 },
   },
   // walks the forest by day between the old camps and wrecks, hunting by sound (Game.makeNoise,
@@ -69,16 +75,18 @@ export const ENEMY_TYPES = {
     resist: { fire: 1.6, pierce: 0.8 },
   },
   thornback: {
-    name: 'Thornback', model: 'thornback', hp: 1800, speed: 1.45, radius: 2.0, dmg: 40, rate: 2.2, reach: 3.7, windup: 0.6,
-    aggro: 6, chest: 2.6, loot: 'thornback', gait: 3.2, swing: 0.32, scale: 1.4, wallBreaker: 3, heavy: 0.9, boss: true,
-    resist: { pierce: 0.75, blunt: 0.75, arc: 0.75 },
+    name: 'Thornback', model: 'thornback', hp: 1800, speed: 1.7, radius: 2.0, dmg: 40, rate: 2.2, reach: 3.7, windup: 0.6,
+    aggro: 9, chest: 2.6, loot: 'thornback', gait: 3.2, swing: 0.32, scale: 1.4, wallBreaker: 3, heavy: 0.9, boss: true,
+    // (bolts glance off its plates; fire and a mortar's weight are the answer, and keeping it moving)
+    resist: { pierce: 0.5, blunt: 0.9, arc: 0.8, fire: 1.2 },
   },
   // night 10 (the last before the rescue) and every fifth after: a swollen, rotting matriarch
   // that lays eggs as she walks
   rot_mother: {
     name: 'The Rot Mother', model: 'rot_mother', hp: 5200, speed: 1.0, radius: 2.2, dmg: 45, rate: 2.4, reach: 3.9, windup: 0.7,
-    aggro: 6, chest: 2.4, loot: 'rot_mother', gait: 3, swing: 0.3, scale: 1.45, wallBreaker: 3, heavy: 0.95, boss: true, lays: true,
-    resist: { pierce: 0.8, blunt: 0.8, fire: 1.2 },
+    aggro: 7, chest: 2.4, loot: 'rot_mother', gait: 3, swing: 0.3, scale: 1.45, wallBreaker: 3, heavy: 0.95, boss: true, lays: true,
+    // (a bolt sinks into her without doing much; she burns, and a mortar shell bursts her eggs)
+    resist: { pierce: 0.4, blunt: 1.0, fire: 1.3 },
   },
   // her eggs: they sit and pulse, and hatch three Blightlings unless burned or cut first
   rot_egg: {
@@ -99,7 +107,8 @@ for (const t of Object.values(ENEMY_TYPES)) {
 // Damage types: what each source does (Towers, Projectiles, the burn) against `resist`.
 export const DAMAGE_TYPES = { pierce: 'Pierce', blunt: 'Blunt', fire: 'Fire', arc: 'Arc' };
 
-// Elite Blight (from night 4; Waves rolls them): one quirk each, more HP, a coloured outline
+// Elite Blight (Waves rolls them from the difficulty's eliteFrom night: 5 on Warden, 2 on
+// Blightborn, never on Verdant): one quirk each, more HP, a coloured outline
 // and an icon over the health bar, and better pickings when they fall.
 export const AFFIXES = {
   swift: { name: 'Swift', glyph: '»', rim: 0x60e0ff, desc: 'a third faster' },
@@ -130,6 +139,10 @@ const moundGeo = new THREE.SphereGeometry(0.7, 12, 6, 0, Math.PI * 2, 0, Math.PI
 const moundMat = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 });
 const _v = new THREE.Vector3();
 const ease = (t) => 1 - (1 - t) ** 3;
+// a chase that has dragged a Blight this far off its way ends, and it won't take up another
+// (unless you're right on it) for this many seconds
+const LEASH = 18;
+const GIVE_UP = 8;
 
 /** one of the Blight in the world (its state is a loose bag of timers and flags) */
 export type Enemy = any;
@@ -145,6 +158,8 @@ export class Enemies {
   globs: any[] = [];
   puddles: any[] = [];
   types = ENEMY_TYPES; // (for e2e probes)
+  /** the night's last few stragglers: they stop for no tower and make for the Heart (Waves) */
+  hurry = false;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -275,15 +290,54 @@ export class Enemies {
     setRim(e.obj, 0.6, affixRim(affix));
   }
 
+  // Every slow runs on its own clock and the strongest one still running is what holds it back
+  // (1.1 kept the strongest factor for the longest timer, so a mortar's hard slow lasted as long
+  // as a weak one laid after it). e.slow and e.slowT are what's in force and for how long.
   slowDown(e, factor, time) {
     if (e.affix === 'rooted') factor = Math.max(factor, 0.85);
+    if (factor >= 1 || time <= 0) return;
+    const S = (e.slows ??= []);
+    const same = S.find((q) => Math.abs(q.f - factor) < 0.01);
+    if (same) same.t = Math.max(same.t, time);
+    else {
+      S.push({ f: factor, t: time });
+      // (four at most: the weakest goes)
+      if (S.length > 4) S.sort((a, b) => a.f - b.f).length = 4;
+    }
     e.slow = Math.min(e.slow, factor);
     e.slowT = Math.max(e.slowT, time);
   }
 
-  ignite(e, dps, time) {
-    e.burnDps = Math.max(e.burnDps, dps);
-    e.burnT = Math.max(e.burnT, time);
+  // Each fire burns on its own clock (src: the brazier, firepot or graft that lit it; the same
+  // source lighting it again refreshes its own flames). The hottest burns in full and the next
+  // hottest adds half, so a second brazier on a lane is worth more than its direct hits.
+  ignite(e, dps, time, src: unknown = 'misc') {
+    if (dps <= 0 || time <= 0) return;
+    const B = (e.burns ??= []);
+    const q = B.find((x) => x.src === src);
+    if (q) {
+      q.dps = dps;
+      q.t = Math.max(q.t, time);
+    } else B.push({ src, dps, t: time });
+    this.burnTotal(e);
+  }
+
+  // what the burns on e come to now (the hottest, plus half the next); sets burnDps and burnT
+  burnTotal(e) {
+    let a = 0, b = 0, t = 0;
+    for (const q of e.burns || []) {
+      if (q.t <= 0) continue;
+      t = Math.max(t, q.t);
+      if (q.dps > a) { b = a; a = q.dps; } else if (q.dps > b) b = q.dps;
+    }
+    e.burnDps = a + b * 0.5;
+    e.burnT = t;
+    return e.burnDps;
+  }
+
+  // can a snare (or the Heartwood's roots) hold it? Not a flyer, a boss or a Rooted elite
+  rootable(e) {
+    return !e.def.flying && !e.def.boss && e.affix !== 'rooted';
   }
 
   root(e, time) {
@@ -351,23 +405,40 @@ export class Enemies {
       }
 
       // statuses
-      if (e.slowT > 0) {
-        e.slowT -= dt;
-        if (e.slowT <= 0) e.slow = 1;
+      if (e.slows?.length) {
+        let f = 1, st = 0;
+        for (let k = e.slows.length - 1; k >= 0; k--) {
+          const q = e.slows[k];
+          q.t -= dt;
+          if (q.t <= 0) e.slows.splice(k, 1);
+          else {
+            f = Math.min(f, q.f);
+            st = Math.max(st, q.t);
+          }
+        }
+        e.slow = f;
+        e.slowT = st;
+      } else if (e.slowT > 0 || e.slow < 1) {
+        e.slow = 1;
+        e.slowT = 0;
       }
       e.rootT = Math.max(0, e.rootT - dt);
       if (e.layT) e.layT = Math.max(0, e.layT - dt);
       e.stagger = Math.max(0, e.stagger - dt);
-      if (e.burnT > 0) {
-        e.burnT -= dt;
+      if (e.burns?.length) {
+        for (let k = e.burns.length - 1; k >= 0; k--) if ((e.burns[k].t -= dt) <= 0) e.burns.splice(k, 1);
         e.burnTick -= dt;
         if (Math.random() < dt * 14) ctx.particles?.embers(this.chest(e).clone(), 1, def.radius);
         if (e.burnTick <= 0) {
           e.burnTick = 0.5;
-          this.damage(e, e.burnDps * 0.5, ctx.damageCtx, null, { source: 'burn', type: 'fire' });
+          const dps = this.burnTotal(e);
+          if (dps > 0) this.damage(e, dps * 0.5, ctx.damageCtx, null, { source: 'burn', type: 'fire' });
           if (e.dying) continue;
         }
-        if (e.burnT <= 0) e.burnDps = 0;
+        this.burnTotal(e);
+      } else if (e.burnT > 0) {
+        e.burnT = 0;
+        e.burnDps = 0;
       }
 
       if (def.egg) this.updateEgg(e, dt, t, ctx);
@@ -400,6 +471,53 @@ export class Enemies {
       b.rise = 0.5;
     }
     ctx.onHatch?.(e);
+  }
+
+  // A night Blight's chase. sees: the player is within its aggro. It goes for you, and keeps
+  // where the chase began; dragged LEASH metres from there, or four seconds without getting any
+  // closer (you're behind a wall), it gives up for GIVE_UP seconds and goes back to the Heart,
+  // turning only on a player right on top of it. Returns whether it is going for the player now.
+  chasing(e, sees, toPlayer, dt) {
+    if (e.giveUpT > 0) e.giveUpT -= dt;
+    const close = toPlayer < e.def.reach * e.def.scale + 1.2;
+    if (!sees) {
+      e.chase = null;
+      return false;
+    }
+    if (e.giveUpT > 0) return close;
+    const C = (e.chase ??= { x: e.pos.x, z: e.pos.z, best: toPlayer, t: 0 });
+    if (toPlayer < C.best - 0.5) {
+      C.best = toPlayer;
+      C.t = 0;
+    } else if (!close) C.t += dt;
+    if (Math.hypot(e.pos.x - C.x, e.pos.z - C.z) > LEASH || C.t > 4) {
+      e.chase = null;
+      e.giveUpT = GIVE_UP;
+      return close;
+    }
+    return true;
+  }
+
+  // Going nowhere while it means to walk (pushed back by two buildings it can't fit between,
+  // a seam the field let through, a crowd at a wall's end): after two seconds of it, it bites
+  // the nearest building in its way (e.jam) until that falls or it gets moving again. 1.1's
+  // Thornback stood 27 s in a 2.1 m gap between two walls while its brood took the Heart.
+  jammed(e, dt, speed, moved, buildings) {
+    if (speed < 0.3 || e.leap) {
+      e.stuckT = 0;
+      return;
+    }
+    if (moved < speed * dt * 0.25) e.stuckT = (e.stuckT || 0) + dt;
+    else e.stuckT = Math.max(0, (e.stuckT || 0) - dt * 2);
+    if (e.stuckT < 2) return;
+    e.stuckT = 0;
+    let bd = e.def.reach * 0.8 + 0.5, best = null;
+    for (const b of buildings) {
+      if (b.dead || !b.blocks) continue;
+      const d = b.distTo(e.pos.x, e.pos.z) - e.def.radius;
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (best) e.jam = best;
   }
 
   // ---------------------------------------------------------------- walkers
@@ -436,10 +554,16 @@ export class Enemies {
     }
     const aggro = (g ? 10 : def.aggro) * (e.alert ? 1.7 : 1);
     const home = g || pat;
-    const seesPlayer = ctx.playerAlive && toPlayer < aggro && Math.abs(player.y - e.pos.y) < 2.5
+    let seesPlayer = ctx.playerAlive && toPlayer < aggro && Math.abs(player.y - e.pos.y) < 2.5
       && (!home || Math.hypot(player.x - home.x, player.z - home.z) < home.leash);
+    // the night's Blight turn on you as they pass, and give up if you drag them too far off
+    // their way (a kited pack used to leave the Heart alone all night)
+    if (!home) seesPlayer = this.chasing(e, seesPlayer, toPlayer, dt);
+    // the last stragglers of a night stop for nothing (Waves.update sets it)
+    const hurry = this.hurry && !home;
+    if (hurry) e.prey = null;
     // Rotboars break off to gore a tower that comes within reach, and stay on it until it falls
-    if (def.towerAggro && !seesPlayer && !g) {
+    if (def.towerAggro && !seesPlayer && !g && !hurry) {
       if (e.prey && (e.prey.dead || e.prey.distTo(e.pos.x, e.pos.z) > def.towerAggro * 1.5)) e.prey = null;
       if (!e.prey) {
         let bd = def.towerAggro;
@@ -493,17 +617,25 @@ export class Enemies {
       want = { x: (base.x - e.pos.x) / toBase, z: (base.z - e.pos.z) / toBase };
       attack = { kind: 'base' };
     } else {
-      const d = field.dirAt(e.pos.x, e.pos.z);
+      // (the bosses walk the big field, where a gap too narrow for them costs a wall)
+      const big = def.radius >= BIG_RADIUS;
+      const d = field.dirAt(e.pos.x, e.pos.z, big);
       if (d) {
         want = d;
         // a building in the way: chew through it
-        const b = field.blockerAt(d.next) || field.blockerAt(field.idx(e.pos.x, e.pos.z));
+        const b = field.blockerAt(d.next, big) || field.blockerAt(field.idx(e.pos.x, e.pos.z), big);
         if (b && b.blocks && !b.dead) {
           const gap = b.distTo(e.pos.x, e.pos.z) - def.radius;
           if (gap < def.reach * 0.6) attack = { kind: 'building', ref: b };
         }
       } else {
         want = { x: (base.x - e.pos.x) / toBase, z: (base.z - e.pos.z) / toBase };
+      }
+      // jammed against a building the field didn't put in its way (a gap it can't fit, a seam
+      // between two): it bites that building until it falls or it's moved on (see `jammed`)
+      if (!attack && e.jam) {
+        if (e.jam.dead || e.jam.distTo(e.pos.x, e.pos.z) - def.radius > def.reach * 0.8 + 0.5) e.jam = null;
+        else attack = { kind: 'building', ref: e.jam };
       }
     }
 
@@ -512,7 +644,8 @@ export class Enemies {
       const S = def.spit;
       let tgt = null;
       if (ctx.playerAlive && toPlayer < S.playerRange && Math.abs(player.y - e.pos.y) < 4) tgt = { kind: 'spit', at: { x: player.x, z: player.z }, player: true };
-      if (!tgt) {
+      // (a bold Spitter has given up on the buildings: see below)
+      if (!tgt && !e.bold && !hurry) {
         let bd = S.range;
         for (const b of ctx.buildings) {
           if (b.dead || !(b.def.range || b.blocks)) continue;
@@ -522,6 +655,20 @@ export class Enemies {
         }
       }
       if (!tgt && toBase < S.range + GOAL_RADIUS * 0.5) tgt = { kind: 'spit', at: { x: base.x, z: base.z }, base: true };
+      // patience: a building that isn't getting weaker (it mends as fast as it's hit) holds a
+      // Spitter 20 s at most; then it gives up on the buildings and walks on to the Heart (1.1
+      // could stand off out of every tower's reach and stall a night for ever)
+      if (tgt?.ref) {
+        if (e.spitAt !== tgt.ref) {
+          e.spitAt = tgt.ref;
+          e.spitHp = tgt.ref.hp;
+          e.spitT = 0;
+        } else if ((e.spitT += dt) > 20) {
+          if (tgt.ref.hp > e.spitHp - 0.1 * tgt.ref.maxHp) e.bold = true;
+          e.spitHp = tgt.ref.hp;
+          e.spitT = 0;
+        }
+      }
       if (tgt) {
         const dx = tgt.at.x - e.pos.x, dz = tgt.at.z - e.pos.z, dl = Math.hypot(dx, dz) || 1;
         want = { x: dx / dl, z: dz / dl };
@@ -611,6 +758,7 @@ export class Enemies {
     e.vel.x = damp(e.vel.x, wx, 6, dt);
     e.vel.z = damp(e.vel.z, wz, 6, dt);
     e.knock.multiplyScalar(Math.exp(-dt * 6));
+    const x0 = e.pos.x, z0 = e.pos.z;
     e.pos.x += (e.vel.x + e.knock.x) * dt;
     e.pos.z += (e.vel.z + e.knock.z) * dt;
 
@@ -627,6 +775,9 @@ export class Enemies {
     }
     const gy = base.groundAt(e.pos.x, e.pos.z);
     e.pos.y = damp(e.pos.y, gy, 14, dt);
+    // on its way to the Heart but going nowhere: jammed (see `jammed`)
+    if (!attack && !seesPlayer && !e.prey && !g && !pat) this.jammed(e, dt, speed, Math.hypot(e.pos.x - x0, e.pos.z - z0), ctx.buildings);
+    else e.stuckT = 0;
 
     // ---- face where we're going (or what we're biting)
     const fx = attack ? want.x : e.vel.x, fz = attack ? want.z : e.vel.z;
@@ -708,7 +859,18 @@ export class Enemies {
     const ring = GOAL_RADIUS + 0.6;
     let wx, wz;
     let attack = false;
-    if (d > ring) {
+    // a player who comes under it: it peels off and dives (leashed like the walkers)
+    const P = ctx.player;
+    const toP = Math.hypot(P.x - e.pos.x, P.z - e.pos.z);
+    const diving = !!def.dive && this.chasing(e, ctx.playerAlive && toP < def.dive && Math.abs(P.y - e.pos.y) < 7, toP, dt);
+    e.diving = diving;
+    if (diving) {
+      const px = (P.x - e.pos.x) / (toP || 1), pz = (P.z - e.pos.z) / (toP || 1);
+      const k = toP > 1.3 ? 1.15 : 0.1;
+      wx = px * speed * k + pz * speed * 0.15 * Math.sin(t * 2 + e.phase);
+      wz = pz * speed * k - px * speed * 0.15 * Math.sin(t * 2 + e.phase);
+      attack = toP < 2.2;
+    } else if (d > ring) {
       // drift in on a lazy spiral
       const sw = Math.sin(t * 0.7 + e.phase) * 0.45;
       wx = (dx / d + (-dz / d) * sw) * speed;
@@ -736,9 +898,12 @@ export class Enemies {
     e.pos.z += (e.vel.z + e.knock.z) * dt;
     e.lunge = Math.max(0, e.lunge - dt * 3);
     const gy = Math.max(terrainHeight(e.pos.x, e.pos.z), base.y + 0.6);
-    const alt = def.altitude + Math.sin(t * 1.9 + e.phase) * 0.35 - e.lunge * 1.4 - e.rise * 1.5;
-    e.pos.y = damp(e.pos.y, gy + alt, 3, dt);
-    if (Math.hypot(e.vel.x, e.vel.z) > 0.2) e.yaw += angleDelta(e.yaw, attack ? Math.atan2(dx, dz) : Math.atan2(e.vel.x, e.vel.z)) * Math.min(1, dt * 4);
+    // diving, it drops to head height as it closes in
+    const cruise = diving ? 1.3 + (def.altitude - 1.3) * clamp((toP - 1.5) / 5, 0, 1) : def.altitude;
+    const alt = cruise + Math.sin(t * 1.9 + e.phase) * 0.35 - e.lunge * 1.4 - e.rise * 1.5;
+    e.pos.y = damp(e.pos.y, (diving ? Math.max(gy, P.y) : gy) + alt, 3, dt);
+    const face = diving ? Math.atan2(P.x - e.pos.x, P.z - e.pos.z) : attack ? Math.atan2(dx, dz) : Math.atan2(e.vel.x, e.vel.z);
+    if (Math.hypot(e.vel.x, e.vel.z) > 0.2 || diving) e.yaw += angleDelta(e.yaw, face) * Math.min(1, dt * 4);
 
     e.attackT -= dt;
     if (e.windT > 0) {
@@ -746,11 +911,14 @@ export class Enemies {
       if (e.windT <= 0) {
         e.lunge = 1;
         e.attackT = def.rate;
-        if (attack) ctx.hitBase(def.dmg, e);
+        if (e.windKind === 'player') {
+          if (ctx.playerAlive && Math.hypot(P.x - e.pos.x, P.z - e.pos.z) < 2.8) ctx.hitPlayer(def.dmg, e);
+        } else if (attack && !diving) ctx.hitBase(def.dmg, e);
       }
     } else if (attack && e.attackT <= 0 && e.rise <= 0) {
       e.windT = def.windup;
-      ctx.onWindup?.(e, 'base');
+      e.windKind = diving ? 'player' : 'base';
+      ctx.onWindup?.(e, e.windKind);
     }
 
     // wings beat, the mantle trails, the core throbs
@@ -810,7 +978,8 @@ export class Enemies {
       this.globs.splice(i, 1);
       const to = g.to;
       for (const b of ctx.buildings) {
-        if (!b.dead && b.distTo(to.x, to.z) < g.splash) ctx.hitBuilding(b, g.dmg * g.building, g.src);
+        // (from range: a barricade's thorns can't reach the Spitter that lobbed it)
+        if (!b.dead && b.distTo(to.x, to.z) < g.splash) ctx.hitBuilding(b, g.dmg * g.building, g.src, true);
       }
       if (Math.hypot(to.x - ctx.base.x, to.z - ctx.base.z) < GOAL_RADIUS + 0.5) ctx.hitBase(g.dmg * 0.7, g.src);
       if (ctx.playerAlive && Math.hypot(to.x - ctx.player.x, to.z - ctx.player.z) < g.splash) ctx.hitPlayer(g.dmg * 0.8, g.src);

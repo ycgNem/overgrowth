@@ -8,9 +8,9 @@ import { HOTBAR, LADEN, HARD_CAP, transfer, swapAcross } from '../items/Inventor
 import { POI_INFO, poisAround } from '../world/poi/POI.js';
 import { terrainHeight, jungleDensity, CHUNK_SIZE } from '../world/WorldGen.js';
 import { angleDelta } from '../utils/math.js';
-import { describeWave } from '../defense/Waves.js';
+import { describeWave } from '../defense/Waves.ts';
 import { AFFIXES, affixRim } from '../defense/Enemies.ts';
-import { ROOTS, BUILD_DEFS } from '../defense/Towers.ts';
+import { BUILD_DEFS, rootCost } from '../defense/Towers.ts';
 import type { Inventory, Sources, Slot, Recipe } from '../items/Inventory.ts';
 import type { Building } from '../defense/Towers.ts';
 
@@ -79,11 +79,14 @@ export class HUD {
   discovered: Set<string>;
   markers: Marker[];
   keyLabel: ((code: string) => string) | null;
+  /** the physical key bound to a default code (Game sets it) */
+  keyLabelCode: ((code: string) => string) | null = null;
   fpsAcc: { t: number; n: number };
   fpsOn: boolean;
   hurtT: number;
   bannerUntil = 0; // when the banner now showing will have faded (a place name waits for it)
   bannerK: number; // the latest banner (an older one's next-frame show is dropped)
+  discoverK: number; // the latest place name shown (an older one's hide is dropped)
   carry: { inv: Inventory; i: number } | null;
   press: { inv: Inventory; i: number; x: number; y: number; half: boolean; dragging: boolean } | null;
   hover: SlotRef | null;
@@ -250,7 +253,9 @@ export class HUD {
         e.className = `poi ${cls}`;
         e._cls = cls;
       }
-      const html = `${icon}<small>${label} ${Math.round(dist)}m</small>`;
+      // (far off, how long the walk is: a round trip to the temple is most of a day)
+      const walk = dist > 150 ? ` · ${Math.round(dist / 4.3 / 60 * 2) / 2 || 0.5} min` : '';
+      const html = `${icon}<small>${label} ${Math.round(dist)}m${walk}</small>`;
       if (e.dataset.html !== html) {
         e.innerHTML = html;
         e.dataset.html = html;
@@ -354,6 +359,24 @@ export class HUD {
       c.beginPath();
       c.arc(bx, bz, extra.buildRadius * k, 0, Math.PI * 2);
       c.stroke();
+      c.setLineDash([]);
+    }
+    // where the Blight will walk tonight: a dotted violet line from each open rift (and each
+    // bloom) down the flow field to the Heart, drawn by day so the first trap isn't a guess
+    if (extra.lanes?.length) {
+      c.strokeStyle = 'rgba(208,112,255,0.75)';
+      c.lineWidth = 4;
+      c.setLineDash([3, 9]);
+      c.lineCap = 'round';
+      for (const lane of extra.lanes) {
+        c.beginPath();
+        lane.forEach(([x, z], i) => {
+          const [px, pz] = toMap(x, z);
+          if (i) c.lineTo(px, pz);
+          else c.moveTo(px, pz);
+        });
+        c.stroke();
+      }
       c.setLineDash([]);
     }
     // buildings and enemies
@@ -503,6 +526,9 @@ export class HUD {
     d.classList.remove('show');
     void d.offsetWidth;
     d.classList.add('show');
+    // (off again once its 5 s animation is done: the journal dims only while it's up)
+    const k = (this.discoverK = (this.discoverK || 0) + 1);
+    setTimeout(() => { if (k === this.discoverK) d.classList.remove('show'); }, 5100);
   }
 
   // line2: { text, color }, a second line in its own colour (tonight's Sign under a boss)
@@ -528,6 +554,9 @@ export class HUD {
     requestAnimationFrame(() => {
       if (k === this.bannerK) b.classList.add('show');
     });
+    // off again once its animation is done (3.6 s at night, 5 s by day), so the journal, which
+    // dims while a banner is up, comes back
+    setTimeout(() => { if (k === this.bannerK) b.classList.remove('show'); }, (cls === 'night' || cls === 'boss' ? 3600 : 5000) + 150);
   }
 
   hurt(amount: number) {
@@ -598,13 +627,19 @@ export class HUD {
     });
     // captured before the game's input sees it, so the 1-3 that picks a boon doesn't also
     // switch the belt slot
+    // (and the cards ignore picks for their first half second: a belt key or a click already on
+    // its way when they opened is not a choice)
+    const shown = performance.now();
+    const early = () => performance.now() - shown < 600;
     const key = (e: KeyboardEvent) => {
       const i = Number(e.key) - 1;
       if (!options[i]) return;
       e.stopImmediatePropagation();
+      if (early() || e.repeat) return;
       done(options[i]);
     };
     const done = (p: P) => {
+      if (early()) return;
       removeEventListener('keydown', key, true);
       el.classList.add('hidden');
       onPick(p);
@@ -678,7 +713,7 @@ export class HUD {
       done?.();
     };
     const key = (e: KeyboardEvent) => {
-      if (['Enter', 'Space', 'Escape', 'KeyE'].includes(e.code)) {
+      if (['Enter', 'Space', 'Escape', 'KeyE'].includes(e.code) || e.code === this.keyLabelCode?.('KeyE')) {
         e.preventDefault();
         e.stopImmediatePropagation();
         close();
@@ -793,7 +828,8 @@ export class HUD {
         if (b.barT <= 0) continue;
       }
       _p.set(b.x, b.y + (b.def.muzzle || 1.4) + 0.9, b.z);
-      bar(_p.clone(), b.hp / b.maxHp, 'build');
+      // (a trap's bar is its springs left)
+      bar(_p.clone(), b.maxCharges ? b.charges / b.maxCharges : b.hp / b.maxHp, 'build');
     }
     for (let i = n; i < this.bars.length; i++) this.bars[i].style.display = 'none';
   }
@@ -1311,13 +1347,19 @@ export class HUD {
         card.style.setProperty('--rc', RARITY[def.rarity].color);
         const img = card.querySelector('img.out');
         if (img.getAttribute('src') !== this.icons[r.out]) img.setAttribute('src', this.icons[r.out] || '');
-        card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '');
+        // two recipes for one thing (the pry bar, scrap shot) say what each is made from
+        const twin = RECIPES.some((o) => o !== r && o.out === r.out);
+        card.querySelector('.name').textContent = def.name + (r.n > 1 ? ` ×${r.n}` : '') + (twin ? ` · from ${ITEMS[Object.keys(r.needs)[0]].name.toLowerCase()}` : '');
+        // a bench not built yet (or not high enough): one dim line, so the first minute's
+        // satchel shows what you can make, not twenty recipes for later
+        const lvl = r.lvl || 1;
+        card.classList.toggle('later', r.at !== 'field' && (ctx.benches?.[r.at] ?? 0) < lvl);
         card.querySelector('.needs').innerHTML = this.costHtml(r.needs, ctx.src);
         // a defence: what it draws from the roots against what's free, and its damage type
         const bd = def.kind === 'build' && BUILD_DEFS[r.out];
         let meta = '';
         if (bd && ctx.roots) {
-          const k = ROOTS[r.out] || 1, over = ctx.roots.used + k > ctx.roots.cap;
+          const k = rootCost(r.out), over = ctx.roots.used + k > ctx.roots.cap;
           meta = `<span class="roots${over ? ' over' : ''}">❦ ${k} root${k > 1 ? 's' : ''} · ${ctx.roots.used}/${ctx.roots.cap}</span>${DTYPE[bd.kind] ? `<span class="dtype t-${DTYPE[bd.kind].toLowerCase()}">${DTYPE[bd.kind]}</span>` : ''}`;
         }
         const me = card.querySelector('.meta');
@@ -1378,7 +1420,7 @@ export class HUD {
       sub.dataset.src = st;
       sub.innerHTML = st;
     }
-    const acts = (o.actions || []).map((a, i) => `<button data-i="${i}"${a.cls ? ` class="${a.cls}"` : ''}${a.off?.() ? ' disabled' : ''}>${a.key ? `<kbd>${a.key}</kbd> ` : ''}${a.label}</button>`).join('');
+    const acts = (o.actions || []).map((a, i) => `<button data-i="${i}"${a.cls ? ` class="${a.cls}"` : ''}${a.off?.() ? ' disabled' : ''}>${a.key ? `<kbd>${a.key.length > 1 ? this.keyLabel(a.key) : a.key}</kbd> ` : ''}${a.label}</button>`).join('');
     const ae = this.el.other.querySelector('.acts');
     if (ae.innerHTML !== acts) ae.innerHTML = acts;
     o.inv.slots.forEach((s, i) => {
@@ -1451,6 +1493,42 @@ export class HUD {
 
   // Hovering a recipe: every ingredient with what you carry against what it takes, what's
   // still missing, and where to look for it.
+  // ---- the satchel from a gamepad (or the arrow keys): the d-pad steps through the recipes
+  // you can make here and across the tabs, A crafts the one picked
+  padStep(d: number) {
+    if (this.tab !== 'craft') return;
+    const vis = this.recipeEls.filter(({ card }) => !card.classList.contains('later'));
+    if (!vis.length) return;
+    let i = vis.findIndex(({ card }) => card.classList.contains('pad'));
+    i = i < 0 ? (d > 0 ? 0 : vis.length - 1) : (i + d + vis.length) % vis.length;
+    for (const { card } of this.recipeEls) card.classList.remove('pad');
+    const { r, card } = vis[i];
+    card.classList.add('pad');
+    card.scrollIntoView({ block: 'nearest' });
+    this.detail(r.out);
+    this.showTip(r);
+    // the tip to the card's left (there's always room: the recipes are the right-hand column)
+    const b = card.getBoundingClientRect();
+    if (this.tipEl) this.placeTip({ clientX: b.left - this.tipEl.offsetWidth - 36, clientY: b.top } as MouseEvent);
+  }
+
+  padCraft() {
+    if (this.tab !== 'craft') return false;
+    const e = this.recipeEls.find(({ card }) => card.classList.contains('pad'));
+    if (!e || e.card.querySelector('button').disabled) return false;
+    this.onCraft?.(e.r);
+    return true;
+  }
+
+  padTab(d: number) {
+    const tabs = [...(this.el.tabs as HTMLElement).querySelectorAll<HTMLElement>('[data-tab]')].map((b) => b.dataset.tab);
+    const i = tabs.indexOf(this.tab);
+    if (i < 0 || tabs.length < 2) return;
+    this.tab = tabs[(i + d + tabs.length) % tabs.length];
+    this.hideTip();
+    this.renderInventory();
+  }
+
   showTip(r: CraftRecipe, ev?: MouseEvent) {
     if (!this.tipEl) {
       this.tipEl = document.createElement('div');

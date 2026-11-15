@@ -43,25 +43,25 @@ You hold the line with your towers and your machete until dawn.
 | --- | --- | --- |
 | Slot inventory | `items/Inventory.js` | 8-slot hotbar + 24-slot pack, stack limits, 1–8 / wheel select |
 | Forest items | `items/ItemDB.js`, `items/ItemModels.js` | ~16 new materials alongside the old scavenge loot |
-| Foraging | `world/World.js` (forage layer) | sticks, stones, flint, mushrooms, berries, clay, feathers, bones lying in the world: **E** to pick up |
+| Foraging | `world/World.ts` (forage layer) | sticks, stones, flint, mushrooms, berries, clay, feathers, bones lying in the world: **E** to pick up |
 | Harvesting | `core/Game.js` | machete on trunks → bark/resin/vines, on rocks → stone/flint, plants → fiber/thorns/berries |
 | Crafting | `items/Recipes.js`, `ui/HUD.js` | Craft tab in the satchel; towers, traps, tools, consumables |
 | Base | `defense/Base.js` | Heartwood shrine at spawn, 30 m clearing with a soft 10 m edge, build zone radius 40 m, rifts ~50 m out |
-| Waves | `defense/Waves.js` | phase state machine tied to `Sky.time`; three packs per night; boss every 5th night; rain nights |
-| Pathing | `defense/FlowField.js` | 2 m grid, Dijkstra from the Heart, costs from slope/water/colliders/barricades |
-| Enemies | `defense/Enemies.js` | Blightling (swarm, pounces), Rotboar (tank, breaks walls), Wisp (flying), Spitter (artillery: bile globs, burning puddles), Burrower (digs under walls), Thornback (boss: slams, summons) |
+| Waves | `defense/Waves.ts` | phase state machine tied to `Sky.time`; three packs per night; boss every 5th night; rain nights |
+| Pathing | `defense/FlowField.ts` | 2 m grid, Dijkstra from the Heart, costs from slope/water/colliders/barricades |
+| Enemies | `defense/Enemies.ts` | Blightling (swarm, pounces), Rotboar (tank, breaks walls), Wisp (flying), Spitter (artillery: bile globs, burning puddles), Burrower (digs under walls), Thornback (boss: slams, summons) |
 | Memories | `core/Memories.js` | permanent unlocks from lifetime records: starting kit, a fourth boon card, Memory-only boons |
-| Towers | `defense/Towers.js` | placement ghost, targeting, projectiles, HP, three tiers, repair |
-| Slingshot, firepots | `combat/Projectiles.js` | swept-sphere stones with gravity; firepots burst into a burning patch |
+| Towers | `defense/Towers.ts` | placement ghost, targeting, projectiles, HP, three tiers, repair |
+| Slingshot, firepots | `combat/Projectiles.ts` | swept-sphere stones with gravity; firepots burst into a burning patch |
 | Boons | `core/Perks.js` | offer relics at the Heartwood → favour → pick 1 of 3 boons |
-| Saves | `core/Save.js` | `localStorage`, autosave at dawn and every 30 s by day, best-run record |
+| Saves | `core/Save.ts` | `localStorage`, autosave at dawn and every 30 s by day, best-run record |
 | Tutorial | `core/Journal.js` | first-day steps, then two rolling optional goals |
 | Weather | `fx/Weather.js` | rain nights: streaks, lightning, heavier fog, dimmer light |
 | Lights | `fx/LightPool.js` | six pooled point lights for fire, arcs, mortar bursts and rifts |
 | Assets | `assets/Models.js`, `public/models/*.glb` | Blender-made GLBs, procedural fallback if a file is missing |
 | Title & pause | `ui/Menu.js`, `ui/menu.css`, `main.js` | splash, title menu and its pages, pause menu; `Game.startTitle/flyIn` run the cinematic |
 | Difficulty | `core/Difficulty.js` | Verdant / Warden / Blightborn: Blight HP and numbers, Heartwood HP, starting kit |
-| Records | `core/Save.js` | lifetime totals in `og.records`, banked at each dawn and when a run ends |
+| Records | `core/Save.ts` | lifetime totals in `og.records`, banked at each dawn and when a run ends |
 
 ## Content (first pass)
 
@@ -77,7 +77,7 @@ Relics (doubloon, idol, mask) can be **offered at the Heartwood** to heal it.
 | Thorn Barricade | 4 stick, 3 thorns, 1 vine | Wall. Blocks paths, hurts attackers |
 | Bramble Bow Tower | 2 log, 3 stick, 2 vine, 2 flint, 2 feather | Single target, long range |
 | Spore Mortar | 1 log, 3 stone, 4 mushroom, 2 clay, 1 resin | Splash damage, slows |
-| Tesla Totem | 1 log, 2 copper wire, 1 battery, 1 vacuum tube, 2 scrap metal | Chain lightning |
+| Tesla Totem | 1 log, 2 copper wire, 1 battery, 3 scrap metal | Chain lightning |
 | Spike Trap | 3 stick, 2 flint | Floor trap, a few uses |
 | Ember Brazier | 4 stone, 2 clay, 1 log, 2 resin | Short range, sets the Blight burning (hits flyers) |
 | Vine Snare | 4 vine, 3 fiber, 2 stick, 2 thorns | Roots up to 3 Blight for 2.6 s, 6 charges |
@@ -169,7 +169,7 @@ a 1.0.
      each one needs.
    - **Night readability**: night stops looking like tinted day. Darker leaf litter under the
      moon, the Blight's eyes and rims carry, fire and the Heartwood light the clearing.
-   - Field Guide, journal goals, wave composition and balance (`e2e/balance.mjs`) for all of it.
+   - Field Guide, journal goals, wave composition and balance (`e2e/balance.ts`) for all of it.
 
 10. **Wild Places: done (2026-10-15, release 0.9).** Pooled instancing (~200 draw calls),
     far LODs and draw distances (forest frames 16 → 9 ms), Steady frame rate, the tent, wreck
@@ -221,68 +221,100 @@ The old list follows for reference.
       captions for audio cues (the horn, the Thornback's roar, a building under attack),
       screen-shake and motion toggles.
     - Achievements (local), tied into the Records page.
-    - A balance pass on every difficulty with `e2e/balance.mjs`, and performance targets
+    - A balance pass on every difficulty with `e2e/balance.ts`, and performance targets
       (p95 under 16.7 ms on High on this machine, Low playable on integrated graphics).
     - Trailer-ready capture mode (free camera, hide HUD).
 
 ## Balance
 
-- Day 1 is generous: you start with one Bramble Bow Tower, two spike traps and two poultices.
-  The tower holds night 1 (9 Blightlings) on its own.
-- Night *n* (`waveFor` in `defense/Waves.js`):
-  - Blightlings: `6 + 3n`.
-  - Rotboars: `n − 1` to night 4, then `n` (at most 7).
-  - Wisps: from night 4, `floor((n − 2) × 1.3)`.
-  - Spitters: from night 3, `floor(n / 3)`, each replacing two Blightlings.
-  - Burrowers: from night 6, `n − 5`, each replacing three.
-  - Bosses: the Thornback on night 5, the Rot Mother on night 10 (0.4× her HP there, two
-    eggs a lay, a 3 s pause to lay). From night 15, every fifth night brings both.
-  - The *surge* (nights 6+), a fourth pack from every rift at once, with `k = n − 5`: `3k`
-    Blightlings, `min(k, 3)` Rotboars, `k/2` Wisps, `k/3` Spitters, `k/2` Burrowers.
+1.2 rules (2026-11-15). The aim: night 1 is a real if gentle fight, the curve climbs without a
+cliff, and no one tower wins alone.
+
+- Day 1: you start with one Bramble Bow Tower, two spike traps and two poultices. The starter
+  kit holds night 1 alone; from night 2 it wants the player fighting beside it.
+- Rifts: two lanes on night 1, the third rift tears on night 2, then 7 and 9 (`RIFT_NIGHTS` in
+  `defense/Base.js`); the drowned grove's from night 4.
+- Night *n* (`waveFor` in `defense/Waves.ts`):
+  - Night 1 is 12 Blightlings. Rotboars a night: `[0,0,1,2,3,2,4,6,7,7,5]` to night 10, then 8.
+  - Wisps from night 4, `floor((n − 2) × 1.2)`. Spitters from night 3, `floor(n / 3)`, each
+    replacing two Blightlings. Burrowers from night 6, `min(n − 5, 6)`, each replacing three.
+  - Bosses come 40% of the way through the spawn window (31 s on night 5), heralded at 25 s
+    with a roar and the rift they climb from. The Thornback on night 5, the Rot Mother on
+    night 10, both every fifth night from 15.
+  - The surge (nights 6+), with `k = n − 5`: `3k` Blightlings, `min(⌈k/2⌉, 3)` Rotboars,
+    `⌈k/2⌉` Wisps, `⌈k/3⌉` Spitters, `⌊k/2⌋` Burrowers.
+  - Packs lean 65% on a home rift that rotates; heavy packs come from the weakest rift. A
+    sealed rift's share of the wave is removed, not piled onto the others.
+  - It never rains on a boss night (rain damps braziers by a quarter).
   - The difficulty's `count` scales everything but the bosses.
-- Enemy HP: +19% a night to night 6 (1.95×), then +5% a night. The Thornback comes at 0.7× on
-  night 5, then scales at half the Blight's rate.
-- Resists: Rotboar pierce 0.7, blunt 1.2, fire 1.3; Wisp blunt 0.5, arc 1.25; Spitter
-  pierce 1.3; Burrower arc 0.5, blunt 1.2; Husk fire 1.6, pierce 0.8; Thornback 0.75 to all
-  but fire.
-- Root capacity: `12 + 2(n − 1)`, times the difficulty (Verdant 1.15, Blightborn 0.9), plus
-  buried relics and boons. Each upgrade tier draws one more root.
-- Measured with `e2e/balance.mjs <night> <setup> [difficulty]` (Heartwood HP left at dawn;
-  Warden 500, Verdant 700, Blightborn 400), with Signs off. 1.0 rules, 2026-10-15.
+- Enemy HP (`hpScaleFor`): +16% a night to night 6, +12% a night to night 10, a +0.22 step at
+  night 11, then +8% a night, so night 11 outweighs night 10 and its boss. Bosses
+  (`bossScaleFor`): the Thornback at 0.6× on night 5, +10% a night after; the Rot Mother at
+  0.45× on night 10, +8% a night after.
+- Resists: Rotboar pierce 0.5, blunt 1.3, fire 1.3, arc 0.75 (arrows glance off it; mortars
+  and fire are the answer). Thornback pierce 0.5, blunt 0.9, arc 0.8, fire 1.2. Rot Mother
+  pierce 0.4, blunt 1.0, fire 1.3 (her eggs fire 1.6). Wisp blunt 0.5, arc 1.4. Spitter
+  pierce 1.3. Burrower arc 0.5, blunt 1.2. Husk fire 1.6, pierce 0.8. Sling stones carry no
+  damage type.
+- Roots: capacity `round((12 + 3(n − 1)) × d)` (`rootCapFor`; d is Verdant 1.15, Warden 1,
+  Blightborn 0.9) plus buried relics and boons. Costs (`rootCost`): barricade, spike trap,
+  snare 1; lantern, Heartseed 2; bow, brazier 3; mortar, tesla 4. A tower's upgrades draw +2
+  then +3 more; a barricade's and lantern's +1 each.
+- Heartwood: Warden 500, Verdant 600, Blightborn 400.
 
-  | Night | Setup | Warden, passive | Warden, active | Verdant | Blightborn |
-  | --- | --- | --- | --- | --- | --- |
-  | 3 | starter | lost | 440 | | |
-  | 5 (Thornback) | cap | 352 | | | |
-  | 6 | cap | 494, 500 | 500 | 700 | lost |
-  | 6 | mid | lost | | | |
-  | 8 | cap | 347, 410 | | 700 | lost |
-  | 8 | full | 459 | | | |
-  | 10 (Rot Mother) | cap | lost ×4 | lost ×2 | 658 | |
-  | 10 (Rot Mother) | full | 339, 438 | 500, 500 | 700 | 197 |
+**Towers (tier 1 / 2 / 3)**
 
-  The setups:
-  - *starter* is the one bow tower.
-  - *cap* is what a sharp player raises on the night's real root cap: bows and mortars
-    first, a barricade and trap per lane, then upgrades (a root each, tier 3 from night 8)
-    and more towers in turn. It ignores that mortars need the Fire Pit and upgrades need
-    materials, so it is a ceiling.
-  - *full* adds what a good run has by night 8–10: a root a night from night 5 for buried
-    relics, and grafts in every free slot.
-  - *mid* is the old fixed base (two bows, a mortar, a brazier, a lantern, a barricade and
-    trap per rift). It spends its roots on walls and traps, which are poor value per root.
+| Tower | Roots | Damage | Every | Range | DPS per root, one target (a pack) |
+| --- | --- | --- | --- | --- | --- |
+| Bow | 3/5/8 | 28/40.6/56 | 1/0.87/0.75 s | 20/22/24 m | 9.3 at every tier (12.6 with tier 3's second bolt) |
+| Mortar | 4/6/9 | 50/72.5/100 | 2.4/2.09/1.8 s | 30/33/36 m | 5.2/5.8/6.2 (9.8/10.9/11.6) |
+| Brazier | 3/5/8 | 7/10/14 + burn 10/14.5/20 | 0.7/0.61/0.52 s | 10/11/12 m | 6.7/6.2/5.8 (33/37/41) |
+| Tesla | 4/6/9 | 30/43.5/60 | 1.5/1.3/1.13 s | 16/17.6/19.2 m | 5.0/5.6/5.9 (13/16/18, chains 4/5/6) |
 
-  How to read it:
-  - Night 10 is a gear check: without relics and grafts even a full defence falls to the
-    Rot Mother's night. Without her it still falls, so it's the cap, not her.
-  - Night 6 is easy for a full cap, but in play it is always a Sign night (the Swarm or the
-    Blood Moon). With the Sign forced it still held, at 494–500.
-  - `ACTIVE=1` adds a fighting bot. `SIGN=`, `ABL=resist,elite,weak,camp`, `NO=<types>` and
-    `NOLANTERN=1` ablate things. The `DMG` line says who damaged and finished each building.
-  - Runs swing by ±150 HP.
-- Ablations on night 6 with the *mid* base (before the camp moved in): everything off held
-  309; camp-off 190; weak-lane-off 112; all on lost. The benches sat in the tower ring.
-  Moving the camp to d≈7 fixed it.
+Traps are spent by springing, not by blows: a spike trap has 60 HP and 14 springs, a snare
+60 HP and 8 (it never springs for a boss or a Rooted elite).
+
+**Waves on Warden** (HP per root: the wave's HP over the night's root cap)
+
+| Night | Cap | HP scale | Wave HP | Boss HP | HP per root |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 12 | 1.00 | 576 | | 48 |
+| 2 | 15 | 1.16 | 1169 | | 78 |
+| 3 | 18 | 1.32 | 1869 | | 104 |
+| 5 | 24 | 1.64 | 3119 | 1296 | 130 |
+| 7 | 30 | 1.92 | 8605 | | 287 |
+| 10 | 39 | 2.28 | 14364 | 2808 | 368 |
+| 11 | 42 | 2.50 | 19335 | | 460 |
+| 15 | 54 | 2.82 | 27647 | 6523 | 512 |
+
+**Measured** with `e2e/balance.ts <night> <preset> [difficulty]`, Warden, three seeds each:
+runs held, then the Heartwood's average HP at dawn (a loss counts 0). *balanced* raises every
+role as a player would; *mixed3* takes each role to the top tier in turn; *bows3* and
+*braziers3* build one tower kind only.
+
+| Night | Starter kit | Starter + player | cap | balanced | mixed3 | bows3 | braziers3 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 3/3 500 | 3/3 500 | 3/3 500 | | | | |
+| 2 | 1/3 36 | 3/3 462 | 3/3 500 | | | | |
+| 3 | 0/3 | 3/3 244 | 3/3 500 | | | | |
+| 5 | | | 3/3 408 | 3/3 342 | 3/3 500 | 2/3 175 | 0/3 |
+| 7 | | | 3/3 486 | 3/3 500 | 3/3 409 | 3/3 399 | 2/3 239 |
+| 10 | | | 0/3 | 3/3 306 | 2/3 220 | 1/3 88 | 3/3 209 |
+| 11 | | | 1/3 92 | 3/3 469 | 3/3 338 | 0/3 | 2/3 203 |
+| 15 | | | 0/3 | 1/3 33 | 1/3 33 | 0/3 | 0/3 |
+
+- Night 10 was rerun after the Rot Mother's fire weakness went from 1.5 to 1.3: braziers alone
+  had led there (3/3 at 321, against balanced 224 and mixed3 171). The other rows are from
+  before that change, which touches only her.
+- 1.1 for comparison: six tier-3 bows on the night-10 cap held night 10 alone at 500 and night
+  15 at 238; every mixed setup lost night 10.
+- With a good run's buried relics and grafts (`FULL=1`), balanced holds nights 10 and 15 at
+  500.
+- Verdant: the starter kit holds nights 1–2 at 600 and night 3 at 466. Blightborn: night 3
+  with full roots holds (390; lost in 1.1); night 5 with a player holds 2/2.
+- `ACTIVE=1` adds a fighting bot. `SIGN=`, `ABL=resist,elite,weak`, `NO=<types>`,
+  `NOLANTERN=1` and `SEED=n` ablate or fix things. The `DMG` line says who damaged and
+  finished each building. Runs swing by about ±100 HP.
 
 ## Where things live
 
@@ -292,11 +324,11 @@ The old list follows for reference.
 - `src/assets/Models.js` loads the GLBs. `src/art/merge.js` flattens each animated part into one
   draw call with per-vertex colour, emissive and roughness/metalness, plus the flash, tint, rim,
   dissolve and emissive-scale uniforms.
-- `src/defense/`: `Base.js` (the Heartwood, site search, rifts), `FlowField.js`, `Enemies.js`,
-  `Towers.js` (buildings, tiers, projectiles, placement ghost) and `Waves.js` (the director).
-- `src/player/MacheteModel.js` (machete + hand), `src/fx/Marks.js` (gashes, scrapes),
+- `src/defense/`: `Base.js` (the Heartwood, site search, rifts), `FlowField.ts`, `Enemies.ts`,
+  `Towers.ts` (buildings, tiers, projectiles, placement ghost) and `Waves.ts` (the director).
+- `src/player/MacheteModel.ts` (machete + hand), `src/fx/Marks.js` (gashes, scrapes),
   `src/world/Stubs.js` (cut stalks).
-- `src/ui/Menu.js` + `menu.css` (title, pages, pause), `src/ui/Portraits.js`,
+- `src/ui/Menu.ts` + `menu.css` (title, pages, pause), `src/ui/Portraits.js`,
   `src/audio/TitleTheme.js`, `src/core/Difficulty.js`.
 - `src/combat/Projectiles.js` (stones, firepots), `src/core/{Save,Perks,Journal}.js`,
   `src/fx/{LightPool,Weather}.js`.
@@ -311,11 +343,36 @@ The old list follows for reference.
 - Shadows: `installSoftShadows` (called from `main.js`) swaps three's PCF for a contact-hardening
   filter on lights whose `shadow.radius` is above 1.5. Only the sun opts in.
 
-## Start here (next session, written 2026-10-15)
+## Start here (next session, written 2026-11-15)
 
-**1.1.0 is released**: 1.0 (milestones 11–14 of "The 0.10–1.0 plan" below), the
-"Lighter Loads", "Smooth Going" and "Iron and Order" patches, and "New Growth". Read the **1.0 handoff**
-(further below), then `README.md`. Its "Open / next" list is where to pick up.
+**1.2.0 is released**: the fixes from the 1.1.0 playthrough review (bugs, save format, balance,
+interface), new tree crowns, a score in play. Read the **1.2.0** notes just below, then the **1.0
+handoff** (further below) and `README.md`.
+
+### 1.2.0 "Hold Fast" (2026-11-15, released)
+
+**Swing and hit registration** (`Game.ts`, `player/Machete.ts`):
+- `swingBuf` keeps a click for `SWING_BUFFER` (0.4 s); the swing fires as soon as `Machete.swing()` can. `aimTarget()` picks the Blight in front (REACH + 1.2 m, dot ≥ 0.76); the wind-up nudges the yaw toward it, and `onSwingHit` strikes it within REACH + 0.5 m whatever the cone (cone dot 0.3 for the rest). The crit chain advances only on a strike.
+- `tick()` learns the display's refresh (`refresh`, an average of real frame gaps) and steps the frame cap in whole refreshes, so a 60 fps cap on a 144 Hz screen is even. The frame step clamps at 1/15 s.
+
+**Save format v3** (`core/Save.ts`): the hour (`time`, or `dusk: true` from `duskCheckpoint()` at nightfall), player hp, `blooms` (`bloomState()`, matched by `b.site`), `foraged`/`cut`, `piles` (unmagnetised pickups), trap `charges` (9th field of a building), `packed` (worn packed-up defences), `pendingBoons`, the Expedition's `drops`. `saveSoon()` after a bloom, offering, boon, search, seal, radio part. `pruneDailies()` drops daily saves over a week old.
+
+**Balance** (`defense/`): see the Balance section. `rootCapFor` and `rootCost` (`Towers.ts`) are the single source for roots; `Game.rootCap`/`rootsUsed`, the upgrade prompt, the build hint and the craft cards read them. `FlowField.ts` has a second field for big enemies and `blockerAt` (what a jammed enemy chews). Traps have `charges` apart from hp. `e2e/defence.ts` re-checks the 15 defence bugs.
+
+**Trees** (`world/flora/trees.ts`): crowns are volumetric clumps (sprays over a sphere plus a roof card), giants have fluted boles and plank buttresses, variants 4–5 are strangler figs. The far understory uses three radiating sprays per clump. Comparison sheets: `e2e/shots.mjs` before and after; at eye level the change is in the understory and the canopy overhead.
+
+**Other new things**: `audio/Score.ts` (the score; `AudioSys.musicBus`, `scoreUpdate`); the minimap's lane lines (`Game.laneLines`, flow-field paths from open rifts and live blooms); the dawn recap (`nightLog`); settings `og.fov`, `og.hud` (`--hud-scale`), `og.musicVol`; the gamepad drives the satchel (`HUD.padStep`/`padTab`/`padCraft`; `menuNav` is on while it's open); recipes for unbuilt benches get `.recipe.later`; the Wayfinder Memory; the seals from day 3 (`Expedition.sealStart`: a seal set before its rift opens holds the rift's first nights).
+
+**Converted to TypeScript**: `main`, `Menu`, `Save`, `Input`, `Quality`, `Expedition`, `AudioSys`, `Projectiles`, `World`, `Cover`, `shaders`, `MacheteModel`, `FlowField`, `Waves`, and the e2e `balance`, `blight`. `tsc` is clean (0 errors; 58 in 1.1.0).
+
+**Open**:
+- Not hand-played: the feel of the new swing and the balance come from headless sims and a scripted bot. Play nights 1–5 on Warden with a mouse and a gamepad.
+- Braziers alone still hold night 10 (3/3 at 209) though they lose nights 5 and 15; if that matters, brazier burn 10 → 8.
+- The far understory is a little sparser than the near one at 38–60 m; a far copy of every clump costs about +130k triangles at camp.
+- Leaf textures are still the 1.1 atlases; real leaf-clump atlases (ComfyUI) are the next step for the crowns. `hand.glb` grew to 630 KB.
+- Story text (`core/Story.js`) is still marked as placeholder for the author to rewrite.
+- Particles' `ring` has no opacity argument; the mortar's impact ring uses a darker colour instead.
+- Six Blight (Blightling, Rotboar, Spitter, Burrower, Thornback, Rot Egg) still wear the pre-1.1 look.
 
 ### 1.1.0 "New Growth" (2026-11-10, released)
 
@@ -428,7 +485,7 @@ The old list follows for reference.
 Start the dev server with the Browser preview (`.claude/launch.json`, name `overgrowth`, port
 5188) or `npm run dev`. Before changing anything, run:
 - `node e2e/loop.mjs` (11 PASS)
-- `node e2e/blight.mjs` (3)
+- `node e2e/blight.ts` (3)
 - `node e2e/pack.mjs` (11)
 - `node e2e/story.mjs` (11-12)
 - `node e2e/m14.mjs` (8)
@@ -553,7 +610,7 @@ anywhere and survives death, so none of those choices exist yet.
      `defense/Base.js`).
    - Hold E opens a two-pane window, satchel | coffer. Drag a stack, or shift-click it, to move
      it. "Store all materials" leaves your tools and consumables.
-   - 60 slots, no weight limit, saved with the run (`core/Save.js`).
+   - 60 slots, no weight limit, saved with the run (`core/Save.ts`).
    - New `items/Stash.js`. Crafting at camp reads the satchel and the coffer together: make
      `canAfford` and `remove` take a list of sources.
 3. **Benches: where things get made.**
@@ -611,7 +668,7 @@ anywhere and survives death, so none of those choices exist yet.
    - `Player.noise` is a radius each frame: walking 4 m, sprinting 14 m, encumbered 12 m,
      breaking a crate 20 m, forcing a lock 28 m, a firepot 30 m.
    - Bloom guards hear it and come.
-   - From day 3, a new day Blight, the *Husk*, walks routes between POIs in twos and threes.
+   - From day 2, a new day Blight, the *Husk*, walks routes between POIs in twos and threes.
      It is the Blightling model with a bark tint and its own walk, so no new GLB yet. It hunts
      by noise and drops good salvage.
    - That puts real risk in the day: an encumbered walk home through Husk country is the ARC
@@ -635,7 +692,7 @@ These numbers come from a passive player, and a real player fights, so the true 
 is lower still.
 
 1. **Measure honestly first.**
-   - Add `ACTIVE=1` to `e2e/balance.mjs`: a bot that guards the Heartwood, swings at Blight
+   - Add `ACTIVE=1` to `e2e/balance.ts`: a bot that guards the Heartwood, swings at Blight
      within 3 m, and slings at Spitters and Wisps.
    - Re-run the table on the milestone 11 economy, which already makes defences slower to
      afford. Only then change numbers.
@@ -654,7 +711,7 @@ is lower still.
      and spike trap 1, snare 1, lantern 2, bow 3, brazier 3, mortar 4, totem 5.
    - The cap is 12 on night 1, plus 2 a night, plus boons, plus relics *rooted* into the Heart
      (a third choice for a relic, beside favour and healing).
-   - Shown on the placement ghost and the HUD (`defense/Towers.js`). This ends the carpet of
+   - Shown on the placement ghost and the HUD (`defense/Towers.ts`). This ends the carpet of
      towers and makes upgrading or widening a real choice.
 3. **Damage types and resistances.**
    - Types: pierce (bow, sling, spikes), blunt (mortar, slam), fire (brazier, firepot), arc
@@ -668,7 +725,7 @@ is lower still.
    - `Enemies.damage` reads `def.resist`. Shown in the Field Guide and as a coloured number when
      a hit is weak or strong. A mix of towers matters again.
 4. **Elite Blight.**
-   - From night 4 (night 2 on Blightborn), one Blight a pack gets an affix:
+   - From night 5 (night 2 on Blightborn), one Blight a pack gets an affix:
      - *Swift*: +35% speed;
      - *Thorned*: reflects 20% of melee;
      - *Rooted*: snares and slows don't hold it;
@@ -740,7 +797,7 @@ on a boss night. *Blood Moon* (when you hold the idol): Blight 20% faster, loot 
 7. Signs.
 8. The Rot Mother.
 
-Each step updates the Field Guide, the journal goals and `e2e/balance.mjs`.
+Each step updates the Field Guide, the journal goals and `e2e/balance.ts`.
 
 #### Milestone 14: 1.0
 
@@ -763,19 +820,19 @@ changes how the game feels.
 ### Old milestone 11 notes: Omens (now the Signs in milestone 13, the daily vigil and score in 14; kept for the code hooks)
 1. **Nightly omens.** A table `OMENS` (new `defense/Omens.js`): id, name, glyph, banner line
    and hooks. Roll one at dawn for the coming night from night 3, about every other night
-   (seeded by the night number like `rainsOn` in `defense/Waves.js`, so a reload keeps the
+   (seeded by the night number like `rainsOn` in `defense/Waves.ts`, so a reload keeps the
    same omen; never on a boss night). Announce it in the dawn banner and the `Day n` banner
    (`Waves.js` ~line 205 and ~line 255), and show it in the wave preview and on the pause menu.
    - *Blood Moon*: Blight move and bite 20% faster, loot rolls twice. Tint the moon and the
      night palette red (`world/Sky.js`, the `P.night*` colours).
    - *Pale Fog*: tower range ×0.7 (ranges are read through the tier multipliers in
-     `defense/Towers.js`; add an omen multiplier there), fog density up (`Sky.update`, like
+     `defense/Towers.ts`; add an omen multiplier there), fog density up (`Sky.update`, like
      `swamp`).
    - *The Swarm*: twice the Blightlings at half health (`waveFor` counts and the HP scale in
      `Waves.js` ~line 237).
-   - *Stillness*: no wind (the wind uniforms in `art/shaders.js`), Wisps walk.
-   - Save the omen with the run (`core/Save.js`), list omens in the Field Guide
-     (`ui/Menu.js`), and add `OMEN=<id>` to `e2e/balance.mjs` to measure each one.
+   - *Stillness*: no wind (the wind uniforms in `art/shaders.ts`), Wisps walk.
+   - Save the omen with the run (`core/Save.ts`), list omens in the Field Guide
+     (`ui/Menu.js`), and add `OMEN=<id>` to `e2e/balance.ts` to measure each one.
 2. **A daily vigil.** The world seed is a constant today (`SEED = 4217` in
    `world/WorldGen.js`, and the noises are module-level). Make it re-seedable (`setSeed(n)`
    that rebuilds the noises and clears the cached grove centre, spawn and base site), keep
@@ -808,7 +865,7 @@ changes how the game feels.
 **1.0.0** (`package.json`), committed on `main` and pushed (GitHub Pages deploys from
 `main`). These tests pass against `npm run dev`:
 - `node e2e/loop.mjs` (10 PASS)
-- `node e2e/blight.mjs` (3)
+- `node e2e/blight.ts` (3)
 - `node e2e/pack.mjs` (11)
 - `node e2e/story.mjs` (12)
 - `node e2e/m14.mjs` (8)
@@ -839,9 +896,9 @@ them are below.
     together.
   - Containers: `items/Containers.js` (`REVEAL` by rarity, an `extra` hook for pages).
   - The rest: lost satchel (`Game` "a lost satchel"), pry bar, Husks (`Game.sproutHusks`,
-    from day 3), noise, salvage (`Game.salvage`). Tested in `e2e/pack.mjs` and `loop.mjs`.
+    from day 2), noise, salvage (`Game.salvage`). Tested in `e2e/pack.mjs` and `loop.mjs`.
 - *Milestone 12, Hard Ground:*
-  - Roots: `ROOTS` in `defense/Towers.js`. `Game.rootCap` is `12 + 2(n−1)` × difficulty,
+  - Roots: `ROOTS` in `defense/Towers.ts`. `Game.rootCap` was `12 + 2(n−1)` × difficulty (1.2: `rootCapFor` and `rootCost`, see Balance),
     plus buried relics and boons. `Game.rootsUsed` counts **one more root per upgrade
     tier**, and upgrading checks it. `craftContext().roots` feeds the craft cards (roots and
     the damage-type chip, `HUD` `DTYPE`).
@@ -851,7 +908,7 @@ them are below.
   - The weak-lane lean: `Waves.coverage`, with a "testing your side" warning on the wave
     clock (`testMsg`).
 - *Milestone 13, The Lost Expedition:*
-  - `core/Story.js` (pages, seals, radio parts) and `core/Expedition.js`:
+  - `core/Story.js` (pages, seals, radio parts) and `core/Expedition.ts`:
     - seals, with beams in the Heartwood's colours (`SEAL_HEX`/`FOREVER_HEX`, 45 m edge-faded
       shells) and the seal stone merged through `flatten` with a `Stone` material;
     - pages and map marks;
@@ -862,7 +919,7 @@ them are below.
   - `world/Rot.js`: from dawn 5, 7 m a dawn. `Cover.js` leaves only greyed dead fronds on
     it. A choked tower fires 25% slower and puffs violet spores (`Game.tickRot`).
   - Grafts: `GRAFTS` in `Towers.js`.
-  - Signs: `SIGNS`/`signFor` in `defense/Waves.js`, `Sky.signFog`/`signMoon`. Tonight's Sign
+  - Signs: `SIGNS`/`signFor` in `defense/Waves.ts`, `Sky.signFog`/`signMoon`. Tonight's Sign
     is on the HUD day line (`Waves.signTonight`, `.phase-sign`) and as a second banner line
     under a boss or rift banner (`HUD.banner(..., line2)`).
   - The Rot Mother is **night 10's boss** (0.4× HP there, two eggs a lay, a 3 s pause to
@@ -872,7 +929,7 @@ them are below.
 - *Milestone 14, The Long Tail:*
   - Seeds: `core/Seed.js` (`?daily`, `?seed`).
   - `core/Achievements.js`, `core/Tips.js` (the guided first night).
-  - Input: rebinding and the gamepad in `core/Input.js` (`BINDABLE`, `PAD`, `poll`).
+  - Input: rebinding and the gamepad in `core/Input.ts` (`BINDABLE`, `PAD`, `poll`).
   - Captions: `Game.captionAudio`.
   - Capture mode: `Game.toggleCapture`/`updateCapture` (F8, F9).
   - Accessibility settings in `Menu` (captions, shake, bob, colour-blind palettes `PALETTE`
@@ -964,7 +1021,7 @@ Also from the review:
 
 **State:** released as **0.9.0** (committed on `main` and pushed). It folds in everything
 planned for 0.8 (milestone 9) and most of milestone 10. `node e2e/loop.mjs` passes all ten
-checks, `node e2e/blight.mjs` its three, and `vite build` is clean.
+checks, `node e2e/blight.ts` its three, and `vite build` is clean.
 
 **What changed and where (0.9)**
 - Kit pick: `KITS`, `KIT_IDS` and `kitItems` in `core/Difficulty.js`; the sixth Memory
@@ -975,7 +1032,7 @@ checks, `node e2e/blight.mjs` its three, and `vite build` is clean.
   met: `Game` calls `journal.meet(types)` each night); `journal.event('melee', type)`.
 - Balance: Spitter 60 HP, `spit.building` 0.75, bow towers score Spitters 40 better; Rotboar
   `towerAggro` 4.5; slam 85 to buildings (`Game.onSlam`); night-5 Thornback 0.7×; barricade
-  tier 3 needs reeds and bog iron. `e2e/balance.mjs` builds a lantern in *mid*/*late*, takes a
+  tier 3 needs reeds and bog iron. `e2e/balance.ts` builds a lantern in *mid*/*late*, takes a
   difficulty and `NO=`/`NOLANTERN=`, and prints a `DMG` line (who damaged and who finished
   each building). Results are in the Balance section.
 - Draw calls: `world/Pools.js`. A `Pool` is one `InstancedMesh` per plant variant or forage
@@ -1025,7 +1082,7 @@ checks, `node e2e/blight.mjs` its three, and `vite build` is clean.
   Spitter: "Sac" swells before a shot. Burrower: shovel claws are `LegFL/FR`. Lantern: the cage
   is "Orb" (sways, pulses). Emissives were toned down after a portrait check (bright emissives
   wash out to white under ACES).
-- `defense/Enemies.js`: `ENEMY_TYPES.spitter` (`def.spit`: range 13, 10 vs the player, splash,
+- `defense/Enemies.ts`: `ENEMY_TYPES.spitter` (`def.spit`: range 13, 10 vs the player, splash,
   puddle time) and `.burrower` (`def.burrows`). Spitters pick a target in `updateWalker` (the
   player within 10 m, else the nearest tower, a wall only if 6 m closer, else the Heart) and
   reuse the bite wind-up with `attack.kind === 'spit'`; `spit()` launches a glob, `updateGlobs`
@@ -1034,10 +1091,10 @@ checks, `node e2e/blight.mjs` its three, and `vite build` is clean.
   they're chewing one); `updateDig` runs down (0.6 s) → tunnel (a mound mesh, `e.rise = 1`, up
   to 9 m toward the Heart) → up (0.5 s); `digCD` 6 s after. While `e.dig` is set, `inRadius`,
   melee, Tesla chains and split bolts skip it; towers and stones already skip `rise > 0.5`.
-- `defense/Towers.js`: `glow_lantern` (`kind: 'lantern'`, `expose`, tiers add 0.1),
+- `defense/Towers.ts`: `glow_lantern` (`kind: 'lantern'`, `expose`, tiers add 0.1),
   `updateLantern` sets `e.litT`/`e.lit` (read in `Enemies.damage`, and the rim brightens) and
   `e.dig.forced` (surface + 1.8 s stagger). Upgrades in `UPGRADES`.
-- `defense/Waves.js`: counts and placement above; `FIRST` holds the message shown the first
+- `defense/Waves.ts`: counts and placement above; `FIRST` holds the message shown the first
   night each kind comes (Wisps too).
 - `core/Memories.js`: five Memories with `test(records, best)`, `reward`, optional `kit`.
   `Game.setDifficulty` adds the kits; `Game.offerBoon` offers four with "fourth" and passes the
@@ -1071,7 +1128,7 @@ unchanged. The developer's alias is **ycgNem** (credits, git author).
   (FOV 50 to 72), dips to black, sets the clock to `title.wake` (a loaded save's dawn, else
   `startTime ?? 0.29`) and fades in. `loadFrom` writes `title.wake` instead of the clock while
   the title runs.
-- `src/ui/Menu.js`: modes `boot`, `title`, `flying`, `play`, `pause`. Pages are built in the
+- `src/ui/Menu.ts`: modes `boot`, `title`, `flying`, `play`, `pause`. Pages are built in the
   `page*()` methods; their widths are in `open()`. Hovering Continue previews its card
   (unpinned); clicks pin a page. `crowd()` dims the logo when a wide page reaches it. Settings
   live in localStorage (`og.quality`, `og.bloom`, `og.sensitivity`, `og.invertY`, `og.volume`,
@@ -1157,7 +1214,7 @@ the machine, not a regression. ComfyUI or a second headless browser on the GPU d
 all ten checks and `vite build` is clean. CHANGELOG has the 0.5 notes; the version is 0.5.0.
 
 **What changed and where**
-- Machete: `src/player/MacheteModel.js` builds the blade (its own grid geometry: flat, filed
+- Machete: `src/player/MacheteModel.ts` builds the blade (its own grid geometry: flat, filed
   bevel and spine as separate strips), the canvas steel and roughness maps, the scales, rivets
   and thong, and loads `public/models/hand.glb`. The hand is `art/blender/hand.py`: metaballs
   along each finger, the palm and the forearm, meshed, decimated and vertex-coloured
@@ -1213,7 +1270,7 @@ and 5200.
 **Verify a change:** with `npm run dev` running (or `BASE=<url>` for another server):
 - `node e2e/loop.mjs`: ten PASS lines (forage, craft, place, dusk, night → day 2, upgrade,
   slingshot hit, boons, autosave, game over).
-- `node e2e/balance.mjs <night> <starter|mid|late>`: `5 mid` should hold narrowly and `10 late`
+- `node e2e/balance.ts <night> <starter|mid|late>`: `5 mid` should hold narrowly and `10 late`
   should hold while losing a few hundred HP. Night 3 with the starter tower only just holds.
 - `node e2e/view.mjs <dir> '<json shots>'` renders chosen views. The header lists the finders:
   `spawn`, `river`, `cliff`, `clearing`, `slope`, `jungle`, `temple` and `base`, or a plant

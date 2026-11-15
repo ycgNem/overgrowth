@@ -20,6 +20,9 @@ function beamMaterial(color: string) {
   return beamMat.get(color);
 }
 
+// how long loot nobody picks up lies about (seconds of game time)
+const LINGER = 420;
+
 const beamGeo = new THREE.CylinderGeometry(0.012, 0.045, 1.6, 8, 1, true);
 beamGeo.translate(0, 0.8, 0);
 
@@ -94,17 +97,33 @@ export class Pickups {
   }
 
   // Returns ids collected this frame. this.blocked: something in reach the satchel can't take
-  // (the game says why), else null.
-  update(dt: number, t: number, playerPos: THREE.Vector3) {
+  // (the game says why), else null. alive: a fallen player draws nothing to them. Loot nobody
+  // came for sinks into the litter after LINGER seconds (a put-down pile stays).
+  update(dt: number, t: number, playerPos: THREE.Vector3, alive = true) {
     const got: { id: string; n: number; pos: THREE.Vector3 }[] = [];
     this.blocked = null;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const p = this.items[i];
       p.age += dt;
+      if (!p.dropped && !p.magnet && p.age > LINGER) {
+        const k = 1 - Math.min(1, (p.age - LINGER) / 3);
+        p.root.scale.setScalar(Math.max(0.01, k));
+        if (k <= 0) {
+          this.remove(i);
+          continue;
+        }
+      }
       const pos = p.root.position;
       const dx = playerPos.x - pos.x, dy = playerPos.y + 0.9 - pos.y, dz = playerPos.z - pos.z;
       const d = Math.hypot(dx, dy, dz);
-      if (!p.magnet && !p.dropped && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) {
+      if (!alive && p.magnet) {
+        // it was on its way to you when you fell: it drops where it is
+        p.magnet = false;
+        p.settled = false;
+        p.vel.set(0, 0, 0);
+        p.root.scale.setScalar(1);
+      }
+      if (alive && !p.magnet && !p.dropped && p.age > 0.7 && (d < 2.6 || (p.auto && p.age > 1.1 && d < 15))) {
         if (this.canTake(p.id)) p.magnet = true;
         else if (d < 2.6) this.blocked = p.id;
       }

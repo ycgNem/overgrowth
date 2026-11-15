@@ -1,6 +1,10 @@
 // What the player throws and shoots: slingshot stones (and scrap shot) on a ballistic arc, and
 // firepots that burst into a patch of burning ground. Hits are tested along each step of
-// flight (a swept sphere), so fast stones can't tunnel through a Blightling.
+// flight (a swept sphere), so fast stones can't tunnel through a Blightling. Trunks, rocks,
+// walls and towers stop them too (ctx.solidAt), and water swallows them.
+//
+// A sling stone carries no damage type: it is the player's own shot, and nothing in the
+// forest shrugs it off (a Wisp used to halve it as "blunt", the one thing the sling is for).
 import * as THREE from 'three';
 import { terrainHeight } from '../world/WorldGen.js';
 
@@ -20,7 +24,7 @@ const _to = new THREE.Vector3();
 const _bc = new THREE.Vector3();
 
 // distance from point p to segment ab
-function segDist(a, b, p) {
+function segDist(a: THREE.Vector3, b: THREE.Vector3, p: THREE.Vector3) {
   _seg.subVectors(b, a);
   const l2 = _seg.lengthSq();
   const t = l2 > 0 ? Math.max(0, Math.min(1, _to.subVectors(p, a).dot(_seg) / l2)) : 0;
@@ -28,13 +32,17 @@ function segDist(a, b, p) {
 }
 
 export class Projectiles {
-  constructor(scene) {
+  scene: THREE.Scene;
+  list: any[];
+  fires: { pos: THREE.Vector3; r: number; t: number; tick: number }[];
+
+  constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.list = [];
     this.fires = []; // burning patches on the ground
   }
 
-  stone(from, vel, dmg, { crit = false, scrap = false } = {}) {
+  stone(from: THREE.Vector3, vel: THREE.Vector3, dmg: number, { crit = false, scrap = false } = {}) {
     const mesh = new THREE.Mesh(stoneGeo, scrap ? scrapMat : stoneMat);
     mesh.position.copy(from);
     this.scene.add(mesh);
@@ -44,15 +52,16 @@ export class Projectiles {
     this.list.push({ kind: 'stone', mesh, trail, pos: from.clone(), vel: vel.clone(), dmg, crit, scrap, age: 0 });
   }
 
-  firepot(from, vel) {
+  firepot(from: THREE.Vector3, vel: THREE.Vector3) {
     const mesh = new THREE.Mesh(potGeo, potMat);
     mesh.position.copy(from);
     this.scene.add(mesh);
     this.list.push({ kind: 'pot', mesh, pos: from.clone(), vel: vel.clone(), age: 0 });
   }
 
-  // ctx: { enemies, particles, audio, lights, damageCtx, onStoneLand(pos, scrap), base }
-  update(dt, ctx) {
+  // ctx: { enemies, particles, audio, lights, damageCtx, onStoneLand(pos, scrap), base,
+  // solidAt(x, y, z): inside a trunk, rock or building, waterAt(y) }
+  update(dt: number, ctx: any) {
     const { enemies, particles } = ctx;
     for (let i = this.list.length - 1; i >= 0; i--) {
       const s = this.list[i];
@@ -93,7 +102,11 @@ export class Projectiles {
         }
       }
       const ground = terrainHeight(s.pos.x, s.pos.z);
-      const landed = s.pos.y <= ground + 0.03;
+      // into a trunk, a rock or a wall: it stops there
+      const struck = !hit && !!ctx.solidAt?.(s.pos.x, s.pos.y, s.pos.z);
+      if (struck) s.pos.copy(prev);
+      const wet = !hit && ctx.water != null && s.pos.y <= ctx.water && ground < ctx.water;
+      const landed = struck || wet || s.pos.y <= ground + 0.03;
       if (bloom) {
         if (s.kind === 'stone') ctx.onBloomHit?.(bloom, s.dmg, s.pos.clone(), s.crit);
         else this.burst(s.pos.clone(), ctx);
@@ -106,14 +119,17 @@ export class Projectiles {
       if (s.kind === 'stone') {
         if (hit) {
           const knock = new THREE.Vector3(s.vel.x, 0, s.vel.z).normalize().multiplyScalar(s.crit ? 5 : 3);
-          enemies.damage(hit, s.dmg, ctx.damageCtx, knock, { source: 'sling', type: 'blunt', crit: s.crit, stagger: s.crit ? 0.35 : 0.2 });
+          enemies.damage(hit, s.dmg, ctx.damageCtx, knock, { source: 'sling', crit: s.crit, stagger: s.crit ? 0.35 : 0.2 });
           particles.chipBurst(s.pos.clone(), 0x6a3a7a, s.crit ? 14 : 8, hit.pos.y);
           ctx.audio.stoneHit?.(s.crit);
           ctx.onHitmark?.(hit.dying, s.crit);
+        } else if (wet) {
+          particles.splash?.(s.pos.clone(), 0.4);
         } else if (landed) {
-          s.pos.y = ground + 0.05;
+          if (!struck) s.pos.y = ground + 0.05;
           particles.chipBurst(s.pos.clone(), 0x7a7268, 5, ground);
-          ctx.audio.stone?.();
+          if (struck) ctx.audio.wood?.();
+          else ctx.audio.stone?.();
           ctx.onStoneLand?.(s.pos.clone(), s.scrap);
         }
       } else {
@@ -144,7 +160,7 @@ export class Projectiles {
     }
   }
 
-  burst(pos, ctx) {
+  burst(pos: THREE.Vector3, ctx: any) {
     const { enemies, particles } = ctx;
     const R = 3.4;
     for (const e of enemies.inRadius(pos.x, pos.z, R)) {

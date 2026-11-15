@@ -10,8 +10,8 @@ import { poisAround } from '../world/poi/POI.js';
 import { cloneModel } from '../assets/Models.js';
 import { flatten } from '../art/merge.ts';
 import { glowTexture } from '../art/textures.js';
-import { globalUniforms } from '../art/shaders.js';
-import { addRecords } from './Save.js';
+import { globalUniforms } from '../art/shaders.ts';
+import { addRecords } from './Save.ts';
 
 // the chance a container holds a page, by its loot table
 const PAGE_ODDS = { camp: 0.6, wreck: 0.55, crate: 0.25, cache: 0.35, scrap: 0.12, ruin: 0.15, templeChest: 0.4, shrine: 0.5, drop: 0.3 };
@@ -24,8 +24,8 @@ const SEAL_NIGHTS = 2;
 // middle and fading to nothing at its sides, so it reads as light and not as a tube)
 const BEAM_H = 70;
 const BEAM = new THREE.CylinderGeometry(1.7, 0.9, BEAM_H, 16, 1, true).translate(0, BEAM_H / 2, 0);
-const beamMats = {};
-function beamMat(hex) {
+const beamMats: Record<number, THREE.ShaderMaterial> = {};
+function beamMat(hex: number) {
   beamMats[hex] ??= new THREE.ShaderMaterial({
     uniforms: { uTime: globalUniforms.uTime, uCol: { value: new THREE.Color(hex) } },
     vertexShader: `varying float vY; varying vec3 vN; varying vec3 vV;
@@ -44,13 +44,13 @@ function beamMat(hex) {
 // a set seal glows in the Heartwood's own colours (not the Blight's violet); gold when it holds
 // for good
 const SEAL_HEX = 0xc8ffe0, FOREVER_HEX = 0xffd070;
-function beam(hex) {
+function beam(hex: number) {
   const m = new THREE.Mesh(BEAM, beamMat(hex));
   m.frustumCulled = false;
   m.renderOrder = 2;
   return m;
 }
-function glowSprite(hex, s = 1.4) {
+function glowSprite(hex: number, s = 1.4) {
   const g = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: hex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.75, fog: false }));
   g.scale.set(s, s, 1);
   return g;
@@ -122,7 +122,10 @@ function radioSet() {
 }
 
 export class Expedition {
-  constructor(game) {
+  // (a loose bag of run state; the fields are set up in the constructor)
+  [key: string]: any;
+
+  constructor(game: any) {
     this.g = game;
     this.read = []; // note ids read this run, in order
     this.grafting = false; // the Thornback's heart set in the Workbench (see the setter)
@@ -180,7 +183,7 @@ export class Expedition {
   }
 
   addSite(id, x, y, z, rift, { r = 2.2, key = null, pending = false, obj = null } = {}) {
-    const site = { id, x, y, z, rift, key, pending, obj, beam: null };
+    const site: any = { id, x, y, z, rift, key, pending, obj, beam: null };
     site.it = { kind: 'seal', seal: id, x, y, z, r, label: SEALS[id].name, done: pending };
     this.g.world.extra.interactables.push(site.it);
     this.sites[id] = site;
@@ -286,16 +289,16 @@ export class Expedition {
   showSeals() {
     if (this.sealsShown) return;
     this.sealsShown = true;
-    for (const s of Object.values(this.sites)) {
+    for (const s of Object.values(this.sites) as any[]) {
       this.g.hud.markers.push({ key: `seal:${s.id}`, x: s.x, z: s.z, icon: '◈', label: SEALS[s.id].name, cls: 'seal' });
     }
   }
 
   // ------------------------------------------------------------------ seals
 
-  dormant(r) {
-    const n = this.g.waves.night;
-    return Object.entries(this.seals).some(([id, s]) => this.sites[id]?.rift === r && (s.forever || n < s.until));
+  // n: the night to ask about (the Rot, at dawn, asks about the night that just ended)
+  dormant(r, n = this.g.waves.night) {
+    return Object.entries(this.seals as Record<string, any>).some(([id, s]) => this.sites[id]?.rift === r && (s.forever || n < s.until));
   }
 
   sealHolds(id) {
@@ -308,8 +311,11 @@ export class Expedition {
   sealRelic(id) {
     const inv = this.g.inventory;
     let rel = inv.slots.filter((s) => s && ITEMS[s.id].kind === 'relic').map((s) => s.id);
-    // (the Sun Seal won't take the idol before it has answered a Blood Moon)
-    if (id === 'temple' && !this.moonHeld) rel = rel.filter((r) => r !== 'golden_idol');
+    // the idol only ever goes to the Sun Seal, and only once it has answered a Blood Moon (it
+    // used to be the fallback for the other two, and a careless hold spent the true ending)
+    if (id !== 'temple' || !this.moonHeld) rel = rel.filter((r) => r !== 'golden_idol');
+    // and the Thornback's heart is for the Workbench until grafting is learned
+    if (!this.grafting) rel = rel.filter((r) => r !== 'thornback_heart');
     if (!rel.length) return null;
     if (id === 'temple' && rel.includes('golden_idol') && this.moonHeld) return 'golden_idol';
     const gold = rel.find((r) => FOREVER.has(r) && r !== 'golden_idol');
@@ -338,18 +344,31 @@ export class Expedition {
       return;
     }
     const forever = FOREVER.has(relic) && (relic !== 'golden_idol' || id === 'temple');
+    const from = this.sealStart(site), early = from > g.waves.night + (g.waves.phase === 'night' ? 1 : 0);
     holdAction(`Set the ${ITEMS[relic].name} in ${S.name}`, 1.8, () => this.setSeal(id, relic, forever),
-      forever ? `The ${dir} rift closes for good` : `The ${dir} rift sleeps for ${SEAL_NIGHTS} nights (until night ${g.waves.night + SEAL_NIGHTS})`);
+      forever ? `The ${dir} rift closes for good`
+        : early ? `The ${dir} rift first wakes on night ${from}: it will sleep through nights ${from} and ${from + SEAL_NIGHTS - 1}`
+          : `The ${dir} rift sleeps for ${SEAL_NIGHTS} nights (until night ${from + SEAL_NIGHTS})`);
+  }
+
+  // the first night a seal set now holds: tonight by day, tomorrow at night, and never before
+  // its rift first opens (set early, it holds the rift's first nights, not nights it was shut)
+  sealStart(site) {
+    const g = this.g;
+    return Math.max(g.waves.night + (g.waves.phase === 'night' ? 1 : 0), site.rift?.night ?? 1);
   }
 
   setSeal(id, relic, forever) {
     const g = this.g, site = this.sites[id], S = SEALS[id];
     g.inventory.remove(relic, 1);
     // set by day it covers tonight and the next; set at night it starts tomorrow
-    const n = g.waves.night + (g.waves.phase === 'night' ? 1 : 0);
+    const n = this.sealStart(site);
     this.seals[id] = { relic, until: n + SEAL_NIGHTS, forever };
     g.stats.seals++;
-    if (relic === 'golden_idol' && id === 'temple') this.idolSet = true;
+    if (relic === 'golden_idol' && id === 'temple') {
+      this.idolSet = true;
+      g.journal.flag('home');
+    }
     this.dressSeal(id);
     const at = new THREE.Vector3(site.x, site.y, site.z);
     g.particles.sparkle(at, forever ? 0xffd070 : 0xb080ff, 50);
@@ -357,6 +376,7 @@ export class Expedition {
     g.lights.flash(at, forever ? 0xffd070 : 0xb080ff, 120, 0.8, 30);
     g.audio.boon();
     g.journal.event('seal', id);
+    g.saveSoon?.();
     const dir = this.dirOf(site.rift);
     g.hud.banner(S.name, forever ? `holds for good. The ${dir} rift is closed.${this.idolSet ? ' The idol is home.' : ''}` : `holds. The ${dir} rift sleeps for ${SEAL_NIGHTS} nights.`, 'win');
     g.syncRifts();
@@ -421,7 +441,7 @@ export class Expedition {
     if (this.radioDone) return { done: true, text: 'The radio: the rescue plane comes at first light after the tenth night' };
     const [id, n] = this.nextPart;
     const have = src.count(id) >= n;
-    return { have, id, n, text: `Hollis's radio ${this.radio}/${RADIO_PARTS.length} · next: ${n > 1 ? `${n} × ` : ''}${ITEMS[id].name}${have ? ' · hold <kbd>F</kbd> to fit it' : ''}` };
+    return { have, id, n, text: `Hollis's radio ${this.radio}/${RADIO_PARTS.length} · next: ${Number(n) > 1 ? `${n} × ` : ''}${ITEMS[id].name}${have ? ' · hold <kbd>F</kbd> to fit it' : ''}` };
   }
 
   fitPart(src) {
@@ -438,22 +458,28 @@ export class Expedition {
     } else {
       this.pendingDrops++;
       g.hud.banner("Hollis's radio", `${this.radio}/${RADIO_PARTS.length} parts. Someone answers on 4217: a supply drop at noon. Others will hear it too.`, 'win');
+      g.saveSoon?.();
     }
   }
 
   // ------------------------------------------------------------------ supply drops
 
   // noon: a crate on a flare somewhere in the forest. The Husks heard the call too.
-  placeDrop() {
+  // at: a saved drop's spot (put back quietly, its Husks already about)
+  placeDrop(at: { x: number; z: number; id?: string } | null = null) {
     const g = this.g, b = g.base;
-    let x = 0, z = 0, ok = false;
-    for (let i = 0; i < 40 && !ok; i++) {
-      const a = g.rand() * Math.PI * 2, d = 80 + g.rand() * 70;
+    let x = at?.x ?? 0, z = at?.z ?? 0, ok = !!at;
+    for (let i = 0; i < 60 && !ok; i++) {
+      const a = g.rand() * Math.PI * 2, d = 80 + g.rand() * (i < 40 ? 70 : 110);
       x = b.x + Math.cos(a) * d;
       z = b.z + Math.sin(a) * d;
-      ok = terrainHeight(x, z) > WATER_LEVEL + 0.4 && terrainNormal(x, z).y > 0.9;
+      ok = terrainHeight(x, z) > WATER_LEVEL + 0.4 && terrainNormal(x, z).y > (i < 40 ? 0.9 : 0.8);
     }
-    if (!ok) return;
+    // nowhere fit today: it comes tomorrow instead of never
+    if (!ok) {
+      this.pendingDrops++;
+      return;
+    }
     const y = terrainHeight(x, z);
     const obj = new THREE.Group();
     const crate = cloneModel('crate');
@@ -467,11 +493,13 @@ export class Expedition {
     obj.add(beam(0xff5a40));
     obj.position.set(x, y, z);
     g.scene.add(obj);
-    const id = `drop:${++this.dropN}`;
+    const id = at?.id ?? `drop:${++this.dropN}`;
     const it = { kind: 'search', drop: true, id, x, y: y + 0.6, z, r: 1.4, label: 'Supply drop', loot: 'drop', time: 1.8, obj, flare };
     g.world.extra.interactables.push(it);
     this.drops.push(it);
     g.hud.markers.push({ key: id, x, z, icon: '⚑', label: 'Supply drop', cls: 'drop' });
+    if (at) return;
+    g.saveSoon?.();
     g.hud.banner('Supply drop', 'A crate on a red flare, out in the forest. The Husks are already moving.', 'boss');
     g.audio.horn?.();
     // the Husks close in on it from all sides
@@ -514,6 +542,11 @@ export class Expedition {
 
   update() {
     const g = this.g;
+    // the drops a save left lying out there, put back once the day is under way
+    if (this.savedDrops?.length && g.waves.phase === 'day' && g.begun) {
+      for (const [id, x, z] of this.savedDrops) this.placeDrop({ id, x, z });
+      this.savedDrops = null;
+    }
     this.resolveTemple();
     this.dressRadio();
     const s = this.sites.temple;
@@ -545,8 +578,10 @@ export class Expedition {
   onDawn() {
     // the idol carried through a Blood Moon: now the Sun Seal will take it home
     const g = this.g;
-    if (!this.moonHeld && g.waves.sign === 'blood' && g.inventory.count('golden_idol') + g.coffer.count('golden_idol') > 0) {
+    // (the night that just ended: Waves clears its sign at dawn and keeps it as lastSign)
+    if (!this.moonHeld && (g.waves.lastSign ?? g.waves.sign) === 'blood' && g.inventory.count('golden_idol') + g.coffer.count('golden_idol') > 0) {
       this.moonHeld = true;
+      g.journal.flag('moon');
       setTimeout(() => g.hud.message('The idol has answered the Blood Moon. The Sun Seal in the temple will take it home now', '#ffd070'), 5000);
     }
     for (const id of Object.keys(this.seals)) {
@@ -554,7 +589,8 @@ export class Expedition {
       this.dressSeal(id);
       if (was && !this.sealHolds(id)) this.g.hud.message(`${SEALS[id].name} has worn out: the ${this.dirOf(this.sites[id].rift)} rift will wake tonight`, '#d8b0ff');
     }
-    if (this.g.waves.night >= 4) this.showSeals();
+    // the seals are marked from day 3, when the journal first points at them
+    if (this.g.waves.night >= 3) this.showSeals();
   }
 
   // ------------------------------------------------------------------ save
@@ -563,6 +599,8 @@ export class Expedition {
     return {
       read: this.read, grafting: this.grafting, seals: this.seals, radio: this.radio, pending: this.pendingDrops,
       maps: this.maps, idol: this.idolSet, shown: !!this.sealsShown, dropN: this.dropN, moon: !!this.moonHeld,
+      // supply drops lying out there today
+      drops: this.drops.filter((d) => !d.done).map((d) => [d.id, +d.x.toFixed(2), +d.z.toFixed(2)]),
     };
   }
 
@@ -575,7 +613,11 @@ export class Expedition {
     this.pendingDrops = d.pending || 0;
     this.idolSet = !!d.idol;
     this.moonHeld = !!d.moon;
+    if (this.moonHeld) this.g.journal.flag('moon');
+    if (this.idolSet) this.g.journal.flag('home');
     this.dropN = d.dropN || 0;
+    // a drop that was lying out there still is (unless it was searched: then it's looted)
+    this.savedDrops = (d.drops || []).filter(([id]) => !this.g.world.looted.has(id));
     this.g.hud.notes = this.read.map(noteById);
     for (const m of d.maps || []) {
       this.maps.push(m);

@@ -9,7 +9,8 @@ until dawn. Each night is harder than the last, every fifth night brings a boss,
 through **night 10** wins the run (you can carry on in endless mode). Each day a few **Blight Blooms**
 sprout out in the forest under guard: cut them down for rare loot and the Heartwood's favour, or
 at dusk each one opens a new lane the Blight pours out of all night. The run saves itself every
-morning. Six kinds of Blight come for it, from swarming Blightlings to bile-lobbing Spitters and
+morning, at nightfall and after anything worth keeping, and Continue picks up at the hour you
+left (or at nightfall, if you left during a night). Six kinds of Blight come for it, from swarming Blightlings to bile-lobbing Spitters and
 Burrowers that dig under your walls, and what you live through stays with you: lifetime records
 unlock **Memories** that add to every run after. A short walk out lies a second
 region, the **drowned grove**: black water, mangroves and fog, with its own forage, a sunken
@@ -52,10 +53,10 @@ left walks you through the first day.
 | W A S D | Move |
 | Shift | Sprint (uses stamina) |
 | Space | Jump |
-| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, smashes crates and urns, cuts down Blight Blooms, hits the Blight; every third hit in a row is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
+| Left mouse | Swing the machete (cuts plants, harvests trunks and rocks, smashes crates and urns, cuts down Blight Blooms, hits the Blight; a click during a swing is kept and swings the moment the blade is back; every third swing in a row that strikes something is a crit). With the slingshot held: hold to draw, release to fire. With a build held: place it |
 | Right mouse | Use the held consumable: eat a poultice, throw a firepot, raise orchid salve to mend nearby buildings and the Heartwood |
 | E | Pick up forage (tap; keep holding to rake up everything loose within 3 m). Search camps, wrecks and altars (hold). At a building: repair it if damaged, otherwise upgrade it (hold). At the Heartwood: offer relics for a boon, or call the night (hold) |
-| F (hold) | Pack up a building by day (60% of its materials back). At the Heartwood: bury relics for root capacity. At the Workbench: set the Thornback's heart. At the Tinker's Bench: fit a radio part |
+| F (hold) | Pack up a building by day: it goes back on your belt as worn as it was (damage and spent trap charges come back with it). At the Heartwood: bury relics for root capacity (the prompt shows what offering and burying each give). At the Workbench: set the Thornback's heart. At the Tinker's Bench: fit a radio part |
 | G (hold) | Graft the graft you carry onto a tier 2 or 3 tower |
 | 1–8 / mouse wheel | Choose a belt slot. An empty slot means the machete |
 | R | Rotate a barricade before placing it |
@@ -65,10 +66,12 @@ left walks you through the first day.
 | Esc | Pause: resume, the Field Guide, settings, controls, or quit to the title |
 | F8 / F9 | Capture mode (a free camera: WASD, Space/C, wheel for speed, P to hold the world still) / hide the HUD |
 
-Every key can be moved on the **Controls** page. A gamepad works too (partly: the satchel and
-crafting still want a mouse): sticks to move and look, RT to swing, LT to use, A jump, X
-gather, B pack up, Y satchel, the bumpers along the belt, and the d-pad, A and B in the menus,
-Settings and the cards. `?daily` starts the **daily vigil** (one world a day, the
+Every key can be moved on the **Controls** page (except Esc, Enter, I, P, C, F8, F9 and 1–8,
+which the game keeps). A gamepad works too: sticks to move and look, RT to swing, LT to use,
+A jump, X gather, B pack up, Y satchel, the bumpers and the d-pad's left and right along the
+belt, Start to pause and resume, and the d-pad, A and B in the menus, Settings and the cards.
+In the satchel the d-pad picks a recipe (left and right change tab), A crafts it (in a
+container, takes everything) and B or Y puts it away. `?daily` starts the **daily vigil** (one world a day, the
 same for everyone, with its own save); `?seed=<anything>` any other world.
 
 ### Debug mode
@@ -89,44 +92,49 @@ Debug runs never autosave. The save lives in `localStorage` under `og.save.v1` (
 under `og.save.daily.<date>`), the best run under `og.best`, lifetime records under
 `og.records`, achievements under `og.ach`, the pages read under `og.notes`, tips told under
 `og.tips`, key bindings under `og.keys`, and settings under `og.quality`, `og.bloom`,
-`og.autores`, `og.sensitivity`, `og.invertY`, `og.volume`, `og.music`, `og.captions`,
-`og.shake`, `og.bob` and `og.cb`.
+`og.autores`, `og.sensitivity`, `og.invertY`, `og.volume`, `og.musicVol`, `og.music`,
+`og.captions`, `og.shake`, `og.bob`, `og.cb`, `og.fov` and `og.hud`. Old daily-vigil saves
+(more than a week old) are cleared when a save loads.
 
 ## How it's put together
 
 ```
 src/
-  main.js              boot, wires the title menu to the game, pointer-lock pause
-  ui/Menu.js, menu.css the splash, title menu and its pages (continue, new game, field guide,
+  main.ts              boot, wires the title menu to the game, pointer-lock pause
+  ui/Menu.ts, menu.css the splash, title menu and its pages (continue, new game, field guide,
                        records, settings, controls, credits) and the pause menu
   ui/Portraits.js      renders the Blender models to portraits for the Field Guide
   core/Difficulty.js   Verdant / Warden / Blightborn
   core/Memories.js     permanent unlocks earned from lifetime records
+  core/Expedition.ts   the lost expedition: pages, seals, grafting, Hollis's radio and supply
+                       drops, the Rot's reach, the Blood Moon and the idol
+  core/Story.js        the expedition's pages, seal and radio names
+  core/Quality.ts      the first boot's quality guess from the graphics card's name
   audio/TitleTheme.js  the synthesised title music
   core/Game.ts         owns every system; the frame loop; combat, slingshot, harvesting, foraging,
                        building, boss slams, endings, autosave
-  core/Save.js         localStorage save/load of a run, best-run record, lifetime records
+  core/Save.ts         localStorage save/load of a run, best-run record, lifetime records
   core/Perks.js        boons offered at the Heartwood and the stat modifiers they change
   core/Journal.ts      first-day tutorial steps, then rolling optional goals
-  core/Input.js        keyboard/mouse, raw pointer-lock input with spike filtering
+  core/Input.ts        keyboard/mouse, raw pointer-lock input with spike filtering
   assets/Models.js     loads the Blender GLBs, clones them, finds animated parts
   art/merge.ts         flattens models to one draw call per moving part (baked colour/emissive),
                        tri-planar bark/stone/moss detail on their parts, chosen by material name
                        (Bit* names: the same photos at a hand-held thing's scale)
   art/TextureLib.js    loads the generated surfaces and leaf atlases (public/textures)
   art/textures.js      small canvas textures (glows, sparks, item details, water normals)
-  art/shaders.js       material patches: wind, foliage translucency, moss, terrain splat, fog
+  art/shaders.ts       material patches: wind, foliage translucency, moss, terrain splat, fog
   render/PostFX.js     HDR chain: SAO-style AO, ray-marched sun shafts, bloom, tone map + grade
   render/Canopy.js     sky occlusion under the tree crowns (darkens and greens the forest floor)
   world/WorldGen.js    the height function (warped hills, ridged mountains, rivers, the
                        drowned grove's swamp), spawn and base-site search
-  world/World.js       chunk streaming, plant and forage scattering, terrain, collisions,
+  world/World.ts       chunk streaming, plant and forage scattering, terrain, collisions,
                        draw distances and LODs per plant type
   world/Pools.js       one instanced mesh per plant variant for the whole view: chunks take
                        slot blocks, culled per block, near/far LOD sorted per plant
   world/Trample.js     the lanes the Blight wear into the ground, settled at dawn
   world/Litter.js      3D fallen leaves and sticks on the ground around the player
-  world/Cover.js       seedlings, small ferns and dead fronds within 25 m of the player
+  world/Cover.ts       seedlings, small ferns and dead fronds within 25 m of the player
   world/Grass.ts       3D grass tufts on the turf (and sedge under the trees) within 20 m,
                        a lighter shape of each tuft past 12 m
   world/flora/         plant library (Flora.ts), the trees (trees.ts: a skeleton that forks,
@@ -139,28 +147,29 @@ src/
   player/Player.js     movement, jump buffering, stamina, swimming, health, head-bob
   player/Machete.ts    viewmodel: machete, slingshot, held items and their animations
                        (rendered in a second pass)
-  player/MacheteModel.js the machete (blade, scales, rivets) and the gloved hand (hand.glb)
+  player/MacheteModel.ts the machete (blade, scales, rivets) and the gloved hand (hand.glb)
   fx/Marks.ts          gashes the machete cuts in bark, scrapes it leaves on stone
   world/Stubs.js       the cut stalks a machete leaves standing
   items/ItemDB.ts      items (materials, salvage, relics, buildables, consumables) + loot tables
-  items/Recipes.js     crafting recipes
+  items/Recipes.ts     crafting recipes
   items/Inventory.ts   8-slot belt + 24-slot pack of stacks
   items/ItemModels.ts  3D item models + inventory icon renderer
   items/Pickups.ts     items in the world (pop, bob, glow, magnet)
   defense/Base.js      the Heartwood (light, beam, hit reactions), base-site search, Blight rifts
-  defense/FlowField.js enemy path-finding: one Dijkstra field around the base
+  defense/FlowField.ts enemy path-finding: one Dijkstra field around the base
   defense/Enemies.ts   Blightling, Rotboar, Wisp, Spitter, Burrower, Thornback: steering,
                        wind-ups, pounces, bile globs and puddles, digging,
                        statuses (burn/root/slow), boss slam, spawn and death animations
   defense/Towers.ts    buildings, tiers, repair, targeting, projectiles, placement ghost
-  defense/Waves.js     the day/night director, wave composition, boss and rain nights
+  defense/Waves.ts     the day/night director, wave composition, boss and rain nights
   defense/Blooms.js    Blight Blooms: the day's guarded pods, cut down for loot, or they open lanes at dusk
-  combat/Projectiles.js  slingshot stones and thrown firepots
+  combat/Projectiles.ts  slingshot stones and thrown firepots
   fx/Particles.js      leaf bursts, wood chips, sparks, spores, smoke, embers, ash, rings
   fx/LightPool.js      six shared point lights handed out by priority (no shader recompiles)
   fx/Weather.js        rain streaks, lightning, fog and light dimming
   fx/Ambient.js        pollen, fireflies, butterflies, birds, light shafts
-  audio/AudioSys.js    synthesised ambience + sound effects
+  audio/AudioSys.ts    synthesised ambience + sound effects; the music bus
+  audio/Score.ts       the score in play: day kalimba, the night drone and drums, the boss strings
   ui/HUD.ts, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
 art/blender/           one Python script per Blender model, export_all.py, the saved .blend
 art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures;
@@ -207,7 +216,7 @@ is +Z in three.js.
   (`finishCards` in `trees.ts`), which makes them light like soft volumes instead of flat
   planes. Each tree builds its distant copy in the same pass (fewer, bigger cards and a
   coarser skeleton), so nothing is decimated after the fact.
-- **Patching built-in materials.** `art/shaders.js` uses `onBeforeCompile` to add wind sway,
+- **Patching built-in materials.** `art/shaders.ts` uses `onBeforeCompile` to add wind sway,
   moss on upward faces, 4-way terrain splatting and valley mist, while keeping three.js
   PBR lighting, shadows and fog.
 - **Walkable structures without a physics engine.** Colliders are circles and rotated boxes
@@ -239,12 +248,14 @@ riverbank, cliffs, clearing, temple, dusk and hillside are covered.
 `node e2e/view.mjs <outDir> '<json shots>'` takes one-off views by place, plant type, time of day
 and pitch (see its header), and `node e2e/probe.mjs "<js>"` prints the result of a JS expression
 evaluated in a booted game.
-`node e2e/loop.mjs` checks the gather → craft → defend loop end to end, `node e2e/blight.mjs`
+`node e2e/loop.mjs` checks the gather → craft → defend loop end to end, `node e2e/blight.ts`
 stages the Spitter, the Burrower and the Glowcap Lantern and checks each works,
+`node e2e/defence.ts` re-checks the defence bugs fixed for 1.2 (15 checks),
 `node e2e/night.mjs <dir>` stages a night fight for lighting checks, `node e2e/menu.mjs <dir>`
 screenshots the title flow, and
-`node e2e/balance.mjs <night> <starter|mid|late> [difficulty]` simulates one night against a
-fixed defence (and says who broke which building). For performance, `node e2e/perf.mjs` profiles
+`node e2e/balance.ts <night> <preset> [difficulty]` simulates one night against a defence
+built to that night's root cap (the presets are listed in its header; `ACTIVE=1` adds a
+fighting player, `SEED=n` fixes the dice) and says who broke which building. For performance, `node e2e/perf.mjs` profiles
 frame times while sprinting, `node e2e/gpu.mjs` times what each part of a frame costs on the GPU
 (shadows, post effects, plants, terrain...), `node e2e/calls.mjs` counts draw calls and
 `node e2e/lod.mjs` shoots views with the far tree LODs on and off. Two review agents
@@ -263,12 +274,12 @@ live in `.claude/agents/`:
   and an entry in `BUILD_DEFS` (`defense/Towers.ts`) with its range, rate and damage. Give it a
   new `kind` and a branch in `Buildings.fire` if it shoots something new.
 - **New enemy:** a Blender model with `Head`/`Leg*` nodes, an entry in `ENEMY_TYPES`
-  (`defense/Enemies.ts`), a loot table, and a place in `waveFor` (`defense/Waves.js`).
+  (`defense/Enemies.ts`), a loot table, and a place in `waveFor` (`defense/Waves.ts`).
 - **New plant:** add a builder method in `world/flora/Flora.js`, register it in
   `this.types` (with `cut` if the machete should cut it), then scatter it in `World.plan`.
 - **New point of interest:** add a builder in `world/poi/POI.js`, register it in `BUILDERS`
   and `POI_INFO`, and give it a probability in `poiSpec`.
-- **Bigger world view:** raise `VIEW_RADIUS` in `World.js` (cost grows quadratically) and
+- **Bigger world view:** raise `VIEW_RADIUS` in `World.ts` (cost grows quadratically) and
   lower the fog density in `Sky.js`.
 
 - **New boon:** add an entry to `PERKS` in `core/Perks.js`. If it needs a new stat, give it a

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mulberry32, range } from '../utils/rng.js';
 import { smoothstep } from '../utils/math.js';
-import { addPackedNormal, addNightFill, patch } from '../art/shaders.js';
+import { addPackedNormal, addNightFill, patch } from '../art/shaders.ts';
 import { staleCells, refreshCells } from './CellRefresh.ts';
 
 const CELL = 4; // metres; leaves are generated per cell, once, and kept while near

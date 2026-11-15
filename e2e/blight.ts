@@ -3,7 +3,7 @@
 // Burrower tunnelling into a lantern's light (it should be dragged up and dazed early).
 // Prints PASS/FAIL per check and writes screenshots.
 //
-//   node e2e/blight.mjs [outDir]
+//   node e2e/blight.ts [outDir]
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 
@@ -12,17 +12,19 @@ const out = process.argv[2] ?? 'e2e/out/blight';
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
-const errs = [];
+const errs: string[] = [];
 page.on('pageerror', (e) => errs.push(`PAGEERR ${e.message}\n${e.stack}`));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 await page.goto(`${BASE}?debug&t=0.7`);
-await page.waitForFunction(() => window.game?.running, null, { timeout: 90000 });
-const ev = (f, a) => page.evaluate(f, a);
-const ok = (name, v) => console.log(`${v ? 'PASS' : 'FAIL'} ${name}`);
-const shot = (name) => page.screenshot({ path: `${out}/${name}.png` });
+await page.waitForFunction(() => (window as any).game?.running, null, { timeout: 90000 });
+const ev = (f: any, a?: any) => page.evaluate(f, a);
+const ok = (name: string, v: boolean) => console.log(`${v ? 'PASS' : 'FAIL'} ${name}`);
+const shot = (name: string) => page.screenshot({ path: `${out}/${name}.png` });
+// the checks below poke the game directly
+declare const window: any;
 
 // stand the player off to one side, looking at a spot
-const look = (x, z, from) => ev(([x, z, from]) => {
+const look = (x: number, z: number, from: { x: number; z: number }) => ev(([x, z, from]: any) => {
   const g = window.game;
   g.hitPlayer = () => {};
   g.player.spawn(from.x, from.z);
@@ -81,9 +83,12 @@ const s2 = await ev(() => {
   const e = g.enemies.spawn('burrower', b.x + Math.sin(a) * 24, b.z + Math.cos(a) * 24, 1);
   e.rise = 0;
   window.__b = { e, walls };
-  return { x: b.x + Math.sin(a) * 18, z: b.z + Math.cos(a) * 18, bx: b.x, bz: b.z };
+  // (the viewer stands 12 m off to the side, past the Burrower's 8 m sight and away from the
+  // way round the walls, or it comes for the player instead of the Heart)
+  const x = b.x + Math.sin(a) * 18, z = b.z + Math.cos(a) * 18;
+  return { x, z, bx: b.x, bz: b.z, vx: x - Math.cos(a) * 12, vz: z + Math.sin(a) * 12 };
 });
-await look(s2.x, s2.z, { x: s2.x + 8, z: s2.z + 6 });
+await look(s2.x, s2.z, { x: s2.vx, z: s2.vz });
 let dug = false, phases = new Set();
 for (let i = 0; i < 80; i++) {
   await page.waitForTimeout(150);
@@ -116,9 +121,12 @@ const s3 = await ev(() => {
   // fake meeting a wall: start digging straight away
   g.enemies.startDig(e, { base: b, particles: g.particles });
   window.__l = { e, lantern };
-  return { lx, lz };
+  // a spot 9 m to the side of the line it tunnels along
+  return { lx, lz, eye: { x: lx + Math.cos(a) * 9, z: lz - Math.sin(a) * 9 } };
 });
-await look(s3.lx, s3.lz, { x: s3.lx + 7, z: s3.lz - 7 });
+// (watched from off to the side of its tunnel: 1.1 stood the camera on the spot where it comes
+// up, and the Burrower, shoved off the player, was pushed back out of the light)
+await look(s3.lx, s3.lz, s3.eye);
 let forced = false;
 for (let i = 0; i < 60 && !forced; i++) {
   await page.waitForTimeout(150);
@@ -136,7 +144,7 @@ ok(`lantern forces the burrower up, dazed, and exposes it (${JSON.stringify(r3)}
 
 // a portrait of the lantern lit at night
 await ev(() => { const g = window.game; g.enemies.clear(); g.sky.time = 0.92; });
-await look(s3.lx, s3.lz, { x: s3.lx + 5, z: s3.lz - 4 });
+await look(s3.lx, s3.lz, { x: s3.eye.x - Math.sin(2.4) * 2, z: s3.eye.z - Math.cos(2.4) * 2 });
 await page.waitForTimeout(1500);
 await shot('06-lantern-night');
 console.log(errs.length ? errs.join('\n') : 'no errors');

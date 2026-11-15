@@ -8,12 +8,12 @@ import { spikeTrapModel } from '../items/ItemModels.ts';
 import { terrainHeight, terrainNormal, WATER_LEVEL } from '../world/WorldGen.js';
 import { glowTexture } from '../art/textures.js';
 import { BUILD_RADIUS, GOAL_RADIUS } from './Base.js';
-import type { World } from '../world/World.js';
+import type { World } from '../world/World.ts';
 import type { Enemies } from './Enemies.ts';
-import type { FlowField } from './FlowField.js';
+import type { FlowField } from './FlowField.ts';
 import type { Particles } from '../fx/Particles.js';
 import type { LightPool } from '../fx/LightPool.js';
-import type { AudioSys } from '../audio/AudioSys.js';
+import type { AudioSys } from '../audio/AudioSys.ts';
 
 const TAU = Math.PI * 2;
 const backOut = (t: number) => 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2;
@@ -47,6 +47,8 @@ export interface BuildDef {
   grabs?: number;
   expose?: number;
   ward?: number;
+  charges?: number; // traps and snares: how many times it springs before it's spent
+  second?: number; // tier-3 bows: a second bolt at another target, for this share of the damage
 }
 // the stats Building.stat scales by tier and boons
 export type StatKey = 'dmg' | 'range' | 'rate' | 'splash' | 'chain' | 'thorns' | 'burn' | 'expose';
@@ -91,30 +93,42 @@ interface Shot {
   dur: number;
   arc?: number;
   hit: () => void;
+  // bolts: what they carry, who loosed them, the damage set aside on the target, turns left
+  dmg?: number;
+  src?: Building | null;
+  split?: boolean;
+  reserved?: number;
+  turns?: number;
 }
 
+// Each tower has a job (1.2): the bow picks off single Blight and flyers at range; the mortar
+// slows and splashes a pack and cracks hide; the brazier burns everything close (and stacks with a
+// second brazier); the totem chains through a pack, flyers and the Shielded; the lantern makes
+// everything in its light take more. No one kind holds the late nights alone (e2e/balance.ts).
 export const BUILD_DEFS: Record<string, BuildDef> = {
   bow_tower: {
-    model: 'bow_tower', hp: 320, r: 1.45, range: 22, rate: 1.0, dmg: 30, pathCost: 60, blocks: true,
-    muzzle: 3.35, kind: 'bow', air: true,
+    model: 'bow_tower', hp: 320, r: 1.45, range: 20, rate: 1.0, dmg: 28, pathCost: 60, blocks: true,
+    muzzle: 3.35, kind: 'bow', air: true, second: 0.35,
   },
   spore_mortar: {
-    model: 'spore_mortar', hp: 260, r: 1.25, range: 30, minRange: 6, rate: 2.8, dmg: 42, splash: 3.6, slow: 0.45, slowTime: 2.6,
+    model: 'spore_mortar', hp: 260, r: 1.25, range: 30, minRange: 6, rate: 2.4, dmg: 50, splash: 4.0, slow: 0.45, slowTime: 3,
     pathCost: 60, blocks: true, muzzle: 1.9, kind: 'mortar',
   },
   tesla_totem: {
-    model: 'tesla_totem', hp: 220, r: 0.85, range: 15, rate: 1.5, dmg: 28, chain: 4, chainRange: 6.5, pathCost: 60, blocks: true,
+    model: 'tesla_totem', hp: 220, r: 0.85, range: 16, rate: 1.5, dmg: 30, chain: 4, chainRange: 6.5, pathCost: 60, blocks: true,
     muzzle: 3.45, kind: 'tesla', air: true,
   },
   ember_brazier: {
-    model: 'ember_brazier', hp: 240, r: 0.95, range: 9, rate: 0.7, dmg: 6, burn: 9, burnTime: 3, pathCost: 60, blocks: true,
+    model: 'ember_brazier', hp: 240, r: 0.95, range: 10, rate: 0.7, dmg: 7, burn: 10, burnTime: 3, pathCost: 60, blocks: true,
     muzzle: 1.5, kind: 'fire', air: true, light: true,
   },
-  barricade: { model: 'barricade', hp: 280, r: 0.62, pathCost: 30, blocks: true, thorns: 5, kind: 'wall', rotates: true },
-  spike_trap: { model: null, hp: 14, r: 0.7, pathCost: 0, blocks: false, dmg: 22, rate: 0.55, kind: 'trap' },
-  vine_snare: { model: 'vine_snare', hp: 6, r: 0.85, pathCost: 0, blocks: false, dmg: 6, rate: 1.4, root: 2.6, grabs: 3, kind: 'snare' },
+  barricade: { model: 'barricade', hp: 320, r: 0.62, pathCost: 30, blocks: true, thorns: 5, kind: 'wall', rotates: true },
+  // traps are spent by springing (charges), not by blows: their hp is only what a slam or a
+  // glob has to get through to break them
+  spike_trap: { model: null, hp: 60, r: 0.7, pathCost: 0, blocks: false, dmg: 22, rate: 0.55, kind: 'trap', charges: 14 },
+  vine_snare: { model: 'vine_snare', hp: 60, r: 0.85, pathCost: 0, blocks: false, dmg: 10, rate: 1.2, root: 3, grabs: 3, kind: 'snare', charges: 8 },
   // lights the ground: Blight in it take more damage, Burrowers can't stay under in it
-  glow_lantern: { model: 'glow_lantern', hp: 160, r: 0.6, range: 10, expose: 1.25, pathCost: 40, blocks: true, kind: 'lantern', light: true },
+  glow_lantern: { model: 'glow_lantern', hp: 160, r: 0.6, range: 11, expose: 1.3, pathCost: 40, blocks: true, kind: 'lantern', light: true },
   // a cutting of the Heartwood: the Rot pulls back from it (world/Rot.js) and can't spread there
   heartseed: { model: 'heartseed', hp: 150, r: 0.7, ward: 9, pathCost: 30, blocks: true, kind: 'seed', light: false },
 };
@@ -150,11 +164,14 @@ function graftSprite(id: string) {
   return s;
 }
 
-// Upgrades: stat multipliers per tier, and what each step costs.
+// Upgrades: stat multipliers per tier, and what each step costs. A tier's damage a second goes up
+// about as much as its roots do (x1.67 at tier 2 for 5/3 of the roots, x2.67 at tier 3 for 8/3
+// on a bow): a better tower reaches further and stands longer, a second one covers another lane.
+// (1.1's tier 3 was x3.06 for a root more, so tall always beat wide.)
 export const TIER_MUL: Record<number, { dmg: number; range: number; rate: number; hp: number }> = {
   1: { dmg: 1, range: 1, rate: 1, hp: 1 },
-  2: { dmg: 1.5, range: 1.12, rate: 0.85, hp: 1.4 },
-  3: { dmg: 2.2, range: 1.25, rate: 0.72, hp: 1.9 },
+  2: { dmg: 1.45, range: 1.1, rate: 0.87, hp: 1.4 },
+  3: { dmg: 2.0, range: 1.2, rate: 0.75, hp: 1.8 },
 };
 export const UPGRADES: Record<string, Record<number, Record<string, number>>> = {
   bow_tower: { 2: { log: 1, flint: 3, feather: 2, rusty_bolts: 2 }, 3: { log: 2, bone: 4, brass_gear: 1, glowcap: 1 } },
@@ -171,8 +188,26 @@ export const REPAIRS: Record<'wall' | 'tower', Record<string, number>> = {
   tower: { bark: 2, resin: 1 },
 };
 export const TIER_NAMES: Record<number, string> = { 1: '', 2: 'Overgrown', 3: 'Heartbound' };
-// What each building draws from the Heartwood's roots (Game.rootCap is how many it can feed)
+// What each building draws from the Heartwood's roots (Game.rootCap is how many it can feed),
+// and what each upgrade draws on top: a tower's second tier is two more roots and its third
+// three more (a bow is 3, 5, then 8), walls and lanterns one a tier. So a second tower is about
+// as good a use of the roots as a better one (1.1 had upgrades at a root each, and six tier-3
+// bows held night 10 alone).
 export const ROOTS: Record<string, number> = { barricade: 1, spike_trap: 1, vine_snare: 1, glow_lantern: 2, heartseed: 2, bow_tower: 3, ember_brazier: 3, spore_mortar: 4, tesla_totem: 4 };
+const TOWER_STEPS = [0, 0, 2, 3]; // roots to reach tier 2, then 3
+export const TIER_ROOTS: Record<string, number[]> = {
+  bow_tower: TOWER_STEPS, ember_brazier: TOWER_STEPS, spore_mortar: TOWER_STEPS, tesla_totem: TOWER_STEPS,
+  barricade: [0, 0, 1, 1], glow_lantern: [0, 0, 1, 1],
+};
+// the roots one building of this id draws at this tier
+export function rootCost(id: string, tier = 1) {
+  let n = ROOTS[id] || 1;
+  for (let t = 2; t <= tier; t++) n += TIER_ROOTS[id]?.[t] ?? 1;
+  return n;
+}
+// How many roots the Heartwood feeds on night n, before relics and boons: 12 on the first night
+// and 3 more each night after (diffRoots: the difficulty's share)
+export const rootCapFor = (night: number, diffRoots = 1) => Math.round((12 + 3 * (Math.max(1, night) - 1)) * diffRoots);
 
 let trapTemplate: THREE.Object3D | null = null;
 function buildModel(id: string): THREE.Object3D {
@@ -288,6 +323,10 @@ export class Building {
   declare deathT?: number;
   declare fall?: number;
   declare dusted?: boolean;
+  // traps and snares: springs left, separate from hp (blows, mending and Deep Roots leave them be;
+  // Game copies them when one is packed up and set down again)
+  declare charges?: number;
+  declare maxCharges?: number;
 
   constructor(id: string, x: number, z: number, rot: number, ground: number) {
     const def = BUILD_DEFS[id];
@@ -303,6 +342,7 @@ export class Building {
     this.grafts = [];
     this.blocks = def.blocks;
     this.pathCost = def.pathCost;
+    if (def.charges) this.charges = this.maxCharges = def.charges;
     this.cooldown = 0.5;
     this.flash = 0;
     this.dead = false;
@@ -346,7 +386,7 @@ export class Building {
     const m = TIER_MUL[this.tier];
     if (key === 'dmg') return base * m.dmg * (mods.towerDmg || 1);
     if (key === 'range') return base * m.range * (mods.towerRange || 1) * (this.grafts.includes('glowcap_lens') ? 1.2 : 1) * (mods.fogRange || 1);
-    // (standing on the Rot, its roots choke: up to 15% slower)
+    // (standing on the Rot, its roots choke: up to 25% slower)
     if (key === 'rate') return base * m.rate * (mods.towerRate || 1) * (this.grafts.includes('coiled_spring') ? 0.82 : 1) * (1 + 0.25 * (this.rotK || 0));
     if (key === 'splash') return base * (this.tier >= 3 ? 1.35 : 1) * (mods.mortarSplash || 1);
     if (key === 'chain') return base + (this.tier >= 3 ? 2 : this.tier >= 2 ? 1 : 0);
@@ -496,6 +536,8 @@ const arcMat = new THREE.ShaderMaterial({
   transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
 });
 
+// where placement samples the ground under each footprint circle (in radii from its centre)
+const FOOT_PROBE: [number, number][] = [[0, 0], [0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]];
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -572,24 +614,40 @@ export class Buildings {
   // Can `id` go at (x, z)? Returns null if fine, or the reason it can't.
   check(id: string, x: number, z: number, rot: number, { base, player, roots }: PlaceCtx): string | null {
     const def = BUILD_DEFS[id];
-    if (roots && roots.used + (ROOTS[id] || 1) > roots.cap) return `The Heartwood can't feed more roots (${roots.used}/${roots.cap}): upgrade instead, or bury a relic in it`;
+    const need = rootCost(id);
+    if (roots && roots.used + need > roots.cap) return `The Heartwood can't feed ${need} more root${need > 1 ? 's' : ''} (${roots.used}/${roots.cap}): pack something up, or bury a relic in it`;
     const dBase = Math.hypot(x - base.x, z - base.z);
     if (dBase > BUILD_RADIUS) return 'Too far from the Heartwood';
     if (dBase < GOAL_RADIUS + 1.2 + def.r) return 'Too close to the Heartwood';
     const h = terrainHeight(x, z);
-    if (h < WATER_LEVEL + 0.05) return 'Needs dry ground';
-    if (terrainNormal(x, z).y < 0.82) return 'Too steep';
     const probe = def.kind === 'wall'
       ? [-1, 0, 1].map((k) => ({ x: x + Math.cos(rot) * k * 1.05, z: z - Math.sin(rot) * k * 1.05, r: def.r }))
       : [{ x, z, r: def.r }];
+    // the ground under the whole footprint, not just its middle: the centre of each circle and
+    // four points near its edge (a tower used to stand half in the river)
+    for (const p of probe) {
+      for (const [ox, oz] of FOOT_PROBE) {
+        const qx = p.x + ox * p.r, qz = p.z + oz * p.r;
+        if (terrainHeight(qx, qz) < WATER_LEVEL + 0.05) return 'Needs dry ground';
+        if (terrainNormal(qx, qz).y < 0.82) return 'Too steep';
+      }
+    }
     for (const p of probe) {
       for (const b of this.list) {
         for (const c of b.footprint) if (Math.hypot(p.x - c.x, p.z - c.z) < p.r + c.r + 0.1) return 'Overlaps a building';
       }
       for (const c of this.world.near(p.x, p.z, 'colliders')) {
-        if (c.dead || c.building || c.type !== 'circle') continue;
+        if (c.dead || c.building) continue;
         if (c.top !== Infinity && c.top < h + 0.4) continue;
-        if (Math.hypot(p.x - c.x, p.z - c.z) < p.r + c.r) return 'Something is in the way';
+        if (c.type === 'circle') {
+          if (Math.hypot(p.x - c.x, p.z - c.z) < p.r + c.r) return 'Something is in the way';
+        } else if (c.type === 'box') {
+          // the circle against the box, in the box's own frame (World.collide's convention)
+          const dx = p.x - c.x, dz = p.z - c.z, cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+          const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+          const ex = Math.max(0, Math.abs(lx) - c.hx), ez = Math.max(0, Math.abs(lz) - c.hz);
+          if (ex * ex + ez * ez < p.r * p.r) return 'Something is in the way';
+        }
       }
       if (def.blocks && Math.hypot(p.x - player.x, p.z - player.z) < p.r + 0.5) return 'You are standing there';
     }
@@ -648,19 +706,8 @@ export class Buildings {
       }
       if (b.rings) b.rings.rotation.y += dt * (1.6 + b.charge * 6);
 
-      // pick the enemy in range that is furthest along the path (closest to the Heart); a
-      // crossbow picks out Spitters first, wherever they stand (they hang back and shell it)
       const range = b.stat('range', mods) * (ctx.rain ? 0.9 : 1);
-      const spotter = kind === 'bow';
-      let best = null, bd = Infinity;
-      for (const e of enemies.list) {
-        if (e.dying || e.rise > 0.5) continue;
-        if (e.def.flying && !b.def.air) continue;
-        const d = Math.hypot(e.pos.x - b.x, e.pos.z - b.z);
-        if (d > range || d < (b.def.minRange || 0)) continue;
-        const fd = (e.def.flying ? Math.hypot(e.pos.x - ctx.base.x, e.pos.z - ctx.base.z) : field.distAt(e.pos.x, e.pos.z)) + d * 0.1 - (spotter && e.def.spit ? 40 : 0);
-        if (fd < bd) { bd = fd; best = e; }
-      }
+      const best = this.pick(b, range, ctx);
       if (!best) {
         // idle: the turret sweeps slowly, watching the treeline
         b.idleT += dt;
@@ -692,12 +739,13 @@ export class Buildings {
       b.cooldown = b.stat('rate', mods);
       b.recoil = 1;
       this.fire(b, best, ctx, mods);
-      // tier 3 crossbows loose a second bolt at another target
-      if (kind === 'bow' && b.tier >= 3) {
-        const second = enemies.list.find((e) => e !== best && !e.dying && e.rise <= 0.5 && Math.hypot(e.pos.x - b.x, e.pos.z - b.z) < range);
-        if (second) this.fire(b, second, ctx, mods);
+      // tier 3 crossbows loose a second, lighter bolt at the next target in line
+      if (kind === 'bow' && b.tier >= 3 && b.def.second) {
+        const second = this.pick(b, range, ctx, best);
+        if (second) this.fire(b, second, ctx, mods, b.def.second);
       }
     }
+    void field;
 
     // collapsing buildings
     for (let i = this.dying.length - 1; i >= 0; i--) {
@@ -740,7 +788,8 @@ export class Buildings {
 
   updateFire(b: Building, dt: number, t: number, ctx: TowerCtx, mods: TowerMods) {
     const { enemies, particles, audio, lights } = ctx;
-    const rainK = ctx.rain ? 0.6 : 1;
+    // rain damps the fire (but never falls on a boss night: Waves.rainsOn)
+    const rainK = ctx.rain ? 0.75 : 1;
     const flare = b.recoil;
     if (b.flame) {
       const f = 0.85 + Math.sin(t * 13 + b.x) * 0.08 + Math.sin(t * 23.7 + b.z) * 0.06;
@@ -759,7 +808,8 @@ export class Buildings {
     b.recoil = 1;
     near.sort((p, q) => Math.hypot(p.pos.x - b.x, p.pos.z - b.z) - Math.hypot(q.pos.x - b.x, q.pos.z - b.z));
     for (const e of near.slice(0, 4 + b.tier)) {
-      enemies.ignite(e, b.stat('burn', mods) * rainK, b.def.burnTime * (b.tier >= 3 ? 1.5 : 1));
+      // (each brazier's flames are its own: a second brazier's stack on the first, Enemies.ignite)
+      enemies.ignite(e, b.stat('burn', mods) * rainK, b.def.burnTime * (b.tier >= 3 ? 1.5 : 1), b);
       enemies.damage(e, b.stat('dmg', mods) * rainK, ctx, null, graftOpts(b, { source: 'tower', type: 'fire' }));
       // a gout of flame licks out to the target
       const to = enemies.chest(e).clone();
@@ -814,8 +864,11 @@ export class Buildings {
     } else {
       b.obj.position.y = b.y + b.recoil * 0.12;
     }
-    if (b.cooldown > 0) return;
-    const hits = enemies.inRadius(b.x, b.z, def.r, { ground: true }).filter((e) => e.rise <= 0.3 && !(def.kind === 'snare' && e.rootT > 0));
+    if (b.cooldown > 0 || !((b.charges ?? 0) > 0)) return;
+    // a snare only grabs what it can hold: not a boss or a Rooted elite (1.1 spent all its
+    // charges on a Thornback in eight seconds), nor one it is already holding
+    const snare = def.kind === 'snare';
+    const hits = enemies.inRadius(b.x, b.z, def.r, { ground: true }).filter((e) => e.rise <= 0.3 && !(snare && (e.rootT > 0 || !enemies.rootable(e))));
     if (!hits.length) return;
     b.cooldown = def.rate;
     b.recoil = 1;
@@ -832,43 +885,111 @@ export class Buildings {
       particles.chipBurst(new THREE.Vector3(b.x, b.y + 0.3, b.z), 0x6a3a7a, 8, b.y);
       audio.stab?.();
     }
-    b.hp -= 1;
+    // a spring spends a charge, never hp (blows, mending and Deep Roots don't touch charges)
+    b.charges = (b.charges ?? 1) - 1;
     b.barT = 3;
-    if (b.hp <= 0) this.remove(b, true);
+    if (b.charges <= 0) this.remove(b, true);
+  }
+
+  // The Blight in range furthest along its way to the Heart: metres of path left (the flow
+  // field for walkers; a straight line for flyers, and for the few cells by the benches the
+  // field can't answer, where 1.1 towers never fired). A crossbow picks out Spitters first,
+  // wherever they stand (they hang back and shell it). A Blight the bolts already in the air
+  // will kill is passed over while there's anything else, so towers spread their fire.
+  pick(b: Building, range: number, ctx: TowerCtx, skip: any = null) {
+    const { enemies, field, base } = ctx;
+    const spotter = b.def.kind === 'bow';
+    let best = null, bd = Infinity, doomed = null, dd = Infinity;
+    for (const e of enemies.list) {
+      if (e === skip || e.dying || e.rise > 0.5) continue;
+      if (e.def.flying && !b.def.air) continue;
+      const d = Math.hypot(e.pos.x - b.x, e.pos.z - b.z);
+      if (d > range || d < (b.def.minRange || 0)) continue;
+      const left = e.def.flying ? Math.hypot(e.pos.x - base.x, e.pos.z - base.z) : field.metresAt(e.pos.x, e.pos.z);
+      const score = left + d * 0.1 - (spotter && e.def.spit ? 80 : 0);
+      if ((e.incoming || 0) >= e.hp + (e.shield || 0)) {
+        if (score < dd) { dd = score; doomed = e; }
+      } else if (score < bd) { bd = score; best = e; }
+    }
+    return best || doomed;
+  }
+
+  // what a bolt is expected to take off this Blight (its hide, a lantern's light)
+  private expected(dmg: number, e: any, src: Building | null) {
+    const k = src?.grafts?.includes('bog_heads') ? Math.max(1, e.def.resist?.pierce ?? 1) : (e.def.resist?.pierce ?? 1);
+    return dmg * k * (e.litT > 0 ? e.lit : 1);
+  }
+
+  private reserve(s: Shot, e: any) {
+    s.target = e;
+    s.reserved = this.expected(s.dmg, e, s.src);
+    e.incoming = (e.incoming || 0) + s.reserved;
+  }
+
+  private release(s: Shot) {
+    if (s.target && s.reserved) s.target.incoming = Math.max(0, (s.target.incoming || 0) - s.reserved);
+    s.reserved = 0;
   }
 
   // A homing bolt. With Splitting Shafts the first one splits on impact and a second,
-  // weaker bolt seeks the nearest other Blight.
+  // weaker bolt seeks the nearest other Blight. If its Blight dies before it lands it turns on
+  // the nearest other one (twice at most), or flies on and is lost.
   bolt(from: THREE.Vector3, target: any, dmg: number, ctx: TowerCtx, mods: TowerMods, canSplit: boolean, src: Building | null = null) {
-    const { enemies, particles } = ctx;
     const mesh = new THREE.Mesh(boltGeo, boltMat);
     mesh.add(new THREE.Mesh(trailGeo, trailMat));
     mesh.position.copy(from);
     this.scene.add(mesh);
-    const to = enemies.chest(target).clone();
-    this.shots.push({
-      kind: 'bolt', mesh, from, to, target, t: 0, dur: Math.max(0.08, from.distanceTo(to) / 42),
-      hit: () => {
-        if (!target.dying) {
-          const knock = new THREE.Vector3(to.x - from.x, 0, to.z - from.z).normalize().multiplyScalar(3);
-          enemies.damage(target, dmg, ctx, knock, graftOpts(src, { source: 'tower', type: 'pierce', stagger: 0.15 }));
-          graftHit(src, target, enemies);
-          particles.chipBurst(to, 0x6a3a7a, 8, target.pos.y);
-        }
-        if (canSplit && mods.boltSplit) {
-          let next = null, nd = 7;
-          for (const e of enemies.list) {
-            if (e.dying || e.dig || e === target) continue;
-            const d = Math.hypot(e.pos.x - to.x, e.pos.z - to.z);
-            if (d < nd) { nd = d; next = e; }
-          }
-          if (next) {
-            particles.sparks(to, 0xffe0a0, 4);
-            this.bolt(to.clone(), next, dmg * mods.boltSplit, ctx, mods, false, src);
-          }
-        }
-      },
-    });
+    const to = ctx.enemies.chest(target).clone();
+    const s: Shot = { kind: 'bolt', mesh, from, to, t: 0, dur: Math.max(0.08, from.distanceTo(to) / 42), dmg, src, split: canSplit, turns: 2, hit: () => this.boltHit(s, ctx, mods) };
+    this.reserve(s, target);
+    this.shots.push(s);
+  }
+
+  private boltHit(s: Shot, ctx: TowerCtx, mods: TowerMods) {
+    const { enemies, particles } = ctx;
+    this.release(s);
+    const target = s.target, to = s.to;
+    if (!target || target.dying) return;
+    const knock = new THREE.Vector3(to.x - s.from.x, 0, to.z - s.from.z).normalize().multiplyScalar(3);
+    enemies.damage(target, s.dmg, ctx, knock, graftOpts(s.src, { source: 'tower', type: 'pierce', stagger: 0.15 }));
+    graftHit(s.src, target, enemies);
+    particles.chipBurst(to, 0x6a3a7a, 8, target.pos.y);
+    if (s.split && mods.boltSplit) {
+      let next = null, nd = 7;
+      for (const e of enemies.list) {
+        if (e.dying || e.dig || e === target) continue;
+        const d = Math.hypot(e.pos.x - to.x, e.pos.z - to.z);
+        if (d < nd) { nd = d; next = e; }
+      }
+      if (next) {
+        particles.sparks(to, 0xffe0a0, 4);
+        this.bolt(to.clone(), next, s.dmg * mods.boltSplit, ctx, mods, false, s.src);
+      }
+    }
+  }
+
+  // a bolt whose Blight died in front of it: the nearest live one within 6 m of where it was
+  // aimed, or none (it flies on to the spot and is lost)
+  private retarget(s: Shot, ctx: TowerCtx) {
+    this.release(s);
+    let next = null, nd = 6;
+    if (s.turns > 0) {
+      for (const e of ctx.enemies.list) {
+        if (e.dying || e.dig || e.rise > 0.5 || e === s.target) continue;
+        const d = Math.hypot(e.pos.x - s.to.x, e.pos.z - s.to.z) + ((e.incoming || 0) >= e.hp ? 4 : 0);
+        if (d < nd) { nd = d; next = e; }
+      }
+    }
+    if (!next) {
+      s.target = null;
+      return;
+    }
+    s.turns--;
+    s.from = s.mesh.position.clone();
+    s.to.copy(ctx.enemies.chest(next));
+    s.t = 0;
+    s.dur = Math.max(0.05, s.from.distanceTo(s.to) / 42);
+    this.reserve(s, next);
   }
 
   updateShots(dt: number, ctx: TowerCtx) {
@@ -876,10 +997,13 @@ export class Buildings {
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
       s.t += dt;
+      if (s.kind === 'bolt') {
+        if (s.target?.dying) this.retarget(s, ctx);
+        // homing: chase the target's chest while it lives
+        if (s.target) s.to.copy(enemies.chest(s.target));
+      }
       const k = Math.min(1, s.t / s.dur);
       if (s.kind === 'bolt') {
-        // homing: chase the target's chest while it lives
-        if (s.target && !s.target.dying) s.to.copy(enemies.chest(s.target));
         s.mesh.position.lerpVectors(s.from, s.to, k);
         s.mesh.lookAt(s.to);
       } else {
@@ -896,10 +1020,11 @@ export class Buildings {
     }
   }
 
-  fire(b: Building, target: any, ctx: TowerCtx, mods: TowerMods) {
+  // k: a share of the full damage (a tier-3 crossbow's second bolt)
+  fire(b: Building, target: any, ctx: TowerCtx, mods: TowerMods, k = 1) {
     const { enemies, audio, particles, lights } = ctx;
     const from = b.muzzle(new THREE.Vector3());
-    const dmg = b.stat('dmg', mods);
+    const dmg = b.stat('dmg', mods) * k;
     if (b.def.kind === 'bow') {
       this.bolt(from, target, dmg, ctx, mods, true, b);
       particles.sparks(from, 0xffe0a0, 3);
@@ -927,9 +1052,11 @@ export class Buildings {
             graftHit(b, e, enemies);
             enemies.slowDown(e, b.def.slow * (mods.sporeSlow || 1), b.def.slowTime);
           }
-          particles.sporeBurst(to, 0xa0e040, 60, 1.6);
-          particles.ring(to, splash, 0x9ae040, 0.55);
-          lights?.flash(to.clone().add(new THREE.Vector3(0, 1, 0)), 0xa0ff50, 40, 0.25);
+          // a puff and a faint ring, half as bright and half as long as 1.1's lime disc, so you
+          // can still see what it hit (the ring is additive: a darker colour is a fainter ring)
+          particles.sporeBurst(to, 0xa0e040, 28, 1.1);
+          particles.ring(to, splash, 0x4d7020, 0.3);
+          lights?.flash(to.clone().add(new THREE.Vector3(0, 1, 0)), 0xa0ff50, 30, 0.2);
           audio.sporePop?.();
         },
       });
@@ -954,7 +1081,8 @@ export class Buildings {
       chain.forEach((e, k) => {
         const p = enemies.chest(e).clone();
         this.arc(prev, p);
-        enemies.damage(e, dmg * Math.pow(0.8, k), ctx, null, graftOpts(b, { source: 'tower', type: 'arc', stagger: 0.25 }));
+        // (each jump is weaker: a long chain is a pack's bane, not a boss's)
+        enemies.damage(e, dmg * Math.pow(0.72, k), ctx, null, graftOpts(b, { source: 'tower', type: 'arc', stagger: 0.25 }));
         graftHit(b, e, enemies);
         particles.sparks(p, 0xa0e0ff, 10);
         prev = p;

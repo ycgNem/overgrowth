@@ -128,7 +128,10 @@ const p7 = await ev(() => {
   g.applySign(null);
   const s6 = g.waves.signOf(6);
   g.give('golden_idol', 1);
+  // (a night's sign is decided once, at the dawn that tells it: forget it to ask again)
+  g.signLatch = null;
   const s6idol = g.waves.signOf(6);
+  g.signLatch = null;
   g.inventory.remove('golden_idol', 1);
   return { ratio: +(r1 / r0).toFixed(2), s4: g.waves.signOf(4), s6, s6idol, s8: g.waves.signOf(8), s10: g.waves.signOf(10) };
 });
@@ -170,7 +173,7 @@ ok(`the Rot Mother lays her eggs (two on night 10, three from 15); one hatches t
 
 // 9. the save keeps the story: pages, the seal, the radio, grafts and the Rot
 const p9 = await ev(async () => {
-  const { writeSave, loadSave } = await import('/src/core/Save.js');
+  const { writeSave, loadSave } = await import('/src/core/Save.ts');
   const g = window.game;
   g.debug = false; writeSave(g); g.debug = true;
   const d = loadSave();

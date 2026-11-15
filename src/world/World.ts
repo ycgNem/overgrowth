@@ -10,7 +10,7 @@ import { chunkRng, range, hash2 } from '../utils/rng.js';
 import { createNoise2D } from '../utils/noise.js';
 import { smoothstep, clamp } from '../utils/math.js';
 import { poiSpec, poisAround, buildPOISteps } from './poi/POI.js';
-import { makeTerrainMaterial } from '../art/shaders.js';
+import { makeTerrainMaterial } from '../art/shaders.ts';
 import { mergeToGeometry, bakedMaterial } from '../art/merge.ts';
 import { getItemModel } from '../items/ItemModels.ts';
 import { ITEMS } from '../items/ItemDB.ts';
@@ -36,6 +36,8 @@ const FAR = {
   bromeliad: 60, reeds: 90, lily: 75, branch: 60, stump: 75,
 };
 const FORAGE_FAR = 60;
+// what doesn't wilt on the Rot (stone, and wood that is dead already)
+const WILT_SKIP = new Set(['rock', 'cliffRock', 'log', 'branch', 'stump', 'pebbles', 'snag', 'deadFrond', 'mushrooms']);
 const DRESSING = new Set([
   'seedling', 'pebbles', 'branch', 'deadFrond', 'mushrooms', 'orchid', 'bromeliad',
   'grass', 'fern', 'bush', 'taro', 'flower', 'lily',
@@ -77,6 +79,20 @@ const forageGeo = new Map();
 // satchel); Game.highlightForage lights the one you're looking at and puts this back
 export const FORAGE_TINT = new THREE.Color(0.8, 0.76, 0.7);
 export const CACHE_EMPTY = new THREE.Color(0.35, 0.33, 0.3);
+// How big each item lies on the floor, as a scale of its satchel model (whose sizes are made to
+// read in a slot, not in the leaves). Each find varies about this by +-12%. At the old 1.5-1.9x
+// for everything a flint was half a metre long, a stone knee-high and a feather 60 cm.
+const FORAGE_SIZE = {
+  stick: 1.45, stone: 0.72, flint: 0.5, feather: 0.75, fiber: 0.95, vine: 1.25, bark: 1.1, moss: 1.05,
+  mushroom: 0.62, glowcap: 0.7, berries: 0.68, bone: 1.0, clay: 0.72, resin: 0.5, reed: 1.35, bog_iron: 0.75, eel: 1.2,
+};
+const forageSize = (id, roll) => (FORAGE_SIZE[id] ?? 1) * (0.88 + 0.24 * roll);
+// The common loose finds are thinned to about 55% of what the scatter rolls (an honest bot day
+// on Warden came back with 44 sticks, 29 stones, 19 feathers and 11 flint: the day had no
+// scarcity). Rare finds (glowcaps, resin, clay, bone, food) keep their old odds. The cut uses
+// its own random stream, so nothing else in a chunk's plan moves.
+const FORAGE_THIN = new Set(['stick', 'stone', 'flint', 'feather', 'fiber', 'vine', 'bark', 'moss']);
+const FORAGE_KEEP = 0.55;
 let forageMat = null;
 function forageGeometry(id) {
   if (!forageGeo.has(id)) {
@@ -105,6 +121,34 @@ function disposeGroup(group) {
 }
 
 export class World {
+  scene: THREE.Scene;
+  flora: any;
+  chunks: Map<number, any>;
+  plans: Map<number, any>;
+  bigPlans: Map<number, any[]>;
+  fallers: Map<any, any>;
+  stubs: Stubs;
+  cut: Set<string>;
+  looted: Set<string>;
+  terrainMat: THREE.MeshStandardMaterial;
+  queue: any[];
+  wearQueue: number[];
+  cx: number;
+  cz: number;
+  time: number;
+  fireLight: THREE.PointLight;
+  px: number;
+  pz: number;
+  clearings: { x: number; z: number; r: number; soft: number }[];
+  extra: { colliders: any[]; interactables: any[]; cuttables: any[] };
+  _nearG: any[];
+  _nearC: any[];
+  foraged: Set<string>;
+  pools: Pools;
+  trample: any;
+  rot: any;
+  building: any;
+
   constructor(scene, flora) {
     this.scene = scene;
     this.flora = flora;
@@ -142,29 +186,34 @@ export class World {
 
   // Wear the trampled lanes into a chunk's terrain: churned earth where the Blight walk, the
   // litter, moss and turf worn off (from the splat the chunk was built with). The Rot goes on
-  // top: the grass dies back and the ground darkens to a bruised violet.
+  // top: the turf and moss die back, and how rotten each vertex is goes to the terrain shader
+  // (the `ground` attribute's y), which greys and blackens the ground, cracks it with veins and
+  // crusts it with spore (see makeTerrainMaterial).
   wearChunk(ch) {
     const T = this.trample, R = this.rot;
     if (!T || !ch.baseSplat || !ch.terrainMesh) return;
     const N = SEG + 1, step = CS / SEG, x0 = ch.cx * CS, z0 = ch.cz * CS;
     if (!T.overlaps(x0, z0, x0 + CS, z0 + CS)) return;
     const rotted = R?.any;
-    const S = ch.splat, G = ch.grass, C = ch.shade, bS = ch.baseSplat, bG = ch.baseGrass, bC = ch.baseCol;
+    const S = ch.splat, G = ch.grass, C = ch.shade, bS = ch.baseSplat, bG = ch.baseGrass, bC = ch.baseCol, GR = ch.ground;
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
         const x = x0 + i * step, z = z0 + j * step;
         const v = j * N + i, t = T.at(x, z), r = rotted ? R.at(x, z) : 0;
-        const w = Math.max(t, r * 0.8);
-        S[v * 4] = bS[v * 4] * (1 - 0.75 * w);
-        S[v * 4 + 1] = bS[v * 4 + 1] * (1 - 0.85 * w);
-        S[v * 4 + 3] = Math.max(bS[v * 4 + 3], w * 0.9);
+        // the lanes churn the litter off down to earth; the Rot leaves its dead leaves lying
+        // (the shader blackens them) but takes the moss
+        S[v * 4] = bS[v * 4] * (1 - 0.75 * t) * (1 - 0.35 * r);
+        S[v * 4 + 1] = bS[v * 4 + 1] * (1 - 0.85 * Math.max(t, r));
+        S[v * 4 + 3] = Math.max(bS[v * 4 + 3], t * 0.9, r * 0.55);
         G[v] = bG[v] * (1 - Math.max(t, r));
-        const d = 1 - 0.14 * t;
-        C[v * 3] = bC[v * 3] * d * (1 - 0.3 * r); C[v * 3 + 1] = bC[v * 3 + 1] * d * (1 - 0.62 * r); C[v * 3 + 2] = bC[v * 3 + 2] * d * (1 - 0.12 * r);
+        const d = (1 - 0.14 * t) * (1 - 0.22 * r);
+        C[v * 3] = bC[v * 3] * d; C[v * 3 + 1] = bC[v * 3 + 1] * d; C[v * 3 + 2] = bC[v * 3 + 2] * d;
+        if (GR) GR[v * 2 + 1] = r;
       }
     }
     const a = ch.terrainMesh.geometry.attributes;
     a.splat.needsUpdate = a.grass.needsUpdate = a.color.needsUpdate = true;
+    if (a.ground) a.ground.needsUpdate = true;
   }
 
   wearAll() {
@@ -248,7 +297,7 @@ export class World {
   // The ground as rendered at (x, z): the height and normal of the terrain mesh's own
   // triangle there (not the smooth terrain function), the splat weights and the baked
   // shade. null where no chunk is built.
-  groundAt(x, z, out = {}) {
+  groundAt(x, z, out: any = {}) {
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     const ch = this.chunks.get(World.key(cx, cz));
     if (!ch || !ch.heights || !ch.splat) return null;
@@ -274,8 +323,11 @@ export class World {
     const sp = (k) => S[a * 4 + k] * w00 + S[(a + 1) * 4 + k] * w10 + S[(a + N) * 4 + k] * w01 + S[(a + N + 1) * 4 + k] * w11;
     out.litter = sp(0); out.moss = sp(1); out.rock = sp(2); out.mud = sp(3);
     out.shade = C[a * 3 + 1] * w00 + C[(a + 1) * 3 + 1] * w10 + C[(a + N) * 3 + 1] * w01 + C[(a + N + 1) * 3 + 1] * w11;
-    const G = ch.grass;
+    const G = ch.grass, BG = ch.baseGrass;
     out.grass = G ? G[a] * w00 + G[a + 1] * w10 + G[a + N] * w01 + G[a + N + 1] * w11 : 0;
+    // the turf as it grew before the lanes and the Rot wore it off, and how rotten it is here
+    out.baseGrass = BG ? BG[a] * w00 + BG[a + 1] * w10 + BG[a + N] * w01 + BG[a + N + 1] * w11 : out.grass;
+    out.rot = this.rot?.any ? this.rot.at(x, z) : 0;
     return out;
   }
 
@@ -329,7 +381,7 @@ export class World {
     if (force) {
       if (this.building) finish(this.building.steps);
       this.building = null;
-      while (this.queue.length) this.build(...this.queue.shift());
+      while (this.queue.length) { const [qx, qz] = this.queue.shift(); this.build(qx, qz); }
       for (const ch of this.chunks.values()) {
         if (ch.regrow) { this.dropDressing(ch); ch.regrow = false; }
         this.updateDressing(ch);
@@ -352,7 +404,7 @@ export class World {
       } else for (const ch of this.chunks.values()) if (this.updateDressing(ch)) break;
     }
     this.updateFallers(dt);
-    this.animate(dt);
+    this.animate();
   }
 
   get loading() {
@@ -392,7 +444,7 @@ export class World {
     const x0 = cx * CS, z0 = cz * CS;
     const pois = poisAround(cx, cz, 1);
     const out = [];
-    const t = {};
+    const t: any = {};
     for (let i = 0; i < 34; i++) {
       const x = x0 + rand() * CS, z = z0 + rand() * CS;
       const r1 = rand(), r2 = rand(), r3 = rand(), r4 = rand();
@@ -420,7 +472,7 @@ export class World {
     const items = [];
     const big = this.bigTrees(cx, cz);
     for (const b of big) items.push({ type: 'bigTree', v: b.v, x: b.x, y: b.y, z: b.z, ry: b.ry, s: b.s });
-    const t = {};
+    const t: any = {};
     const blocked = (x, z, pad, inner = 1) => this.cleared(x, z, pad, inner) || pois.some((p) => (x - p.x) ** 2 + (z - p.z) ** 2 < (p.radius + pad) ** 2);
     const nearBig = (x, z, d) => big.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < d * d);
     // Each chunk grows only one or two of a plant's variants (the neighbours pick others):
@@ -438,8 +490,8 @@ export class World {
       }
       return sub[Math.floor(rand() * sub.length)];
     };
-    const place = (type, x, y, z, s, v, tilt = false) => {
-      const it = { type, v: v ?? variantFor(type), x, y, z, ry: rand() * TAU, s };
+    const place = (type, x, y, z, s, v?: number, tilt = false) => {
+      const it: any = { type, v: v ?? variantFor(type), x, y, z, ry: rand() * TAU, s };
       if (tilt) {
         const n = terrainNormal(x, z);
         it.nx = n.x; it.ny = n.y; it.nz = n.z;
@@ -666,11 +718,15 @@ export class World {
 
     // forage: loose materials on the floor
     const forage = [];
+    const thin = chunkRng(cx, cz, 4343);
     const addForage = (id, x, z) => {
       if (blocked(x, z, 0.5)) return;
       const n = terrainNormal(x, z);
       if (n.y < 0.8) return;
-      forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.5, 1.9), nx: n.x, ny: n.y, nz: n.z });
+      const ry = rand() * TAU, s = forageSize(id, (range(rand, 1.5, 1.9) - 1.5) / 0.4);
+      // (the main stream is drawn from either way, so the rest of the plan stays put)
+      if (thin() > FORAGE_KEEP && FORAGE_THIN.has(id)) return;
+      forage.push({ id, x, y: terrainHeight(x, z), z, ry, s, nx: n.x, ny: n.y, nz: n.z });
     };
     scatter('forage', 170, (x, z, t, roll) => {
       if (t.h < 0.2) return;
@@ -723,7 +779,7 @@ export class World {
     if (home) {
       const hr = chunkRng(Math.floor(home.x), Math.floor(home.z), 977);
       for (let i = 0; i < 8; i++) {
-        const a = hr() * TAU, d = 8 + hr() * 12, ry = hr() * TAU, sc = range(hr, 1.25, 1.6);
+        const a = hr() * TAU, d = 8 + hr() * 12, ry = hr() * TAU, sc = forageSize(i % 3 === 2 ? 'stone' : 'stick', hr());
         const x = home.x + Math.cos(a) * d, z = home.z + Math.sin(a) * d;
         if (x < x0 || x >= x0 + CS || z < z0 || z >= z0 + CS) continue;
         const n = terrainNormal(x, z);
@@ -780,7 +836,7 @@ export class World {
       });
       const addWet = (id, x, z) => {
         if (blocked(x, z, 0.5)) return;
-        forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: range(rand, 1.5, 1.9), nx: 0, ny: 1, nz: 0 });
+        forage.push({ id, x, y: terrainHeight(x, z), z, ry: rand() * TAU, s: forageSize(id, (range(rand, 1.5, 1.9) - 1.5) / 0.4), nx: 0, ny: 1, nz: 0 });
       };
       scatter('forage', 70, (x, z, t, roll) => {
         if (t.swamp < 0.2 || t.h < -0.45 || t.h > 0.9) return;
@@ -995,12 +1051,19 @@ export class World {
           const h = hash2(Math.round(it.x * 10), Math.round(it.z * 10), 7);
           const hue = ((h & 1023) / 1023 - 0.5) * 2 * def.tint[0];
           const val = 1 + (((h >>> 10) & 1023) / 1023 - 0.5) * 2 * def.tint[1];
-          mesh.setColorAt(i, _c.setRGB(val * (1 + hue * 1.6), val * (1 + hue * 0.4), val * (1 - hue * 1.8)));
+          _c.setRGB(val * (1 + hue * 1.6), val * (1 + hue * 0.4), val * (1 - hue * 1.8));
         } else {
           // every instanced caster carries instance colours: when three's shared depth material
           // meets meshes with and without them it rebuilds its program key on every switch
-          mesh.setColorAt(i, _c.setRGB(1, 1, 1));
+          _c.setRGB(1, 1, 1);
         }
+        // on the Rot the plants wilt: browned, yellowed and darker (the trees only a little).
+        // The floor's plants are rebuilt every dawn after it spreads, so they follow it
+        if (this.rot?.any && !WILT_SKIP.has(type)) {
+          const k = smoothstep(0.05, 0.7, this.rot.at(it.x, it.z)) * (TREE_TYPES.has(type) ? 0.45 : 1);
+          if (k > 0) _c.setRGB(_c.r * (1 - 0.3 * k), _c.g * (1 - 0.55 * k), _c.b * (1 - 0.72 * k));
+        }
+        mesh.setColorAt(i, _c);
         if (it.nx === undefined) {
           const n = terrainNormal(it.x, it.z);
           mesh.setSlopeAt(i, -n.x / n.y, -n.z / n.y);
@@ -1048,7 +1111,7 @@ export class World {
     const N = SEG + 1, W = N + 2, step = CS / SEG;
     const x0 = cx * CS, z0 = cz * CS;
     const H = new Float32Array(W * W), RV = new Float32Array(W * W), MT = new Float32Array(W * W), SW = new Float32Array(W * W);
-    const t = {};
+    const t: any = {};
     // the camp: trampled bare earth round the Heartwood, ragged at the edge, giving way to litter
     const home = this.clearings[0];
     const campEarth = (x, z, n) => {
@@ -1089,6 +1152,8 @@ export class World {
 
     const pos = new Float32Array(N * N * 3), nrm = new Float32Array(N * N * 3);
     const col = new Float32Array(N * N * 3), spl = new Float32Array(N * N * 4), grs = new Float32Array(N * N);
+    // per vertex: x how trodden the camp's earth is, y how rotten the ground is (wearChunk)
+    const gnd = new Float32Array(N * N * 2);
     const n = new THREE.Vector3();
     for (let j = 0; j < N; j++) {
       if (j % 17 === 16) yield;
@@ -1132,8 +1197,10 @@ export class World {
         const rock = clamp(smoothstep(0.3, 0.52, slope) * (0.15 + 0.85 * inland) + MT[gi] * 0.7 * smoothstep(0.16, 0.34, slope) + smoothstep(22, 36, h) * 0.5, 0, 1);
         // mud near the waterline, and bare dark earth where slopes shed their litter
         const mn = groundPatch(wx * 2.7, wz * 2.7);
+        const camp = campEarth(wx, wz, mn);
+        gnd[v * 2] = camp / 0.75;
         const mud = clamp((1 - smoothstep(0.3 + mn * 1.8, 1.5 + mn * 3.2, h)) + (1 - RV[gi]) * 0.5 * (1 - smoothstep(1.0, 2.5, h))
-          + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland + campEarth(wx, wz, mn), 0, 1) * (1 - rock * 0.7);
+          + smoothstep(0.2, 0.4, slope) * (0.1 + 0.3 * mn) * inland + camp, 0, 1) * (1 - rock * 0.7);
         // moss: in patches, on damp banks and in clearings; litter piles up under trees
         // (moss stays off the turf: its dark speckled cushions cut hard holes in a lawn)
         const gAt = this.grassAt(wx, wz, dens, canopy, rock, mud, slope);
@@ -1174,9 +1241,10 @@ export class World {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('splat', new THREE.BufferAttribute(spl, 4));
     geo.setAttribute('grass', new THREE.BufferAttribute(grs, 1));
+    geo.setAttribute('ground', new THREE.BufferAttribute(gnd, 2));
     // kept for groundAt (fallen leaves lie only where litter covers the ground)
     if (chunk) {
-      chunk.splat = spl; chunk.shade = col; chunk.grass = grs;
+      chunk.splat = spl; chunk.shade = col; chunk.grass = grs; chunk.ground = gnd;
       // as built, before any lanes were worn into it
       chunk.baseSplat = spl.slice(); chunk.baseGrass = grs.slice(); chunk.baseCol = col.slice();
     }
@@ -1277,7 +1345,7 @@ export class World {
   // One of every plant variant in a hidden group, for the loading-time shader warm-up.
   warmFlora(x, y, z) {
     const g = new THREE.Group();
-    for (const def of Object.values(this.flora.types)) {
+    for (const def of Object.values(this.flora.types) as any[]) {
       def.variants.forEach((variant, i) => {
         const mesh = new THREE.InstancedMesh(withSlope(variant.geometry), def.material, 1);
         mesh.geometry.setAttribute('aSlope', new THREE.InstancedBufferAttribute(new Float32Array(2), 2));

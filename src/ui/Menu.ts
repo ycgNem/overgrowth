@@ -7,16 +7,16 @@
 // game, with Resume and a way back to the title.
 import { version } from '../../package.json';
 import { ENEMY_TYPES, DAMAGE_TYPES, AFFIXES } from '../defense/Enemies.ts';
-import { ROOTS, BUILD_DEFS, GRAFTS, PALETTE } from '../defense/Towers.ts';
+import { ROOTS, BUILD_DEFS, GRAFTS, PALETTE, rootCost } from '../defense/Towers.ts';
 import { BLIGHT_PALETTE } from '../defense/Enemies.ts';
-import { BINDABLE, keyName } from '../core/Input.js';
-import { describeWave, SIGNS } from '../defense/Waves.js';
+import { BINDABLE, keyName } from '../core/Input.ts';
+import { describeWave, SIGNS } from '../defense/Waves.ts';
 import { NOTES, SEALS, RADIO_PARTS, loadNotes } from '../core/Story.js';
 import { ITEMS } from '../items/ItemDB.ts';
 import { RECIPES } from '../items/Recipes.ts';
 import { PERKS } from '../core/Perks.js';
 import { DIFFICULTIES, DIFFICULTY_IDS, difficulty, KITS, KIT_IDS, kitItems } from '../core/Difficulty.js';
-import { loadBest, loadRecords } from '../core/Save.js';
+import { loadBest, loadRecords } from '../core/Save.ts';
 import { MEMORIES, unlocked } from '../core/Memories.js';
 import { renderPortraits } from './Portraits.js';
 import { ACHIEVEMENTS, loadEarned } from '../core/Achievements.js';
@@ -39,13 +39,13 @@ function ago(ms) {
 const BLIGHT = [
   {
     id: 'blightling', kind: 'Swarm', from: 1,
-    lore: 'Rot given legs and a mouth. They pour out of the rifts in packs and leap the last few metres. One is a single cut of the machete; thirty strip a wall to splinters.',
+    lore: 'Rot given legs and a mouth. They pour out of the rifts in packs and leap the last few metres. Two cuts of the machete fell one; thirty strip a wall to splinters.',
     tip: 'Spike traps and a bow tower thin them before they reach you. Step aside when one crouches to pounce.',
   },
   {
     id: 'rotboar', kind: 'Brute', from: 2,
     lore: 'A boar the Blight hollowed out and packed with fungus. Slow, heavy and furious at anything built by hand. Walls are a meal to it, and towers are dessert.',
-    tip: 'Spore mortars slow it to a crawl. It goes for your buildings first, so keep walls between it and the towers.',
+    tip: 'Arrows glance off its hide; mortars and fire hurt it most. It gores any tower it passes close to, so keep walls between it and the towers.',
   },
   {
     id: 'spitter', kind: 'Artillery', from: 3,
@@ -53,19 +53,19 @@ const BLIGHT = [
     tip: 'It hangs back behind the pack and goes for your towers. Bow towers pick Spitters out first; run one down with the machete and it barely fights.',
   },
   {
-    id: 'husk', kind: 'Day hunter', from: 3,
+    id: 'husk', kind: 'Day hunter', from: 2, day: true,
     lore: "What's left of the things the forest took and didn't finish with: bark grown over bone, walking the old camps and wrecks by day. Blind, but it hears a sprint, a heavy pack or a crate smashed open from far off.",
     tip: "Walk, don't run, near the places worth searching, and prise crates open instead of smashing them. They sink back into the soil at dusk, and they carry good salvage.",
   },
   {
     id: 'wisp', kind: 'Flyer', from: 4,
     lore: 'Drifting lights of spore and spite. They float over walls and traps alike, straight for the Heartwood, and keen as they come.',
-    tip: 'Bow towers, Tesla totems and embers reach them. Mortars, walls and traps do nothing.',
+    tip: 'Bow towers, Tesla totems, embers and the slingshot reach them. Mortars, walls and traps do nothing. Come within a few metres and they dive at you.',
   },
   {
     id: 'thornback', kind: 'Heart-eater', from: 5,
     lore: 'Something old and armoured that the Blight woke under the forest. It rises on the fifth night (and every fifth after the tenth), shakes the ground with its slams and calls Blightlings out of the soil.',
-    tip: 'Its slams flatten buildings near it. Snares only slow it. Burn it, shoot it, and keep it moving.',
+    tip: "Its slams flatten buildings near it, and a gap it can't squeeze through it chews open. Snares can't hold it. Burn it, shell it, and keep it moving.",
   },
   {
     id: 'burrower', kind: 'Tunneller', from: 6,
@@ -107,11 +107,19 @@ const SETTINGS = {
   invertY: { key: 'og.invertY', def: '0' },
   volume: { key: 'og.volume', def: '1' },
   music: { key: 'og.music', def: '1' },
+  musicVol: { key: 'og.musicVol', def: '0.7' },
+  fov: { key: 'og.fov', def: '72' },
+  hud: { key: 'og.hud', def: '1' },
   captions: { key: 'og.captions', def: '0' },
   shake: { key: 'og.shake', def: '1' },
   bob: { key: 'og.bob', def: '1' },
   cb: { key: 'og.cb', def: '0' },
 };
+// the HUD's size: a zoom on its fixed blocks (not on the things pinned to the world, like
+// damage numbers and prompts over a building, which must stay where the world puts them)
+function applyHudScale(v: number) {
+  document.documentElement.style.setProperty('--hud-scale', String(Math.min(1.5, Math.max(0.6, v || 1))));
+}
 function readSetting(name) {
   try {
     return localStorage.getItem(SETTINGS[name].key) ?? SETTINGS[name].def;
@@ -128,6 +136,9 @@ function writeSetting(name, v) {
 }
 
 export class Menu {
+  // (the pages keep their state on the instance; the fields are set up as they are built)
+  [key: string]: any;
+
   constructor(game, { save, onNew, onContinue, onResume, onQuit }) {
     this.game = game;
     this.save = save;
@@ -426,7 +437,7 @@ export class Menu {
     this.body.insertAdjacentHTML('beforeend', s);
   }
 
-  head(eyebrow, title, lead) {
+  head(eyebrow: string, title: string, lead?: string) {
     this.html(`<div class="p-eyebrow">${eyebrow}</div><h2 class="p-title">${title}</h2>${lead ? `<p class="p-lead">${lead}</p>` : ''}`);
   }
 
@@ -454,7 +465,7 @@ export class Menu {
         <div class="fact"><b>${s.perks?.length || 0}</b><span>Boons</span></div>
       </div>
       ${s.perks?.length ? `<div class="boon-row">${s.perks.map((id) => PERKS.find((p) => p.id === id)).filter(Boolean).map((p) => `<span title="${p.name}">${p.glyph}</span>`).join('')}</div>` : ''}
-      <div class="p-actions"><button class="btn gold" id="go-continue">Continue</button><span class="p-note calm">You wake at that morning's dawn.</span></div>`);
+      <div class="p-actions"><button class="btn gold" id="go-continue">Continue</button><span class="p-note calm">You pick up at the hour you left, or as the night falls if you left during one.</span></div>`);
     $('#go-continue', this.body).addEventListener('click', () => {
       this.audio.choose();
       this.cb.onContinue();
@@ -463,11 +474,28 @@ export class Menu {
   }
 
   pageNew() {
+    // the daily vigil is the same for everyone: Warden, its own kit, no Memories. Nothing to choose
+    if (DAILY) {
+      const d = DIFFICULTIES.warden;
+      this.head(`Daily vigil · ${dailyLabel()}`, "Today's forest", 'One forest, one roll of the dice, the same for everyone who plays it today. Warden, the Warden kit, no Memories. Its record is kept apart from your own vigils.');
+      this.html(`<div class="diffs one"><div class="diff-card sel"><div class="g">${d.glyph}</div><h3>${d.name}</h3><p>${d.blurb}</p>
+        <ul><li>Wake up with <b>${kitItems(d, 'starter').map(([item, n]) => `${n > 1 ? `${n}× ` : ''}${ITEMS[item].name}`).join(', ')}</b></li><li>Heartwood <b>${Math.round(500 * d.heart)} HP</b></li></ul></div></div>`);
+      this.html(`<div class="p-actions"><button class="btn gold" id="go-new">Begin</button>${this.save ? `<span class="p-note">This replaces today's vigil on Day ${this.save.night}.</span>` : ''}</div>`);
+      this.diff = 'warden';
+      this.kit = 'starter';
+      const go = () => this.cb.onNew('warden', 'starter');
+      $('#go-new', this.body).addEventListener('click', () => {
+        this.audio.choose();
+        go();
+      });
+      this.pageAction = go;
+      return;
+    }
     this.head('A new vigil', 'Choose how the Blight comes', 'Ten nights stand between the Heartwood and the rot. How hard should they press?');
     const cards = DIFFICULTY_IDS.map((id) => {
       const d = DIFFICULTIES[id];
       const pct = (v) => `${Math.round(v * 100)}%`;
-      return `<button class="diff-card" data-id="${id}">
+      return `<button class="diff-card" data-id="${id}" aria-label="${d.name}: ${d.blurb} Blight health ${pct(d.hp)}, numbers ${pct(d.count)}, Heartwood ${Math.round(500 * d.heart)} HP">
         ${id === 'warden' ? '<span class="tag">Intended</span>' : id === 'verdant' && !loadRecords().runs ? '<span class="tag">Your first vigil</span>' : ''}
         <div class="g">${d.glyph}</div><h3>${d.name}</h3><p>${d.blurb}</p>
         <ul><li>Blight health <b>${pct(d.hp)}</b></li><li>Blight numbers <b>${pct(d.count)}</b></li><li>Heartwood <b>${Math.round(500 * d.heart)} HP</b></li></ul>
@@ -485,7 +513,7 @@ export class Menu {
     } else this.kit = 'starter';
     const carried = MEMORIES.filter((m) => mem.has(m.id));
     if (carried.length) this.html(`<div class="carried"><span class="p-eyebrow">Memories carried</span>${carried.map((m) => `<span class="mem-chip" title="${m.reward}">${m.glyph} ${m.name}</span>`).join('')}</div>`);
-    this.html(`<div class="p-actions"><button class="btn gold" id="go-new">Begin</button>${this.save ? `<span class="p-note">This replaces your vigil on Day ${this.save.night}.</span>` : '<span class="p-note calm">You can change nothing once the first night falls. Choose well.</span>'}</div>`);
+    this.html(`<div class="p-actions"><button class="btn gold" id="go-new">Begin</button>${this.save ? `<span class="p-note">This replaces your vigil on Day ${this.save.night}.</span>` : '<span class="p-note calm">The difficulty is set for the whole vigil once you begin. Choose well.</span>'}</div>`);
     for (const c of this.body.querySelectorAll('.diff-card')) {
       c.addEventListener('click', () => this.pickDiff(c.dataset.id));
       c.addEventListener('mouseenter', () => this.audio.hover());
@@ -543,7 +571,7 @@ export class Menu {
   // a Blight is known once you've felled one or held through the night it first comes
   seen() {
     const seen = new Set(loadRecords().seen), best = loadBest();
-    for (const b of BLIGHT) if (b.id === 'blightling' || best.nights >= b.from) seen.add(b.id);
+    for (const b of BLIGHT) if (b.id === 'blightling' || best.nights >= b.from - (b.day ? 1 : 0)) seen.add(b.id);
     return seen;
   }
 
@@ -617,10 +645,10 @@ export class Menu {
     return `<p class="p-lead" style="margin-top:-4px">1931: the Vane Expedition came for the temple's golden idol. Their torn pages turn up in crates, packs and caches. Read them all and you'll know what happened here.</p>
       <div class="pages"><div class="page-list">${pages}</div><article class="page-read"><p class="dim">${got.size} of ${NOTES.length} pages found. Pick one to read it again.</p></article></div>
       <div class="exp-grid">
-        <div class="exp-card"><div class="g">◈</div><h4>The seals</h4><p>${Object.values(SEALS).map((s) => s.name).join(', ')}: the temple's top altar, the drowned shrine, a standing stone in the ruins. Set a relic in one and the rift it held sleeps for two nights. The idol in the Sun Seal (or any gold mask) closes one for good.</p></div>
+        <div class="exp-card"><div class="g">◈</div><h4>The seals</h4><p>${Object.values(SEALS).map((s) => s.name).join(', ')}: the temple's top altar, the drowned shrine, a standing stone in the ruins. Set a relic in one and the rift it held sleeps for two nights (set before its rift first opens, it holds that rift's first two). They show on the map from day 3. The idol in the Sun Seal (or any gold mask) closes one for good.</p></div>
         <div class="exp-card"><div class="g">⚚</div><h4>Grafts</h4><p>Set the Thornback's heart into the Workbench and towers take grafts: one at tier 2, two at tier 3. Hold <kbd>G</kbd> on a tower. ${Object.entries(GRAFTS).map(([id, g]) => `<span class="chip">${ico(id)}${ITEMS[id].name}: ${g.say}</span>`).join(' ')}</p></div>
         <div class="exp-card"><div class="g">✺</div><h4>The Rot</h4><p>From the dawn after night 5 the ground round every rift starts to die, a little further each day. On it the Blight run faster and towers fire slower. Firepots and braziers burn it back; a Heartseed sapling pushes it out for good.</p></div>
-        <div class="exp-card"><div class="g">✈</div><h4>Hollis's radio</h4><p>At the Tinker's Bench (hold <kbd>F</kbd>): ${RADIO_PARTS.map(([id, n]) => `${n > 1 ? `${n} × ` : ''}${ITEMS[id].name}`).join(', ')}. Each part calls a supply drop at noon, and the Husks come for it too. Mend it all and a plane comes after the tenth night.</p></div>
+        <div class="exp-card"><div class="g">✈</div><h4>Hollis's radio</h4><p>At the Tinker's Bench (hold <kbd>F</kbd>): ${RADIO_PARTS.map(([id, n]) => `${Number(n) > 1 ? `${n} × ` : ''}${ITEMS[id].name}`).join(', ')}. Every part but the last calls a supply drop at noon, and the Husks come for it too. The last part calls a plane: it lands after the tenth night.</p></div>
         <div class="exp-card"><div class="g">☾</div><h4>Signs</h4><p>Every other night from the fourth, the forest answers: ${Object.values(SIGNS).map((s) => `<b style="color:${s.color}">${s.glyph} ${s.name}</b> ${s.desc}`).join(' ')}</p></div>
       </div>`;
   }
@@ -630,11 +658,11 @@ export class Menu {
     const bar = (label, v, max, shown) => `<div class="stat foe"><span>${label}</span><div class="bar"><b style="width:${Math.max(6, Math.min(100, Math.sqrt(v / max) * 100))}%"></b></div><em>${shown}</em></div>`;
     if (locked) {
       return `<div class="g-portrait locked"><img src="${pic}" alt=""></div>
-        <h3 class="g-name">Unknown</h3><div class="g-kind">Comes from night ${b.from}</div>
+        <h3 class="g-name">Unknown</h3><div class="g-kind">Comes from ${b.day ? 'day' : 'night'} ${b.from}</div>
         <p class="g-lore">Something stirs in the rifts that you have not yet brought down. Fell one to learn its ways.</p>`;
     }
     return `<div class="g-portrait"><img src="${pic}" alt=""></div>
-      <h3 class="g-name">${def.name}</h3><div class="g-kind">${b.kind} · from night ${b.from}${def.flying ? ' · flies' : ''}</div>
+      <h3 class="g-name">${def.name}</h3><div class="g-kind">${b.kind} · from ${b.day ? 'day' : 'night'} ${b.from}${def.flying ? ' · flies' : ''}</div>
       <p class="g-lore">${b.lore}</p>
       <div class="g-stats">${bar('Health', def.hp, 2160, Math.round(def.hp))}${bar('Bite', def.dmg, 48, Math.round(def.dmg))}${bar('Speed', def.speed, 3.6, def.speed.toFixed(1))}${bar('Reach', def.reach, 3.7, `${def.reach} m`)}</div>
       ${this.resistLine(def)}
@@ -646,8 +674,8 @@ export class Menu {
   // arc: the totem)
   resistLine(def) {
     const r = def.resist || {};
-    const weak = Object.entries(r).filter(([, k]) => k > 1).map(([t, k]) => `${DAMAGE_TYPES[t]} +${Math.round((k - 1) * 100)}%`);
-    const tough = Object.entries(r).filter(([, k]) => k < 1).map(([t, k]) => `${DAMAGE_TYPES[t]} −${Math.round((1 - k) * 100)}%`);
+    const weak = (Object.entries(r) as [string, number][]).filter(([, k]) => k > 1).map(([t, k]) => `${DAMAGE_TYPES[t]} +${Math.round((k - 1) * 100)}%`);
+    const tough = (Object.entries(r) as [string, number][]).filter(([, k]) => k < 1).map(([t, k]) => `${DAMAGE_TYPES[t]} −${Math.round((1 - k) * 100)}%`);
     if (!weak.length && !tough.length) return '';
     return `<div class="g-resist">${weak.length ? `<span class="w">Weak to ${weak.join(', ')}</span>` : ''}${tough.length ? `<span class="t">Shrugs off ${tough.join(', ')}</span>` : ''}</div>`;
   }
@@ -662,7 +690,7 @@ export class Menu {
     if (d.rate) stats.push(bar('Rate', 1 / d.rate, 1.8, `${(1 / d.rate).toFixed(1)}/s`));
     stats.push(bar('Toughness', d.hp, 320, d.hp));
     const dtype = { bow: 'Pierce', mortar: 'Blunt', tesla: 'Arc', fire: 'Fire', trap: 'Pierce', snare: 'Pierce', wall: 'Pierce' }[d.kind];
-    const flags = [dtype && `${dtype} damage`, ROOTS[id] && `${ROOTS[id]} root${ROOTS[id] > 1 ? 's' : ''}`, d.expose && `Blight take +${Math.round((d.expose - 1) * 100)}% in its light`, d.expose && 'Unearths Burrowers', d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
+    const flags = [dtype && `${dtype} damage`, ROOTS[id] && (d.kind === 'trap' || d.kind === 'snare' || id === 'heartseed' ? `${rootCost(id)} root${rootCost(id) > 1 ? 's' : ''}` : `${rootCost(id, 1)}/${rootCost(id, 2)}/${rootCost(id, 3)} roots by tier`), d.charges && `${d.charges} springs`, d.expose && `Blight take +${Math.round((d.expose - 1) * 100)}% in its light`, d.expose && 'Unearths Burrowers', d.air && 'Hits flyers', d.splash && 'Splash', d.slow && 'Slows', d.chain && `Chains ×${d.chain}`, d.burn && 'Burns', d.root && 'Roots', d.blocks && d.kind === 'wall' && 'Blocks the path', d.thorns && 'Thorned'].filter(Boolean);
     return `<div class="g-portrait" style="--glow:rgba(214,169,74,0.2)"><img src="${pic}" alt=""></div>
       <h3 class="g-name">${it.name}</h3><div class="g-kind">${ROLES[id]}</div>
       <p class="g-lore">${it.desc}</p>
@@ -682,7 +710,8 @@ export class Menu {
       ${rec('❀', r.wins, plural(r.wins, 'Heartwood bloomed', 'Heartwoods bloomed').replace(/^\d+ /, ''), true)}
       ${rec('☾', r.nights, 'Nights held')}
       ${rec('✶', r.kills, 'Blight felled')}
-      ${rec('☠', r.bosses, 'Thornbacks slain')}
+      ${rec('☠', r.thornbacks || r.mothers ? r.thornbacks : r.bosses, 'Thornbacks slain')}
+      ${rec('⬮', r.mothers || 0, 'Rot Mothers slain')}
       ${rec('✺', r.blooms, 'Blooms burned')}
       ${rec('⚒', r.built, 'Built')}
       ${rec('⚔', best.kills, 'Most felled in a run')}
@@ -722,6 +751,9 @@ export class Menu {
           <div class="seg" id="s-fps">${[['30', '30'], ['60', '60'], ['120', '120'], ['0', 'Off']].map(([v, l]) => `<button data-v="${v}" class="${v === fps ? 'sel' : ''}">${l}</button>`).join('')}</div></div>
         <div class="set-row"><label>Show FPS<small>Frames a second and frame time, top left</small></label><button class="toggle${readSetting('showFps') === '1' ? ' on' : ''}" id="s-showfps" aria-label="Show FPS"></button></div>
         <div class="set-row"><label>Glow<small>Bloom on fire, spores and the Heartwood</small></label><button class="toggle${readSetting('bloom') === '1' ? ' on' : ''}" id="s-bloom" aria-label="Glow"></button></div>
+        <div class="set-row"><label>Field of view<small>How wide you see, in degrees (up and down)</small></label><div class="slider"><input type="range" class="fancy" id="s-fov" min="60" max="95" step="1" value="${readSetting('fov')}" aria-label="Field of view"><output></output></div></div>
+        <div class="set-row"><label>Fullscreen</label><button class="toggle${document.fullscreenElement ? ' on' : ''}" id="s-full" aria-label="Fullscreen"></button></div>
+        <div class="set-row"><label>HUD size<small>The belt, the map, the journal and the bars</small></label><div class="slider"><input type="range" class="fancy" id="s-hud" min="0.75" max="1.35" step="0.05" value="${readSetting('hud')}" aria-label="HUD size"><output></output></div></div>
       </div>
       <div class="set-group"><h4>Controls</h4>
         <div class="set-row"><label>Mouse sensitivity</label><div class="slider"><input type="range" class="fancy" id="s-sens" min="0.2" max="3" step="0.05" value="${readSetting('sensitivity')}"><output></output></div></div>
@@ -734,7 +766,8 @@ export class Menu {
         <div class="set-row"><label>Colour-blind Blight<small>Amber and blue outlines, and a blue/orange placement ghost</small></label><button class="toggle${readSetting('cb') === '1' ? ' on' : ''}" id="s-cb" aria-label="Colour-blind Blight"></button></div>
       </div>
       <div class="set-group"><h4>Sound</h4>
-        <div class="set-row"><label>Volume</label><div class="slider"><input type="range" class="fancy" id="s-vol" min="0" max="1" step="0.01" value="${readSetting('volume')}"><output></output></div></div>
+        <div class="set-row"><label>Volume<small>Everything</small></label><div class="slider"><input type="range" class="fancy" id="s-vol" min="0" max="1" step="0.01" value="${readSetting('volume')}" aria-label="Volume"><output></output></div></div>
+        <div class="set-row"><label>Music<small>The title theme and the score at dusk and in the fight</small></label><div class="slider"><input type="range" class="fancy" id="s-mvol" min="0" max="1" step="0.01" value="${readSetting('musicVol')}" aria-label="Music volume"><output></output></div></div>
         <div class="set-row"><label>Title music</label><button class="toggle${readSetting('music') === '1' ? ' on' : ''}" id="s-music" aria-label="Title music"></button></div>
       </div>`);
     const segment = (sel, name, apply) => {
@@ -786,6 +819,17 @@ export class Menu {
     };
     slider('#s-sens', 'sensitivity', (v) => v.toFixed(2), (v) => { if (g.player) g.player.sensitivity = v; });
     slider('#s-vol', 'volume', (v) => `${Math.round(v * 100)}%`, (v) => this.audio.setVolume(v));
+    slider('#s-mvol', 'musicVol', (v) => `${Math.round(v * 100)}%`, (v) => this.audio.setMusicVolume?.(v));
+    slider('#s-fov', 'fov', (v) => `${v}°`, (v) => { g.fov = v; });
+    slider('#s-hud', 'hud', (v) => `${Math.round(v * 100)}%`, (v) => applyHudScale(v));
+    const full = $('#s-full', this.body);
+    full.addEventListener('click', () => {
+      this.audio.ui();
+      const on = !document.fullscreenElement;
+      const p: any = on ? document.documentElement.requestFullscreen?.() : document.exitFullscreen?.();
+      p?.catch?.(() => {});
+      full.classList.toggle('on', on);
+    });
   }
 
   // settings that live outside the page, applied at boot
@@ -799,6 +843,9 @@ export class Menu {
     this.audio.volume = Number(readSetting('volume'));
     g.captions = readSetting('captions') === '1';
     PALETTE.cb = BLIGHT_PALETTE.cb = readSetting('cb') === '1';
+    g.fov = Number(readSetting('fov'));
+    applyHudScale(Number(readSetting('hud')));
+    this.audio.musicVolume = Number(readSetting('musicVol'));
   }
 
   applyLoaded() {
@@ -818,7 +865,7 @@ export class Menu {
     this.html(`<div class="p-eyebrow">Keys <small>click one, then press the key you want · <button class="linkish" id="keys-reset">reset all</button></small></div>
       <div class="rebind">${BINDABLE.map(([code, what]) => `<div class="key-row"><span>${what}</span><button class="bind${inp.bound(code) !== code ? ' moved' : ''}" data-code="${code}"><kbd>${keyName(inp.bound(code))}</kbd></button></div>`).join('')}</div>
       <div class="p-sep"></div>
-      <div class="keys-grid">${CONTROLS.map(([group, rows]) => `<h4>${group}</h4>${rows.map(([what, keys]) => `<div class="key-row"><span>${what}</span><span>${this.game.hud.keys(keys)}</span></div>`).join('')}`).join('')}
+      <div class="keys-grid">${CONTROLS.map(([group, rows]) => `<h4>${group}</h4>${(rows as string[][]).map(([what, keys]) => `<div class="key-row"><span>${what}</span><span>${this.game.hud.keys(keys)}</span></div>`).join('')}`).join('')}
       <h4>Gamepad <small>(partial: the satchel and crafting need a mouse)</small></h4>
       <div class="key-row"><span>Move · look</span><span>Left stick · right stick</span></div>
       <div class="key-row"><span>Swing · use</span><span>RT · LT</span></div>
@@ -835,8 +882,14 @@ export class Menu {
           e.preventDefault();
           e.stopImmediatePropagation();
           removeEventListener('keydown', take, true);
-          if (e.code !== 'Escape') inp.rebind(b.dataset.code, e.code);
+          const ok = e.code === 'Escape' || inp.rebind(b.dataset.code, e.code);
           this.pageControls();
+          // the belt keys, Esc, Enter, I, F8 and F9 are the game's own
+          if (!ok) {
+            const note = this.body.querySelector('.rebind-note') || Object.assign(document.createElement('p'), { className: 'rebind-note' });
+            note.textContent = `${keyName(e.code)} is kept for the game (the belt, the menus, capture mode): pick another key`;
+            this.body.querySelector('.rebind')?.before(note);
+          }
         };
         addEventListener('keydown', take, true);
       });
