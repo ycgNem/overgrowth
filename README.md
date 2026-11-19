@@ -169,7 +169,7 @@ src/
   fx/Weather.js        rain streaks, lightning, fog and light dimming
   fx/Ambient.js        pollen, fireflies, butterflies, birds, light shafts
   audio/AudioSys.ts    synthesised ambience + sound effects; the music bus
-  audio/Score.ts       the score in play: day kalimba, the night drone and drums, the boss strings
+  audio/Score.ts       the score in play: cues with silence between (day kalimba, night swells, boss, dawn)
   ui/HUD.ts, hud.css   compass, minimap, vitals, belt, day/night strip, satchel + crafting
 art/blender/           one Python script per Blender model, export_all.py, the saved .blend
 art/textures/          Flux prompts (jobs.json), generate.py, process.py -> public/textures;

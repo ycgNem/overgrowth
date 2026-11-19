@@ -1,5 +1,14 @@
 # Patch notes
 
+## 1.2.1: Quiet Hours (2026-11-18)
+
+- **The night music no longer drones.** 1.2's night score was a buzzing drone under two drum notes on a loop, and it kept going through the pause menu and while you were dead. It's gone.
+  - Now nothing loops. Every half-minute to a minute a chord swells and fades with a few low notes over it, walking a progression, with the forest between.
+  - The closer the Blight get to the Heartwood, the shorter the gaps, and a heavy fight brings a short drum phrase that plays once.
+  - A boss gets one cue as it climbs out, and holding a night ends on a warm major chord at dawn.
+  - The music is silent while paused, while you're dead and on the game-over card.
+  - The day's kalimba comes a little less often.
+
 ## 1.2.0: Hold Fast (2026-11-15)
 
 - **The machete answers every click.**

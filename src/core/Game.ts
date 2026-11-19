@@ -3727,7 +3727,7 @@ export class Game {
       let near = 0;
       if (fighting) for (const e of this.enemies.list) if (!e.dying && Math.hypot(e.pos.x - this.base.x, e.pos.z - this.base.z) < 32) near++;
       const boss = fighting && !!this.enemies.boss;
-      this.audio.scoreUpdate?.(realDt, { night: this.title ? 0 : this.sky.state.night, threat: fighting ? Math.min(1, near / 14 + (boss ? 0.3 : 0)) : 0, boss, fighting });
+      this.audio.scoreUpdate?.(realDt, { night: this.title ? 0 : this.sky.state.night, threat: fighting ? Math.min(1, near / 14 + (boss ? 0.3 : 0)) : 0, boss, fighting, quiet: !!this.title || paused || over || !this.playerAlive });
     }
 
     // a boon owed: offered at the first quiet moment
